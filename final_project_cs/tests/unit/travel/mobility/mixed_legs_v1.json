@@ -1,0 +1,181 @@
+{
+ "note": "지하철+버스 혼합 구간 회귀 (2026-09-16 탐침 → 2026-09-19 규칙 v0.4 로 편입). MIX-01~04 는 9/16 에 결함 셋(환승 도보 0분 · 근접 미검사 · 버스 대안 없음)을 재현한 탐침이었고, v0.4 에서 기대값을 수정 뒤 실측으로 바꿨다. **옛 기대값 넷은 v0.4 코드에서 전부 MISS 로 울렸다**(2026-09-19 확인 — 새 검사가 실패하는 장면). MIX-05·06 은 v0.4 가 새로 만든 경계 규칙(상한 ±20m → 근거없음 · 좌표 없음 → 근거없음)을 잠근다.",
+ "built_at": "2026-09-19",
+ "rules_version": "v0.4",
+ "timetable": "전체",
+ "주의": "python scripts/verify_time.py --cases tests/mobility/mixed_legs_v1.json --check-expect --verbose",
+ "cases": [
+  {
+   "id": "MIX-01",
+   "note": "버스→지하철. 2016 하차(성수역1번출구) → 02호선 성수. v0.3.1 은 도보 0분+길찾기 1분(11:24)이었다. v0.4: 정류장 ↔ 성수역 가장 가까운 출구 직선 122m × 1.4 ÷ 1.04 = 2.7분 + 길찾기 1분 → 11:31. 출구 좌표는 추정이라 케이스 등급도 추정",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    },
+    {
+     "line": "02호선",
+     "from": "성수",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    16,
+    16
+   ],
+   "expect_last_depart": "22:20",
+   "expect_arrive": "11:31"
+  },
+  {
+   "id": "MIX-02",
+   "note": "지하철→버스. 02호선 잠실→건대입구 → 2016 건대입구역1번출구. v0.3.1 은 0분+1분(10:54). v0.4: 건대입구역 출구 ↔ 정류장 직선 43m → 1분 + 길찾기 1분 → 10:55",
+   "date": "2026-09-11",
+   "depart_at": "10:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "건대입구"
+    },
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    17,
+    17
+   ],
+   "expect_last_depart": "22:04",
+   "expect_arrive": "10:57",
+   "note_v0.9": "(v0.9 · 41 · 2026-09-25) 버스 구간 p50 누적 · p90 스프레드 2분"
+  },
+  {
+   "id": "MIX-03",
+   "note": "★ 버스 구간 불가 시 대안. v0.3.1 은 세 축이 전부 `line` 조건이라 택시만 남았다(대안 0). v0.4: 노선교체는 같은 두 정류장의 다른 노선 N62·N73(심야 — 11:00 은 첫차 이전이라 불가) · 수단교체는 정류장 근처 역 건대입구→성수 02호선 성립(11:01 출발 → 11:06, 접근 43m·이탈 122m 포함). 대안 ≥1 · 축 수단교체",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "disruptions": [
+    {
+     "kind": "route_closed",
+     "route": "2016",
+     "note": "2016 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T11:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    },
+    {
+     "line": "02호선",
+     "from": "성수",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true,
+   "expect_alt_min": 1,
+   "expect_alt_axis": "수단교체",
+   "expect_alt_arrive": "11:06"
+  },
+  {
+   "id": "MIX-04",
+   "note": "★ 정류장과 역이 떨어져 있는 환승. 2016 하차 성수역1번출구 → 05호선 여의도. v0.3.1 은 1분으로 성립시켰다(11:40). v0.4: 정류장 ↔ 여의도역 가장 가까운 출구 직선 11,694m > 상한 1,200m → **불가**. 대안은 열거하지 않는다(구간 자체를 다시 잡을 일 — 완화 조건이 근처 역 성수를 말한다) · 택시만",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    },
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "transfer_walk",
+   "expect_last_depart_none": true,
+   "expect_alt_max": 0,
+   "expect_relief_contains": "성수"
+  },
+  {
+   "id": "MIX-05",
+   "selfcheck": false,
+   "note": "경계값 — 정류장 ↔ 출구 직선이 상한 1,200m ±20m 안이면 판정하지 않는다(rules transfer.stop_station_walk.boundary_m). 100번 을지로4가.베스트웨스턴국도 정류장 ↔ 02호선 을지로입구 4번 출구 1,203m (2026-09-19 데이터에서 찾은 쌍). 근거없음 + MOB_W_TRANSFER_NEAR_WALK_LIMIT. 출구·정류장 좌표가 갱신되면 이 값이 경계 밖으로 나갈 수 있다 — 그때는 쌍을 다시 고른다",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "100",
+     "from": "서울역버스환승센터.강우규의거터",
+     "to": "을지로4가.베스트웨스턴국도"
+    },
+    {
+     "line": "02호선",
+     "from": "을지로입구",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_TRANSFER_NEAR_WALK_LIMIT"
+   ]
+  },
+  {
+   "id": "MIX-06",
+   "selfcheck": false,
+   "note": "좌표 없음 — 수집 밖 노선(1150, 경기 버스)으로 갈아타면 정류장 좌표를 낼 수 없다. 환승 도보 0분·근거없음(MOB_W_TRANSFER_COORD_MISSING)으로 드러내고, 이어서 버스 구간 자체가 수집 범위 밖(MOB_W_BUS_ROUTE_NOT_COLLECTED)이라 근거없음",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "건대입구"
+    },
+    {
+     "mode": "bus",
+     "route": "1150",
+     "from": "건대입구역",
+     "to": "구리역"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_TRANSFER_COORD_MISSING",
+    "MOB_W_BUS_ROUTE_NOT_COLLECTED"
+   ]
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

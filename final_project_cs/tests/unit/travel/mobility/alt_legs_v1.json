@@ -1,0 +1,155 @@
+{
+ "note": "대안 열거(F3) 회귀 케이스 v1 — 불가가 났을 때 규칙 순서로 후보를 만들고 **같은 검증기에 재통과**시키는지 본다. 실제 버스·좌표 데이터를 쓰므로 지하철은 축소 시간표로 돌려도 된다.",
+ "built_at": "2026-09-10",
+ "주의": [
+  "대안에는 **순위가 없다**(rules alternatives.순위_미부여). 총소요 등급이 추정인데 두 안의 차이가 배차 불확실성보다 작으면 순위 자체가 추정이 된다.",
+  "택시는 항상 열거된다. v0.6(21번 방)부터 라우터(GraphHopper 상주)가 있으면 소요·요금(추정)을 내고, 없으면 종전대로 근거없음 + MOB_W_CAR_ROUTER_DOWN 이다 — 검토해서 탈락시킨 게 아니라 도로 소요를 모르는 것이다. expect_taxi 축은 라우터 없이 돌리면 MISS 가 맞다(--allow-router-down 은 SKIP 으로 세어 보이게 통과).",
+  "expect_alt_min 은 살아남은(재검증 통과) 대안 수의 하한이다.",
+  "★접근·이탈 도보를 시각에 반드시 넣는다. 라벨에 '도보 157m' 라고 적어 놓고 계산에서 빼면 도착이 낙관적으로 나온다 — 2026-09-10 에 실제로 6분 이르게 냈다.",
+  "expect_taxi 의 도착·요금 정확값은 **2026-09-20 노트북 GraphHopper 11.0 실행으로 잠갔다**(ALT-01 25:05·12,300 / ALT-02 04:35·6,100 / ALT-03 25:01·20,300 / ALT-05 25:05·12,300). 그래프를 다시 빌드하거나 프로파일이 바뀌면 여기가 운다 — 그때 값을 다시 잠근다."
+ ],
+ "cases": [
+  {
+   "id": "ALT-01",
+   "note": "★잠실→성수 지하철 막차 이후 → 심야버스가 대안으로 살아남는다. 시연 2구간과 같은 모양 · 도보 157m(3분)+209m(4분)가 시각에 들어간다 · v0.6: 택시 대안이 소요·요금으로 나온다(24:55 승차 → 23~02시 40% 할증, 잠실→성수 약 7 km 라 기본요금 심야 6,700원 이상)",
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 1,
+   "expect_alt_axis": "수단교체",
+   "expect_alt_arrive": "25:38",
+   "expect_taxi": {
+    "verdict": "feasible",
+    "grade": "추정",
+    "warn_codes": [
+     "MOB_W_TAXI_FARE_LOWER_BOUND"
+    ],
+    "arrive": "25:05",
+    "fare_won": 12300
+   },
+   "expect_warn_codes_absent": [
+    "MOB_W_BUS_SPEED_PROXY_NIGHT"
+   ],
+   "note_v0.9": "(v0.9 · 41 · 2026-09-25) 심야버스 대안 승차가 간선 대용(15.3 km/h) 대신 구간 프로파일로 셈해져 5분 이르다(25:43 → 25:38). 심야가 간선보다 빠르다는 종전 가정(보수적)이 실제 값으로 바뀐 것"
+  },
+  {
+   "id": "ALT-02",
+   "note": "첫차 이전 → 시각 이동이 가장 싼 축이라 먼저 나온다 · v0.6: 04:30 승차는 심야 할증 밖(04시 이후) — 택시 요금 ≥ 4,800",
+   "date": "2026-09-11",
+   "depart_at": "04:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "before_first",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 1,
+   "expect_alt_axis": "출발시각_이동",
+   "expect_taxi": {
+    "verdict": "feasible",
+    "grade": "추정",
+    "warn_codes": [
+     "MOB_W_TAXI_FARE_LOWER_BOUND"
+    ],
+    "arrive": "04:35",
+    "fare_won": 6100
+   }
+  },
+  {
+   "id": "ALT-03",
+   "note": "5호선 여의도→왕십리 막차 이후 — 이 구간을 잇는 버스가 없어 대안 0개. 택시만 남는다(근거없음). 2026-09-10 에 21노선으로 늘린 뒤에도 0개였고(여의도↔왕십리는 --connects 조회도 0개), 2026-09-14 에 **717노선 전수로 바꾼 뒤에도 0개**로 실측됐다 — 수집 범위 탓이 아니라 실제로 이 구간 직행 버스가 없다. expect_alt_max 로 잠갔다(2026-09-14). · v0.6: 버스 대안은 0개여도 택시는 소요·요금이 나온다(여의도→왕십리, 24:40 승차 40% 할증)",
+   "date": "2026-09-11",
+   "depart_at": "24:40",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:25",
+   "expect_alt_max": 1,
+   "expect_alt_max_by_mode": {
+    "subway": 0,
+    "bus": 0
+   },
+   "note_v0.7": "2026-09-20 · 22번: 따릉이 여의도→왕십리 대안 1개가 붙는다(직행 버스 없음은 그대로). 지하철·버스 0 잠금은 수단별 축으로",
+   "expect_taxi": {
+    "verdict": "feasible",
+    "grade": "추정",
+    "warn_codes": [
+     "MOB_W_TAXI_FARE_LOWER_BOUND"
+    ],
+    "arrive": "25:01",
+    "fare_won": 20300
+   }
+  },
+  {
+   "id": "ALT-04",
+   "note": "대안을 끄면 열거하지 않는다",
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "no_alternatives": true,
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_max": 0
+  },
+  {
+   "id": "ALT-05",
+   "note": "★도보 상한 — 유아 동반이면 800m 를 넘는 접근 도보 후보를 내지 않는다(성립해도 못 걷는다) · v0.6: 도보 상한으로 버스 후보를 안 내도 택시는 낸다(유아 동반이 택시를 막지 않는다)",
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "party": {
+    "infant": 1
+   },
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_taxi": {
+    "verdict": "feasible",
+    "grade": "추정",
+    "warn_codes": [
+     "MOB_W_TAXI_FARE_LOWER_BOUND"
+    ],
+    "arrive": "25:05",
+    "fare_won": 12300
+   }
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

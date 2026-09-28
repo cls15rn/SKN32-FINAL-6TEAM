@@ -1,0 +1,1333 @@
+{
+ "note": "자동차·택시 접기 골든 픽스처(21번 방 · 2026-09-20). tests/mobility/car_legs_v1.json 을 합성 경로 픽스처로 돌린 판정 결과를 fold_case 로 접은 것. 재생성: verify_time --cases car_legs_v1.json --gh-url fixture:... --json → fold_case(basis 2026-09-22/v0.6). check_fold [12] 가 읽는다.",
+ "basis": {
+  "timetable_built_at": "2026-09-09",
+  "rules_version": "v0.6",
+  "service_date": "2026-09-22",
+  "decided_at": "2026-09-20T00:00:00+09:00"
+ },
+ "results": {
+  "CAR-01": {
+   "contract_name": "a_cop.team_result",
+   "contract_version": "1.0",
+   "task_id": "T-CAR-01",
+   "team_id": "mobility",
+   "outcome": "completed",
+   "next_action": "respond",
+   "confidence": 0.6,
+   "answer": "[CAR-01] 판정 ok(추정) — 도착 추정 18:18\n[L0] 자동차 37.4991,127.0310→37.5106,127.0704 ok(추정) — 도착 18:18",
+   "evidence": [
+    {
+     "evidence_id": "mob:_:run:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-01",
+     "claim": "판정 요약 — 구간 1 · ok",
+     "value": {
+      "v": 1,
+      "kind": "run",
+      "grade": "추정",
+      "verdict": "ok",
+      "arrive_min": 1098,
+      "slack_min": null,
+      "reasons": [
+       {
+        "code": "MOB_R_CASE",
+        "text": "도착 추정 18:18"
+       }
+      ],
+      "relax": [],
+      "counts": {
+       "ok": 1,
+       "fail": 0,
+       "rejected_by_limit": 0,
+       "unknown": 0
+      },
+      "legs": {
+       "with_evidence": [
+        "L0"
+       ],
+       "without_evidence": []
+      },
+      "confidence": 0.6,
+      "budget": {
+       "evidence_used": 7,
+       "cap": 40
+      },
+      "warnings": [],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:source:1",
+     "source_type": "db",
+     "source_id": "topis_link_profile_v1@2025-09~2026-05",
+     "claim": "자동차 4.0 km · 평일 18시 출발 소요 17.6분 · 커버 topis 100.0% / class 0.0% / default 0.0% (링크 8개)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "기타"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-05-31"
+    },
+    {
+     "evidence_id": "mob:_:source:2",
+     "source_type": "db",
+     "source_id": "osm_road_graph@2026-09-18",
+     "claim": "도로망 경로 거리 3,988 m (좌표열은 저장하지 않는다)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "기타"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-18"
+    },
+    {
+     "evidence_id": "mob:_:source:3",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.등급",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "rule"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:4",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.coverage",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "rule"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:L0:verdict:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-01",
+     "claim": "자동차 37.4991,127.0310→37.5106,127.0704 판정 — ok(추정)",
+     "value": {
+      "v": 1,
+      "kind": "verdict",
+      "leg_id": "L0",
+      "grade": "추정",
+      "verdict": "ok",
+      "service_date": "2026-09-22",
+      "day_type": "weekday",
+      "depart_min": 1080,
+      "arrive_min": 1098,
+      "arrive_unknown_code": null,
+      "reasons": [
+       {
+        "code": "MOB_R_LEG",
+        "text": "18:00 출발 · 4.0 km · 소요 17.6분"
+       }
+      ],
+      "relax": [],
+      "limits": [],
+      "alt_ids": [],
+      "warnings": [],
+      "evidence_ids": [
+       "mob:_:source:1",
+       "mob:_:source:2",
+       "mob:_:source:3"
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      },
+      "by_mode": {
+       "car": "ok"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:L0:car_leg:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-01",
+     "claim": "자동차 37.4991,127.0310→37.5106,127.0704 — 4.0 km · 17.6분 [추정]",
+     "value": {
+      "v": 1,
+      "kind": "car_leg",
+      "leg_id": "L0",
+      "grade": "추정",
+      "mode": "car",
+      "distance_m": 3988.4,
+      "topis_time_s": 1059,
+      "gh_time_s": null,
+      "day_type": "평일",
+      "hour_start": 18,
+      "coverage_m": {
+       "topis": 3988.4,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "coverage_pct": {
+       "topis": 100.0,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "n_edges": 68,
+      "n_links": 8,
+      "links": [
+       {
+        "link_id": "1220026800",
+        "m": 715.7
+       },
+       {
+        "link_id": "1220026000",
+        "m": 594.7
+       },
+       {
+        "link_id": "1220028000",
+        "m": 594.2
+       },
+       {
+        "link_id": "1220024000",
+        "m": 576.0
+       },
+       {
+        "link_id": "1220025200",
+        "m": 538.0
+       },
+       {
+        "link_id": "1220029400",
+        "m": 379.5
+       },
+       {
+        "link_id": "1220023300",
+        "m": 298.0
+       },
+       {
+        "link_id": "1220028800",
+        "m": 292.2
+       }
+      ],
+      "source_id": [
+       "topis_link_profile_v1@2025-09~2026-05",
+       "osm_road_graph@2026-09-18"
+      ],
+      "depart_min": 1080,
+      "arrive_min": 1098,
+      "warnings": [],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    }
+   ],
+   "decisions": [
+    {
+     "leg_id": "L0",
+     "verdict": "ok",
+     "evidence_grade": "추정",
+     "evidence_ids": [
+      "mob:L0:verdict:1",
+      "mob:_:source:1",
+      "mob:_:source:2",
+      "mob:_:source:3"
+     ]
+    }
+   ],
+   "action_proposals": [],
+   "warnings": []
+  },
+  "CAR-02": {
+   "contract_name": "a_cop.team_result",
+   "contract_version": "1.0",
+   "task_id": "T-CAR-02",
+   "team_id": "mobility",
+   "outcome": "completed",
+   "next_action": "respond",
+   "confidence": 0.6,
+   "answer": "[CAR-02] 판정 ok(추정) — 도착 추정 27:10\n[L0] 택시 37.4991,127.0310→37.5106,127.0704 ok(추정) — 도착 27:10\n· 택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+   "evidence": [
+    {
+     "evidence_id": "mob:_:run:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-02",
+     "claim": "판정 요약 — 구간 1 · ok",
+     "value": {
+      "v": 1,
+      "kind": "run",
+      "grade": "추정",
+      "verdict": "ok",
+      "arrive_min": 1630,
+      "slack_min": null,
+      "reasons": [
+       {
+        "code": "MOB_R_CASE",
+        "text": "도착 추정 27:10"
+       }
+      ],
+      "relax": [],
+      "counts": {
+       "ok": 1,
+       "fail": 0,
+       "rejected_by_limit": 0,
+       "unknown": 0
+      },
+      "legs": {
+       "with_evidence": [
+        "L0"
+       ],
+       "without_evidence": []
+      },
+      "confidence": 0.6,
+      "budget": {
+       "evidence_used": 10,
+       "cap": 40
+      },
+      "warnings": [
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:source:1",
+     "source_type": "db",
+     "source_id": "topis_link_profile_v1@2025-09~2026-05",
+     "claim": "자동차 4.0 km · 평일 3시 출발 소요 9.5분 · 커버 topis 100.0% / class 0.0% / default 0.0% (링크 8개)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "기타"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-05-31"
+    },
+    {
+     "evidence_id": "mob:_:source:2",
+     "source_type": "db",
+     "source_id": "osm_road_graph@2026-09-18",
+     "claim": "도로망 경로 거리 3,988 m (좌표열은 저장하지 않는다)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "기타"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-18"
+    },
+    {
+     "evidence_id": "mob:_:source:3",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.등급",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "rule"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:4",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.coverage",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "rule"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:5",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "taxi.fare.산식",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "rule"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:6",
+     "source_type": "policy",
+     "source_id": "seoul_taxi_fare@2023-02-01(확인 2026-09-19)",
+     "claim": "택시(중형) 요금 하한 8,000원 = 미터 8,000 · 심야율 0.2 · 저속 0초",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "기타"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-19"
+    },
+    {
+     "evidence_id": "mob:_:source:7",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.택시_대기",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "근거없음",
+      "of": "rule"
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:L0:verdict:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-02",
+     "claim": "택시 37.4991,127.0310→37.5106,127.0704 판정 — ok(추정)",
+     "value": {
+      "v": 1,
+      "kind": "verdict",
+      "leg_id": "L0",
+      "grade": "추정",
+      "verdict": "ok",
+      "service_date": "2026-09-22",
+      "day_type": "weekday",
+      "depart_min": 1620,
+      "arrive_min": 1630,
+      "arrive_unknown_code": null,
+      "reasons": [
+       {
+        "code": "MOB_R_LEG",
+        "text": "27:00 출발 · 4.0 km · 소요 9.5분 · 요금 하한 8,000원(중형) · 대기 0분(근거없음)"
+       }
+      ],
+      "relax": [],
+      "limits": [],
+      "alt_ids": [],
+      "warnings": [
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "evidence_ids": [
+       "mob:_:source:1",
+       "mob:_:source:2",
+       "mob:_:source:3"
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      },
+      "by_mode": {
+       "taxi": "ok"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:L0:car_leg:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-02",
+     "claim": "택시 37.4991,127.0310→37.5106,127.0704 — 4.0 km · 9.5분 · 요금 하한 8,000원 [추정]",
+     "value": {
+      "v": 1,
+      "kind": "car_leg",
+      "leg_id": "L0",
+      "grade": "추정",
+      "mode": "taxi",
+      "distance_m": 3988.4,
+      "topis_time_s": 569,
+      "gh_time_s": null,
+      "day_type": "평일",
+      "hour_start": 3,
+      "coverage_m": {
+       "topis": 3988.4,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "coverage_pct": {
+       "topis": 100.0,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "n_edges": 68,
+      "n_links": 8,
+      "links": [
+       {
+        "link_id": "1220026800",
+        "m": 715.7
+       },
+       {
+        "link_id": "1220026000",
+        "m": 594.7
+       },
+       {
+        "link_id": "1220028000",
+        "m": 594.2
+       },
+       {
+        "link_id": "1220024000",
+        "m": 576.0
+       },
+       {
+        "link_id": "1220025200",
+        "m": 538.0
+       },
+       {
+        "link_id": "1220029400",
+        "m": 379.5
+       },
+       {
+        "link_id": "1220023300",
+        "m": 298.0
+       },
+       {
+        "link_id": "1220028800",
+        "m": 292.2
+       }
+      ],
+      "source_id": [
+       "topis_link_profile_v1@2025-09~2026-05",
+       "osm_road_graph@2026-09-18"
+      ],
+      "fare_kind": "중형",
+      "fare_won": 8000,
+      "meter_won": 8000,
+      "toll_won": 0,
+      "toll_basis": null,
+      "slow_s": 0,
+      "slow_m": 0.0,
+      "night_rate": 0.2,
+      "out_of_city": null,
+      "fare_basis": "호출료·정차·시계외 미포함 하한",
+      "depart_min": 1620,
+      "arrive_min": 1630,
+      "warnings": [
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    }
+   ],
+   "decisions": [
+    {
+     "leg_id": "L0",
+     "verdict": "ok",
+     "evidence_grade": "추정",
+     "evidence_ids": [
+      "mob:L0:verdict:1",
+      "mob:_:source:1",
+      "mob:_:source:2",
+      "mob:_:source:3"
+     ]
+    }
+   ],
+   "action_proposals": [],
+   "warnings": [
+    "MOB_W_TAXI_FARE_LOWER_BOUND",
+    "MOB_W_TAXI_FARE_LOWER_BOUND"
+   ]
+  },
+  "CAR-06": {
+   "contract_name": "a_cop.team_result",
+   "contract_version": "1.0",
+   "task_id": "T-CAR-06",
+   "team_id": "mobility",
+   "outcome": "completed",
+   "next_action": "respond",
+   "confidence": 0.2,
+   "answer": "[CAR-06] 판정 ok(근거없음) — 도착 추정 18:16\n[L0] 택시 37.4991,127.0510→37.5106,127.0904 ok(근거없음) — 도착 18:16\n· 택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+   "evidence": [
+    {
+     "evidence_id": "mob:_:run:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-06",
+     "claim": "판정 요약 — 구간 1 · ok",
+     "value": {
+      "v": 1,
+      "kind": "run",
+      "grade": "근거없음",
+      "verdict": "ok",
+      "arrive_min": 1096,
+      "slack_min": null,
+      "reasons": [
+       {
+        "code": "MOB_R_CASE",
+        "text": "도착 추정 18:16"
+       }
+      ],
+      "relax": [],
+      "counts": {
+       "ok": 1,
+       "fail": 0,
+       "rejected_by_limit": 0,
+       "unknown": 0
+      },
+      "legs": {
+       "with_evidence": [
+        "L0"
+       ],
+       "without_evidence": []
+      },
+      "confidence": 0.2,
+      "budget": {
+       "evidence_used": 10,
+       "cap": 40
+      },
+      "warnings": [
+       {
+        "code": "MOB_W_CAR_SPEED_DEFAULT",
+        "class": "grade",
+        "text": "자동차 구간 길이의 100.0% 가 골목이라 고정 속도(근거없음)로 냈다",
+        "to_answer": false
+       },
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:source:1",
+     "source_type": "db",
+     "source_id": "topis_link_profile_v1@2025-09~2026-05",
+     "claim": "자동차 4.0 km · 평일 18시 출발 소요 15.9분 · 커버 topis 0.0% / class 0.0% / default 100.0% (링크 0개)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "기타"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-05-31"
+    },
+    {
+     "evidence_id": "mob:_:source:2",
+     "source_type": "db",
+     "source_id": "osm_road_graph@2026-09-18",
+     "claim": "도로망 경로 거리 3,988 m (좌표열은 저장하지 않는다)",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "기타"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-18"
+    },
+    {
+     "evidence_id": "mob:_:source:3",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.등급",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "rule"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:4",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.coverage",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "rule"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:5",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "taxi.fare.산식",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "rule"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:_:source:6",
+     "source_type": "policy",
+     "source_id": "seoul_taxi_fare@2023-02-01(확인 2026-09-19)",
+     "claim": "택시(중형) 요금 하한 8,000원 = 미터 8,000 · 심야율 0 · 저속 957초",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "추정",
+      "of": "기타"
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-19"
+    },
+    {
+     "evidence_id": "mob:_:source:7",
+     "source_type": "policy",
+     "source_id": "mobility_rules@v0.6",
+     "claim": "car.택시_대기",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "근거없음",
+      "of": "rule"
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20"
+    },
+    {
+     "evidence_id": "mob:L0:verdict:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-06",
+     "claim": "택시 37.4991,127.0510→37.5106,127.0904 판정 — ok(근거없음)",
+     "value": {
+      "v": 1,
+      "kind": "verdict",
+      "leg_id": "L0",
+      "grade": "근거없음",
+      "verdict": "ok",
+      "service_date": "2026-09-22",
+      "day_type": "weekday",
+      "depart_min": 1080,
+      "arrive_min": 1096,
+      "arrive_unknown_code": null,
+      "reasons": [
+       {
+        "code": "MOB_R_LEG",
+        "text": "18:00 출발 · 4.0 km · 소요 15.9분 · 요금 하한 8,000원(중형) · 대기 0분(근거없음)"
+       }
+      ],
+      "relax": [],
+      "limits": [],
+      "alt_ids": [],
+      "warnings": [
+       {
+        "code": "MOB_W_CAR_SPEED_DEFAULT",
+        "class": "grade",
+        "text": "자동차 구간 길이의 100.0% 가 골목이라 고정 속도(근거없음)로 냈다",
+        "to_answer": false
+       },
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "evidence_ids": [
+       "mob:_:source:1",
+       "mob:_:source:2",
+       "mob:_:source:3"
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      },
+      "by_mode": {
+       "taxi": "ok"
+      }
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:L0:car_leg:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-06",
+     "claim": "택시 37.4991,127.0510→37.5106,127.0904 — 4.0 km · 15.9분 · 요금 하한 8,000원 [근거없음]",
+     "value": {
+      "v": 1,
+      "kind": "car_leg",
+      "leg_id": "L0",
+      "grade": "근거없음",
+      "mode": "taxi",
+      "distance_m": 3988.4,
+      "topis_time_s": 957,
+      "gh_time_s": null,
+      "day_type": "평일",
+      "hour_start": 18,
+      "coverage_m": {
+       "topis": 0.0,
+       "class": 0.0,
+       "default": 3988.4
+      },
+      "coverage_pct": {
+       "topis": 0.0,
+       "class": 0.0,
+       "default": 100.0
+      },
+      "n_edges": 68,
+      "n_links": 0,
+      "links": [],
+      "source_id": [
+       "topis_link_profile_v1@2025-09~2026-05",
+       "osm_road_graph@2026-09-18"
+      ],
+      "fare_kind": "중형",
+      "fare_won": 8000,
+      "meter_won": 8000,
+      "toll_won": 0,
+      "toll_basis": null,
+      "slow_s": 957,
+      "slow_m": 3988.4,
+      "night_rate": 0.0,
+      "out_of_city": null,
+      "fare_basis": "호출료·정차·시계외 미포함 하한",
+      "depart_min": 1080,
+      "arrive_min": 1096,
+      "warnings": [
+       {
+        "code": "MOB_W_CAR_SPEED_DEFAULT",
+        "class": "grade",
+        "text": "자동차 구간 길이의 100.0% 가 골목이라 고정 속도(근거없음)로 냈다",
+        "to_answer": false
+       },
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 8,000원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    }
+   ],
+   "decisions": [
+    {
+     "leg_id": "L0",
+     "verdict": "ok",
+     "evidence_grade": "근거없음",
+     "evidence_ids": [
+      "mob:L0:verdict:1",
+      "mob:_:source:1",
+      "mob:_:source:2",
+      "mob:_:source:3"
+     ]
+    }
+   ],
+   "action_proposals": [],
+   "warnings": [
+    "MOB_W_CAR_SPEED_DEFAULT",
+    "MOB_W_TAXI_FARE_LOWER_BOUND",
+    "MOB_W_CAR_SPEED_DEFAULT",
+    "MOB_W_TAXI_FARE_LOWER_BOUND"
+   ]
+  },
+  "CAR-08": {
+   "contract_name": "a_cop.team_result",
+   "contract_version": "1.0",
+   "task_id": "T-CAR-08",
+   "team_id": "mobility",
+   "outcome": "completed",
+   "next_action": "respond",
+   "confidence": 0.2,
+   "answer": "[CAR-08] 판정 unknown(근거없음) — 도로 소요를 낼 수 없다 — 픽스처가 라우터 다운을 흉내낸다\n[L0] 택시 37.4991,127.0710→37.5106,127.1104 unknown(근거없음) — 도착 미상\n· 도로 경로 서버에 닿지 못해 자동차·택시 소요를 내지 않았다 (픽스처가 라우터 다운을 흉내낸다)",
+   "evidence": [
+    {
+     "evidence_id": "mob:_:run:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-08",
+     "claim": "판정 요약 — 구간 1 · unknown",
+     "value": {
+      "v": 1,
+      "kind": "run",
+      "grade": "근거없음",
+      "verdict": "unknown",
+      "arrive_min": null,
+      "slack_min": null,
+      "reasons": [
+       {
+        "code": "MOB_R_CASE",
+        "text": "도로 소요를 낼 수 없다 — 픽스처가 라우터 다운을 흉내낸다"
+       }
+      ],
+      "relax": [],
+      "counts": {
+       "ok": 0,
+       "fail": 0,
+       "rejected_by_limit": 0,
+       "unknown": 1
+      },
+      "legs": {
+       "with_evidence": [
+        "L0"
+       ],
+       "without_evidence": []
+      },
+      "confidence": 0.2,
+      "budget": {
+       "evidence_used": 2,
+       "cap": 40
+      },
+      "warnings": [
+       {
+        "code": "MOB_W_CAR_ROUTER_DOWN",
+        "class": "data",
+        "text": "도로 경로 서버에 닿지 못해 자동차·택시 소요를 내지 않았다 (픽스처가 라우터 다운을 흉내낸다)",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:L0:verdict:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-08",
+     "claim": "택시 37.4991,127.0710→37.5106,127.1104 판정 — unknown(근거없음)",
+     "value": {
+      "v": 1,
+      "kind": "verdict",
+      "leg_id": "L0",
+      "grade": "근거없음",
+      "verdict": "unknown",
+      "service_date": "2026-09-22",
+      "day_type": "weekday",
+      "depart_min": null,
+      "arrive_min": null,
+      "arrive_unknown_code": "MOB_R_NO_TRAVEL_MIN",
+      "reasons": [
+       {
+        "code": "MOB_R_LEG",
+        "text": "도로 소요를 낼 수 없다 — 픽스처가 라우터 다운을 흉내낸다"
+       }
+      ],
+      "relax": [],
+      "limits": [],
+      "alt_ids": [],
+      "warnings": [
+       {
+        "code": "MOB_W_CAR_ROUTER_DOWN",
+        "class": "data",
+        "text": "도로 경로 서버에 닿지 못해 자동차·택시 소요를 내지 않았다 (픽스처가 라우터 다운을 흉내낸다)",
+        "to_answer": true
+       }
+      ],
+      "evidence_ids": [],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.2,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    }
+   ],
+   "decisions": [
+    {
+     "leg_id": "L0",
+     "verdict": "unknown",
+     "evidence_grade": "근거없음",
+     "evidence_ids": [
+      "mob:L0:verdict:1"
+     ]
+    }
+   ],
+   "action_proposals": [],
+   "warnings": [
+    "MOB_W_CAR_ROUTER_DOWN",
+    "MOB_W_CAR_ROUTER_DOWN"
+   ]
+  },
+  "CAR-11": {
+   "contract_name": "a_cop.team_result",
+   "contract_version": "1.0",
+   "task_id": "T-CAR-11",
+   "team_id": "mobility",
+   "outcome": "completed",
+   "next_action": "respond",
+   "confidence": 0.95,
+   "answer": "[CAR-11] 판정 fail(확정) — 04:30 은 02호선 강변 의 weekday 첫차(05:36) 이전이다\n완화 조건: 출발을 05:36 로 미루면 성립\n[L0] 02호선 강변→잠실 fail(확정) — 도착 미상\n[L0] 택시 대안 04:30 출발 → 도착 04:40 · 4.0 km · 소요 9.2분 · 요금 하한 6,700원(중형) (추정)\n· 택시 요금 6,700원은 호출료·정차·시계외 할증을 뺀 하한이다",
+   "evidence": [
+    {
+     "evidence_id": "mob:_:run:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "판정 요약 — 구간 1 · fail",
+     "value": {
+      "v": 1,
+      "kind": "run",
+      "grade": "확정",
+      "verdict": "fail",
+      "arrive_min": null,
+      "slack_min": null,
+      "reasons": [
+       {
+        "code": "MOB_R_CASE",
+        "text": "04:30 은 02호선 강변 의 weekday 첫차(05:36) 이전이다"
+       }
+      ],
+      "relax": [
+       {
+        "code": "MOB_X_RELIEF",
+        "text": "출발을 05:36 로 미루면 성립"
+       }
+      ],
+      "counts": {
+       "ok": 0,
+       "fail": 1,
+       "rejected_by_limit": 0,
+       "unknown": 0
+      },
+      "legs": {
+       "with_evidence": [
+        "L0"
+       ],
+       "without_evidence": []
+      },
+      "confidence": 0.95,
+      "budget": {
+       "evidence_used": 7,
+       "cap": 40
+      },
+      "warnings": [],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:source:1",
+     "source_type": "db",
+     "source_id": "timetable_v1@2026-09-09",
+     "claim": "02호선 강변 weekday: 그 방향 첫 출발 05:36",
+     "value": {
+      "v": 1,
+      "kind": "source",
+      "leg_id": null,
+      "grade": "확정",
+      "of": "timetable"
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-09"
+    },
+    {
+     "evidence_id": "mob:L0:verdict:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "02호선 강변→잠실 판정 — fail(확정)",
+     "value": {
+      "v": 1,
+      "kind": "verdict",
+      "leg_id": "L0",
+      "grade": "확정",
+      "verdict": "fail",
+      "service_date": "2026-09-22",
+      "day_type": "weekday",
+      "depart_min": null,
+      "arrive_min": null,
+      "arrive_unknown_code": "MOB_R_NO_TRAVEL_MIN",
+      "reasons": [
+       {
+        "code": "MOB_R_LEG",
+        "text": "04:30 은 02호선 강변 의 weekday 첫차(05:36) 이전이다"
+       }
+      ],
+      "relax": [
+       {
+        "code": "MOB_X_RELIEF",
+        "text": "출발을 05:36 로 미루면 성립"
+       }
+      ],
+      "limits": [],
+      "alt_ids": [],
+      "warnings": [],
+      "evidence_ids": [
+       "mob:_:source:1"
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.95,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:alt:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "대안 — 05:36 출발로 미룸",
+     "value": {
+      "v": 1,
+      "kind": "alt",
+      "leg_id": "L0",
+      "grade": "추정",
+      "axis": "출발시각_이동",
+      "mode": "subway",
+      "verdict": "ok",
+      "depart_min": 336,
+      "arrive_min": 341,
+      "warnings": []
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:alt:2",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "대안 — 버스 302(간선) — 구의3동주민센터까지 도보 489m(8분) · 4정거장 · 하차 후 69m(2분)",
+     "value": {
+      "v": 1,
+      "kind": "alt",
+      "leg_id": "L0",
+      "grade": "추정",
+      "axis": "수단교체",
+      "mode": "bus",
+      "verdict": "ok",
+      "depart_min": 284,
+      "arrive_min": 301,
+      "warnings": [
+       {
+        "code": "MOB_W_SPEED_NO_PEAK",
+        "class": "grade",
+        "text": "표정속도는 시간대별로 갈리지 않는다 — 퇴근 첨두가 담기지 않았다(rules bus.표정속도.시간대별_없음)",
+        "to_answer": false
+       }
+      ]
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:alt:3",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "대안 — 택시 4.0 km · 소요 9.2분 · 요금 하한 6,700원(중형)",
+     "value": {
+      "v": 1,
+      "kind": "alt",
+      "leg_id": "L0",
+      "grade": "추정",
+      "axis": "수단교체",
+      "mode": "taxi",
+      "verdict": "ok",
+      "depart_min": 270,
+      "arrive_min": 280,
+      "warnings": [
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 6,700원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ]
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    },
+    {
+     "evidence_id": "mob:_:car_leg:1",
+     "source_type": "db",
+     "source_id": "mobility_verdict@T-CAR-11",
+     "claim": "택시 대안 — 4.0 km · 9.2분 · 요금 하한 6,700원 [추정]",
+     "value": {
+      "v": 1,
+      "kind": "car_leg",
+      "leg_id": "L0",
+      "grade": "추정",
+      "mode": "taxi",
+      "distance_m": 3988.4,
+      "topis_time_s": 549,
+      "gh_time_s": null,
+      "day_type": "평일",
+      "hour_start": 4,
+      "coverage_m": {
+       "topis": 3988.4,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "coverage_pct": {
+       "topis": 100.0,
+       "class": 0.0,
+       "default": 0.0
+      },
+      "n_edges": 68,
+      "n_links": 8,
+      "links": [
+       {
+        "link_id": "1220026800",
+        "m": 715.7
+       },
+       {
+        "link_id": "1220026000",
+        "m": 594.7
+       },
+       {
+        "link_id": "1220028000",
+        "m": 594.2
+       },
+       {
+        "link_id": "1220024000",
+        "m": 576.0
+       },
+       {
+        "link_id": "1220025200",
+        "m": 538.0
+       },
+       {
+        "link_id": "1220029400",
+        "m": 379.5
+       },
+       {
+        "link_id": "1220023300",
+        "m": 298.0
+       },
+       {
+        "link_id": "1220028800",
+        "m": 292.2
+       }
+      ],
+      "source_id": [
+       "topis_link_profile_v1@2025-09~2026-05",
+       "osm_road_graph@2026-09-18"
+      ],
+      "fare_kind": "중형",
+      "fare_won": 6700,
+      "meter_won": 6700,
+      "toll_won": 0,
+      "toll_basis": null,
+      "slow_s": 0,
+      "slow_m": 0.0,
+      "night_rate": 0.0,
+      "out_of_city": null,
+      "fare_basis": "호출료·정차·시계외 미포함 하한",
+      "depart_min": 270,
+      "arrive_min": 280,
+      "warnings": [
+       {
+        "code": "MOB_W_TAXI_FARE_LOWER_BOUND",
+        "class": "cost",
+        "text": "택시 요금 6,700원은 호출료·정차·시계외 할증을 뺀 하한이다",
+        "to_answer": true
+       }
+      ],
+      "basis": {
+       "timetable_built_at": "2026-09-09",
+       "rules_version": "v0.6"
+      }
+     },
+     "confidence": 0.6,
+     "observed_at": "2026-09-20T00:00:00+09:00"
+    }
+   ],
+   "decisions": [
+    {
+     "leg_id": "L0",
+     "verdict": "fail",
+     "evidence_grade": "확정",
+     "evidence_ids": [
+      "mob:L0:verdict:1",
+      "mob:_:source:1"
+     ]
+    }
+   ],
+   "action_proposals": [],
+   "warnings": [
+    "MOB_W_SPEED_NO_PEAK",
+    "MOB_W_TAXI_FARE_LOWER_BOUND"
+   ]
+  }
+ }
+}

@@ -1,0 +1,77 @@
+{
+ "note": "58 — plan_example_in_v1 · modes bike,walk / subway,bus,walk,bike / bike · GraphHopper 요약(거리·시간만 · 형상 없음)",
+ "pbf_date": "2026-09-18",
+ "recorded_by": "scratch/_58/gen58.py",
+ "routes": {
+  "bike|37.54436,127.05593|37.55581,126.97330": {
+   "distance_m": 9737.5,
+   "time_s": 2001,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "bike|37.55677,126.97320|37.55541,126.96942": {
+   "distance_m": 1143.1,
+   "time_s": 476,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "bike|37.56590,126.98178|37.57561,126.97289": {
+   "distance_m": 2017.0,
+   "time_s": 428,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "bike|37.57561,126.97289|37.54436,127.05593": {
+   "distance_m": 9757.7,
+   "time_s": 1970,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.54436,127.05593|37.54463,127.05598": {
+   "distance_m": 268.7,
+   "time_s": 193,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.54450,127.05600|37.54436,127.05593": {
+   "distance_m": 97.6,
+   "time_s": 70,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.54463,127.05598|37.54436,127.05593": {
+   "distance_m": 268.7,
+   "time_s": 193,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.55520,126.97200|37.55677,126.97320": {
+   "distance_m": 443.3,
+   "time_s": 319,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.55541,126.96942|37.55590,126.97070": {
+   "distance_m": 431.4,
+   "time_s": 331,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.55581,126.97330|37.55520,126.97200": {
+   "distance_m": 354.8,
+   "time_s": 255,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.55581,126.97330|37.55585,126.97210": {
+   "distance_m": 428.6,
+   "time_s": 309,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.56600,126.98257|37.56590,126.98178": {
+   "distance_m": 90.2,
+   "time_s": 65,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.57561,126.97289|37.57584,126.97358": {
+   "distance_m": 142.5,
+   "time_s": 103,
+   "source_id": "osm_bike_graph@2026-09-18"
+  },
+  "foot|37.57584,126.97358|37.57561,126.97289": {
+   "distance_m": 142.5,
+   "time_s": 103,
+   "source_id": "osm_bike_graph@2026-09-18"
+  }
+ }
+}

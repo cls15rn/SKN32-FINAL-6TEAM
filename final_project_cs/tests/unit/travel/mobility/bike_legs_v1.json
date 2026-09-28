@@ -1,0 +1,429 @@
+{
+ "_doc": [
+  "자전거(따릉이) 회귀 — 규칙 v0.7 · 22번 방 · 2026-09-20. 17번 §4 표의 행마다 케이스 하나.",
+  "★ 라우터(GraphHopper) 없이 돌린다 — 승차 소요·도착은 근거없음이 정상이다. 노트북에서 `--gh-url http://localhost:8989 --bike-record tests/mobility/bike_gh_fixture_v1.json` 로 한 번 돌려 픽스처를 만들면",
+  "  그 뒤로는 `--bike-fixture tests/mobility/bike_gh_fixture_v1.json` 으로 클라우드에서도 같은 값이 나온다. 픽스처는 거리·시간 요약뿐(형상 없음).",
+  "★ 실시간 거치(bikeList)는 케이스의 bike_live 픽스처로 준다 — 실제 호출은 `--bike-live env`. 픽스처의 개수는 회귀용 가정값이고 실측이 아니다(source_id seoul_bikeList@fixture:*).",
+  "★ 도착 기대값(expect_arrive)은 픽스처를 기록한 뒤 22번 문서 §4 표대로 넣는다 — 지금은 판정·경고·대안 축만 잠근다.",
+  "★ mode=bike 케이스는 selfcheck:false — 라우터·실시간이 없는 실행에서는 **설계상 근거없음**이라 탐침에 넣으면 판단불가율에 설계된 근거없음이 섞인다(MIX-05·06 과 같은 처리). 라우터가 상주하는 25번에서 다시 넣는다."
+ ],
+ "cases": [
+  {
+   "id": "BIKE-01",
+   "note": "★시연 2구간 — 잠실→성수 24:55 막차 이후. 심야버스 N73 뒤에 **따릉이가 대안으로** 선다(수단교체 축 마지막). 잠실역 8번출구는 LCD 라 건너뛰고 6번출구(QR) 를 잡는다",
+   "date": "2026-09-22",
+   "depart_at": "24:55",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-01",
+    "counts": {
+     "ST-840": 5
+    }
+   },
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 2,
+   "expect_alt_min_by_mode": {
+    "bus": 1,
+    "bike": 1
+   },
+   "expect_warn_codes": [
+    "MOB_W_BIKE_FOREIGNER_GUIDE",
+    "MOB_W_BIKE_LCD_SKIPPED"
+   ]
+  },
+  {
+   "id": "BIKE-02",
+   "selfcheck": false,
+   "note": "legs mode=bike 잠실→성수 14:00 · 실시간 조회 없음 → 성립하되 가용·소요 근거없음. 도착 시각을 만들지 않는다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_BIKE_LIVE_UNKNOWN",
+    "MOB_W_BIKE_FOREIGNER_GUIDE",
+    "MOB_W_BIKE_LCD_SKIPPED"
+   ]
+  },
+  {
+   "id": "BIKE-03",
+   "selfcheck": false,
+   "note": "같은 구간 · 실시간 픽스처 거치 5대 → 가용 확정(그 시각). 라우터 없으면 여전히 소요 근거없음 · 픽스처 뒤 expect_arrive 를 건다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-03",
+    "counts": {
+     "ST-840": 5
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_BIKE_FOREIGNER_GUIDE"
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_BIKE_LIVE_UNKNOWN"
+   ]
+  },
+  {
+   "id": "BIKE-04",
+   "selfcheck": false,
+   "note": "★거치 0대 — 반경 안 QR 대여소(6번출구·수리센터 앞) 둘 다 0 이면 불가(확정 · 조회 시각). 도착 쪽은 검사하지 않는다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-04",
+    "counts": {
+     "ST-840": 0,
+     "ST-1868": 0
+    }
+   },
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "mode_unavailable",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "다시 조회",
+   "expect_alt_max": 0
+  },
+  {
+   "id": "BIKE-05",
+   "selfcheck": false,
+   "note": "첫 대여소 거치 0 → 다음 QR 대여소(수리센터 앞, 271m)로 넘어간다. 성립",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-05",
+    "counts": {
+     "ST-840": 0,
+     "ST-1868": 3
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_BIKE_FOREIGNER_GUIDE"
+   ],
+   "expect_reason_contains": "잠실 자전거 수리센터 앞"
+  },
+  {
+   "id": "BIKE-06",
+   "selfcheck": false,
+   "note": "★연령 제외 — party.infant → 불가(확정 · 운영사 규칙). 대여소를 보기도 전에 끝난다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "party": {
+    "infant": true
+   },
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "mode_unavailable",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "만 13세",
+   "expect_alt_max": 0
+  },
+  {
+   "id": "BIKE-07",
+   "selfcheck": false,
+   "note": "연령 제외 — party.ages 에 12 → 불가. 13 이상만이면 통과(BIKE-08)",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "party": {
+    "ages": [
+     12,
+     40
+    ]
+   },
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "mode_unavailable",
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "BIKE-08",
+   "selfcheck": false,
+   "note": "party.ages [13, 40] — 만 13세는 회원가입이면 가능. 판정기는 막지 않는다(안내만)",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "party": {
+    "ages": [
+     13,
+     40
+    ]
+   },
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-08",
+    "counts": {
+     "ST-840": 2
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "BIKE-09",
+   "selfcheck": false,
+   "note": "★대여소 없음 — 남산서울타워 반경 300m 안에 운영 대여소 0 → **불가**(근거없음이 아니다). MOB_W_BIKE_NO_STATION",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": {
+      "lat": 37.5512,
+      "lng": 126.9882,
+      "name": "남산서울타워"
+     },
+     "to": "명동"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "mode_unavailable",
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_BIKE_NO_STATION"
+   ],
+   "expect_alt_max": 0
+  },
+  {
+   "id": "BIKE-10",
+   "selfcheck": false,
+   "note": "★LCD 전용 건너뛰기 — 사당역은 반경 300m 안 가까운 셋(5·7·12번출구)이 전부 LCD, 넷째 1번출구(211m)가 QR. 건너뛰기는 호출 예산(candidate_stations 3)을 안 먹는다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": "사당",
+     "to": "왕십리"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-10",
+    "counts": {
+     "ST-3350": 4
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_BIKE_LCD_SKIPPED"
+   ],
+   "expect_reason_contains": "사당역 1번출구"
+  },
+  {
+   "id": "BIKE-11",
+   "selfcheck": false,
+   "note": "★전부 LCD — 아현역 4번출구 앞 좌표: 반경 안 둘 다 LCD → 불가(추정 · 운영방식은 xlsx 반기). 외국인 비회원은 못 빌린다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "bike",
+     "from": {
+      "lat": 37.55793,
+      "lng": 126.95601,
+      "name": "아현역 4번출구"
+     },
+     "to": "홍대입구"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "mode_unavailable",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "회원가입"
+  },
+  {
+   "id": "BIKE-12",
+   "selfcheck": false,
+   "note": "지하철 → 자전거 이어 타기 — 02호선 강변→잠실 14:00 뒤 자전거 잠실→성수. 환승은 길찾기 1분만(대여소 도보는 자전거 구간 안). 라우터 없으면 마지막 구간 소요 없음 → 성립·도착 없음",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    },
+    {
+     "mode": "bike",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "bike_live": {
+    "checked_at": "fixture:BIKE-12",
+    "counts": {
+     "ST-840": 5
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:50",
+   "expect_warn_codes": [
+    "MOB_W_BIKE_FOREIGNER_GUIDE"
+   ]
+  },
+  {
+   "id": "BIKE-13",
+   "note": "★multi 잠실→성수 14:00 — 후보에 「자전거」가 선다. tie_band 는 지하철×버스만(자전거 비교 밖)",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "multi": {
+    "from": "잠실",
+    "to": "성수"
+   },
+   "bike_live": {
+    "checked_at": "fixture:BIKE-13",
+    "counts": {
+     "ST-840": 5
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_candidates_min": 2,
+   "expect_criteria": [
+    "최단",
+    "자전거"
+   ],
+   "expect_candidate_legs": {
+    "자전거": [
+     [
+      "자전거",
+      "잠실",
+      "성수"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "BIKE-14",
+   "selfcheck": false,
+   "note": "규칙을 끈 척 — bike.ddareungi.enabled 는 파일에서 true 다. 이 케이스는 party.foreign=false 로 외국인 안내문이 **안 붙는** 것만 본다",
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "party": {
+    "foreign": false
+   },
+   "legs": [
+    {
+     "mode": "bike",
+     "from": {
+      "lat": 37.55774,
+      "lng": 126.92649,
+      "name": "홍대입구"
+     },
+     "to": "명동"
+    }
+   ],
+   "_57": "2026-09-27 57번: 출발을 역명 → 좌표 dict 로 고정. 역명이면 station_coords 가 바뀔 때마다 최근접 대여소가 바뀌어 픽스처(실시간 ST-2168 · 라우터 foot/bike 키)가 빠진다. 좌표는 픽스처를 녹화할 때 쓴 값(예전 02호선|홍대입구 = 공항철도 행 좌표) — 케이스 목적(외국인 안내문 안 붙음)은 그대로",
+   "bike_live": {
+    "checked_at": "fixture:BIKE-14",
+    "counts": {
+     "ST-2168": 7
+    }
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_warn_codes_absent": [
+    "MOB_W_BIKE_FOREIGNER_GUIDE",
+    "MOB_W_BIKE_LIVE_UNKNOWN"
+   ]
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

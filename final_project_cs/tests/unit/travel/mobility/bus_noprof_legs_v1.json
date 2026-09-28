@@ -1,0 +1,54 @@
+{
+ "note": "프로파일 없이 도는 판정기의 버스 승차 상한 회귀 v1 (2026-09-25 · 41 적용 · 2차 GPT 7). --bus-profile none 으로 돌린다. 실행: python -m app.modules.travel_ops.mobility.engine.verify_time --cases tests/mobility/bus_noprof_legs_v1.json --bus-profile none --check-expect",
+ "built_at": "2026-09-25",
+ "cases": [
+  {
+   "id": "NP-01",
+   "note": "기점 승차는 프로파일이 없어도 막차 시각(시간표 확정)이 상한이다 — 2016 중랑공영차고지.신내역 22:15 · 막차 22:20 · 대기 모델 22:26 대신 22:20 승차 · 승차 소요는 종전 표정속도(지선 평일 14.0 km/h · 987 m → 4.2분) → 예정 22:25. 처음 판(프로파일 없으면 상한 없음)은 22:26 승차였다",
+   "date": "2026-09-10",
+   "depart_at": "22:15",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "중랑공영차고지.신내역",
+     "to": "신내초등학교.신내교회"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:25",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_p90_eta": null,
+   "expect_warn_codes": [
+    "MOB_W_BUS_BOARD_CAPPED",
+    "MOB_W_WORST_NO_SPREAD"
+   ]
+  },
+  {
+   "id": "NP-02",
+   "note": "중간 정류장은 프로파일이 없으면 통과 시각을 모른다 — 상한 없음 + MOB_W_BUS_LAST_PASS_UNCHECKED(2016 신내초등학교.신내교회 22:20 · 대기 모델 22:31 승차 그대로)",
+   "date": "2026-09-10",
+   "depart_at": "22:20",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "신내초등학교.신내교회",
+     "to": "면목마젤란아파트"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_warn_codes": [
+    "MOB_W_BUS_LAST_PASS_UNCHECKED"
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_BUS_BOARD_CAPPED"
+   ]
+  }
+ ]
+}

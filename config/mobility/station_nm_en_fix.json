@@ -1,0 +1,189 @@
+{
+ "_설명": "역 영문명 보정표. station_coords_build.py 가 열린데이터광장 STATION_NM_ENG 를 옮길 때 적용한다.",
+ "_원칙": "원본은 station_nm_en_src 로 남긴다. 보정한 역은 station_nm_en_grade='추정'.",
+ "_결정_2026-09-13": "소스는 열린데이터광장을 유지한다. KRIC 엑셀로 교체하면 결함이 18역→93역으로 는다(부역명 80·개행 7).",
+ "치환": {
+  "_사유": "문자 교정과 약어 통일. 규칙마다 등급이 다르다 — 오탈자 교정은 확정 유지, 약어 통일은 우리가 고른 것이므로 추정으로 내린다.",
+  "규칙": [
+   {
+    "from": "`",
+    "to": "'",
+    "why": "백틱이 아포스트로피 자리에 들어갔다 (Nat`l·Women`s) — 6역",
+    "grade": "확정"
+   },
+   {
+    "from": "‘",
+    "to": "'",
+    "why": "굽은 여는따옴표 — KRIC 1역",
+    "grade": "확정"
+   },
+   {
+    "from": "’",
+    "to": "'",
+    "why": "굽은 닫는따옴표 (Int’l) — 5역",
+    "grade": "확정"
+   },
+   {
+    "from": "  ",
+    "to": " ",
+    "why": "이중 공백 — 원본에서 '&' 가 빠진 자리 3역(동대문역사문화공원)은 역별 표로 따로 고친다",
+    "grade": "확정"
+   },
+   {
+    "from": "Intl.",
+    "to": "Int'l",
+    "grade": "추정",
+    "why": "약어 통일 — 같은 파일에 Intl. 5행·Int'l 5행이 섞여 있었다. 김포공항이 노선별로 갈리던 것도 이걸로 풀린다(공항화물청사·국제업무지구·김포공항 3역)"
+   }
+  ]
+ },
+ "역별": {
+  "_사유": "역 단위 보정. 값은 KRIC 엑셀(15013205) 대조 또는 표기 규칙 적용. 등급 추정.",
+  "01호선|온양온천": {
+   "to": "Onyang Oncheon",
+   "kind": "대소문자",
+   "ref": "규칙"
+  },
+  "01호선|평택지제": {
+   "to": "Pyeongtaek Jije",
+   "kind": "붙어쓰기",
+   "ref": "규칙(KRIC도 붙어 있다)"
+  },
+  "02호선|동대문역사문화공원": {
+   "to": "Dongdaemun History & Culture Park",
+   "kind": "공백",
+   "ref": "KRIC"
+  },
+  "04호선|동대문역사문화공원": {
+   "to": "Dongdaemun History & Culture Park",
+   "kind": "공백",
+   "ref": "KRIC"
+  },
+  "05호선|동대문역사문화공원": {
+   "to": "Dongdaemun History & Culture Park",
+   "kind": "공백",
+   "ref": "KRIC"
+  },
+  "06호선|효창공원앞": {
+   "to": "Hyochang Park",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "09호선|석촌": {
+   "to": "Seokchon",
+   "kind": "부역명",
+   "ref": "KRIC — (Hansol Hospital) 은 부역명이다"
+  },
+  "경강선|경기광주": {
+   "to": "Gyeonggi Gwangju",
+   "kind": "붙어쓰기",
+   "ref": "규칙(KRIC도 붙어 있다)"
+  },
+  "수인분당선|매탄권선": {
+   "to": "Maetan Gwonseon",
+   "kind": "붙어쓰기",
+   "ref": "KRIC"
+  },
+  "수인분당선|서울숲": {
+   "to": "Seoul Forest",
+   "kind": "대소문자",
+   "ref": "규칙(KRIC도 Seoul-forest 다)"
+  },
+  "수인분당선|압구정로데오": {
+   "to": "Apgujeong Rodeo",
+   "kind": "대소문자",
+   "ref": "규칙"
+  },
+  "신림선|보라매병원": {
+   "to": "Boramae Medical Center",
+   "kind": "붙어쓰기",
+   "ref": "KRIC"
+  },
+  "신분당선|광교중앙": {
+   "to": "Gwanggyo Jungang",
+   "kind": "붙어쓰기",
+   "ref": "KRIC"
+  },
+  "신분당선|수지구청": {
+   "to": "Suji-gu Office",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "의정부경전철|곤제": {
+   "to": "Gonjae",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "의정부경전철|새말": {
+   "to": "Sae-mal",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "의정부경전철|어룡": {
+   "to": "Eoryong",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "의정부경전철|효자": {
+   "to": "Hyoja",
+   "kind": "대소문자",
+   "ref": "KRIC"
+  },
+  "의정부경전철|경전철의정부": {
+   "to": "LRT Uijeongbu",
+   "kind": "두문자",
+   "ref": "KRIC — 규칙으로는 못 잡는다(Lrt 도 대문자로 시작한다)"
+  },
+  "신림선|서원": {
+   "to": "Seowon",
+   "kind": "다른역이름",
+   "ref": "KRIC — 원본이 이웃역 숫고개(Sutgogae) 를 넣었다"
+  },
+  "인천2호선|인천시청": {
+   "to": "Incheon City Hall",
+   "kind": "표기불일치",
+   "ref": "KRIC — Inchon 은 1984년 이전 표기다"
+  },
+  "공항철도|청라국제도시": {
+   "to": "Cheongna Int'l City",
+   "kind": "접미사",
+   "ref": "KRIC — 다른 792역에 Station 접미가 없다(서울역 4건은 역명 자체가 '서울역')"
+  },
+  "우이신설경전철|신설동": {
+   "to": "Sinseol-dong",
+   "kind": "역단위불일치",
+   "ref": "1·2호선 신설동이 'Sinseol-dong' 이다. 로마자 표기법상 행정구역 단위는 하이픈 뒤 소문자가 맞다"
+  },
+  "신림선|서울대벤처타운": {
+   "to": "Seoul Nat'l Univ. Venture Town",
+   "kind": "약어",
+   "ref": "약어 정책 — 대학 이름의 National 은 Nat'l 로. 고유명사 National 4역은 건드리지 않는다"
+  }
+ },
+ "보류": {
+  "_사유": "◆ 팀 합의 대기. 어느 쪽도 명백히 틀리지 않아 코드로 정하지 않는다.",
+  "용인경전철|시청.용인대": {
+   "현재": "City Hall, Yongin Univ.",
+   "KRIC": "Yongin City Hall·Yongin Univ.",
+   "쟁점": "현재값은 어느 시청인지 없다. KRIC 은 가운뎃점이라 검색에 불리하다."
+  },
+  "의정부경전철|경기도청북부청사": {
+   "현재": "Gyeonggi Provincial Government Northern Office",
+   "KRIC": "Northern Gyeonggi-do Government",
+   "쟁점": "둘 다 통용된다."
+  },
+  "_약어": {
+   "쟁점": "Univ. 34역 · National 5역 · Nat'l 5역 · Int'l 5역 이 섞여 있다. 축약을 풀지 말지 미정 — 화면 폭 문제라 UI 담당과 같이 정한다."
+  }
+ },
+ "KRIC_채택안함": {
+  "_사유": "아래는 KRIC 값이 우리보다 나쁘다. 역별 표에 넣지 않는다.",
+  "01호선|서울역": "KRIC 'Seoul' — 역명이 '서울역'이다",
+  "04호선|불암산": "KRIC 'Danggogae' — 2024 개명 미반영",
+  "04호선|한대앞": "KRIC 'Hangyang Univ. at Ansan' — 오타",
+  "수인분당선|달월": "KRIC 'Darwol' — 로마자 표기는 Dalwol",
+  "신림선|서울지방병무청": "KRIC 'Millitary' — 오타",
+  "02호선|교대": "KRIC 'National University of Education' — 'Seoul' 이 빠졌다"
+ },
+ "_결정_2026-09-13_약어": "약어 정책(지도링크 방 결정): Univ. 유지 · Int'l 통일 · Nat'l 은 대학 이름에만 · National 4역(경찰병원·국회의사당·4·19민주묘지·주안국가산단)은 고유명사라 그대로 둔다."
+}

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이동·동선 모듈 아키텍처 v0.2 — 2026-09-09</title>
+<style>
+  :root{--ink:#1f2328;--muted:#5b6470;--line:#cfd5dc;--blue:#1f6fb2;--blue-s:#e8f1fb;--blue-b:#3b82c4;
+        --orange:#c2551f;--orange-s:#fdf0e8;--purple:#7a3fa0;--purple-s:#f3e8fb;--green:#2f7a45;--green-s:#eef7ee;
+        --gold:#8a6a10;--gold-s:#fff8e3;--grey-s:#f3f4f6}
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:var(--ink);font-family:"Pretendard Variable",Pretendard,"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:14px;line-height:1.55;letter-spacing:-0.005em}
+  .wrap{max-width:1400px;margin:0 auto;padding:28px 24px 60px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:18px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 20px}
+  header h1{font-size:22px;margin:0;font-weight:700}
+  header p{margin:0;color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:6px;margin:0 0 22px;flex-wrap:wrap}
+  .tabs button{border:1px solid var(--line);background:#fff;padding:7px 14px;border-radius:6px;font-size:14px;cursor:pointer;font-family:inherit}
+  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .view{display:none}.view.on{display:block}
+
+  /* layout primitives */
+  .zone{border:1.5px dashed #9ca3af;border-radius:10px;padding:12px 14px 14px;margin:0 0 14px;background:var(--grey-s)}
+  .zone.solid{border-style:solid;border-color:var(--blue);background:#f8fafc}
+  .zone > .zl{font-size:12.5px;color:var(--muted);margin:0 0 10px;font-weight:700}
+  .zone.solid > .zl{color:var(--blue)}
+  .row{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap}
+  .row.multi{flex-wrap:wrap;gap:10px}
+  .box{flex:1 1 0;min-width:0;background:#fff;border:1.5px solid var(--blue-b);border-radius:8px;padding:10px 12px}
+  .box h4{margin:0 0 6px;font-size:13.5px;font-weight:700;color:#14487a;text-align:center}
+  .box ul{margin:0;padding-left:16px;font-size:12.5px}
+  .box li{margin:2px 0}
+  .box .foot{font-size:11.5px;color:var(--gold);margin-top:6px}
+  .box.core{background:var(--blue-s);border-color:var(--blue);border-width:2px}
+  .box.issue{background:var(--orange-s);border-color:var(--orange);border-width:2px}.box.issue h4{color:#8f3c12}
+  .box.alt{border-color:var(--purple)}.box.alt h4{color:var(--purple)}
+  .box.watch{border-color:var(--green)}.box.watch h4{color:var(--green)}
+  .box.data{background:var(--green-s);border-color:var(--green)}.box.data h4{color:var(--green)}
+  .box.out{background:var(--orange-s);border-color:var(--orange)}.box.out h4{color:#8f3c12}
+  .box.shell{border-style:dashed;border-color:#9ca3af}.box.shell h4{color:#555}
+  .box.gold{background:var(--gold-s);border-color:#d4a72c}.box.gold h4{color:var(--gold)}
+  .arr{flex:0 0 34px;display:flex;align-items:center;justify-content:center;font-size:22px;color:#3b3b3b}
+  .arr.p{color:var(--purple)}.arr.g{color:var(--green)}.arr.o{color:var(--orange)}.arr.b{color:var(--blue)}
+  .varr{display:flex;align-items:center;gap:10px;margin:4px 0 4px 24px;font-size:12px;color:var(--muted)}
+  .varr b{font-size:20px;line-height:1;color:#3b3b3b;font-weight:400}
+  .varr.p{color:var(--purple)}.varr.p b{color:var(--purple)}
+  .varr.g{color:var(--green)}.varr.g b{color:var(--green)}
+  .contract{background:var(--gold-s);border:1.5px solid #d4a72c;border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:13px}
+  .contract b{color:var(--gold)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .grid3{display:grid;grid-template-columns:220px 1fr 1fr;gap:12px;margin-top:12px}
+  .note{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12.5px}
+  .note h5{margin:0 0 6px;font-size:13px}
+  .note ol,.note ul{margin:0;padding-left:18px}
+  .flowline{font-size:13px;margin:4px 0}
+  .flowline b{display:inline-block;min-width:150px}
+  .f1{color:var(--blue)}.f2{color:var(--green)}.f3{color:var(--purple)}
+  .diamond{color:var(--orange);font-weight:700}
+  /* skeleton mode: hide details */
+  .skel .box ul,.skel .box .foot,.skel .note,.skel .contract .detail{display:none}
+  .skel .box{padding:14px 12px;display:flex;align-items:center;justify-content:center}
+  .skel .decide,.skel .zone .hint,.skel .loop p{display:none}
+  .skel .loop{display:flex;align-items:center;justify-content:center;padding:14px 12px}
+  .skel .loop h4{margin:0}
+  .skel .box h4{margin:0;font-size:14px}
+  
+  .skel .zone{padding-bottom:12px}
+  /* simple view */
+  .simple .row .box{padding:16px 12px;display:flex;flex-direction:column;justify-content:center}
+  .simple .box h4{font-size:14.5px}
+  .simple .box p{margin:4px 0 0;font-size:12.5px;color:var(--muted);text-align:center}
+  .simple h3{font-size:16px;margin:26px 0 8px;padding-left:10px;border-left:4px solid var(--blue)}
+  .simple h3.p{border-color:var(--purple)}.simple h3.g{border-color:var(--green)}
+  @media print{.tabs{display:none}.view{display:block!important;page-break-after:always}}
+  .hint{font-size:11.5px;color:var(--muted);margin:6px 0 0}
+  .loop{border:1.5px dashed var(--purple);border-radius:8px;padding:10px 12px;background:var(--purple-s)}
+  .loop h4{color:var(--purple);margin:0 0 6px;font-size:13.5px;text-align:center}
+  .loop p{margin:0;font-size:12.5px}
+  .decide{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12.5px}
+  .decide h5{margin:0 0 6px;font-size:13px}
+  .decide dl{margin:0;display:grid;grid-template-columns:230px 1fr;gap:4px 14px}
+  .decide dt{font-weight:700}.decide dd{margin:0;color:#333}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+</style>
+<body>
+<div class="wrap">
+<header>
+  <h1>이동·동선 모듈 (Mobility Team) — 아키텍처 v0.2</h1>
+  <p>팀장 구조(Team = 검증 규칙 · 감시 소스 · 재계획 후보) 안의 초안 · 코어 계약 코드(contracts.py) 반영 · <span class="diamond">◆</span> = 모듈 경계라 합의 필요 (3개) · 나머지 결정은 모듈 담당이 정하고 이유를 적음 · 2026-09-09 (v0.1: 09-08)</p>
+</header>
+
+<div class="tabs">
+  <button class="on" data-v="v1">설명 있는 버전</button>
+  <button data-v="v2">뼈대만 (상자·화살표)</button>
+  <button data-v="v3">단순화 — 중요 흐름</button>
+</div>
+
+<div id="v1" class="view on">
+<div id="arch">
+
+  <div class="zone">
+    <div class="zl">모듈 밖 — 코어와 다른 Team (Team끼리는 직접 연결 없음, 전부 코어를 거침 · run_case는 케이스 하나를 Team 하나에 배정, Team 간 이동은 handoff)</div>
+    <div class="row multi">
+      <div class="box core" style="flex:1.4">
+        <h4>코어 검증 층 (Controller)</h4>
+        <ul><li>전체 일정 정합성: 시간 충돌·예산·이동 여유</li><li>여행 상태 정본: 일정 버전·잠긴 예약·필수 조건·다음 확인 시점</li><li>Team 호출 → ActionProposal 수집 → 재검증 → 통지</li><li>다른 Team의 변경을 받아 영향 구간을 계산하고 이동 모듈 요청에 실어 보냄</li></ul>
+        <div class="foot">순서 재배열·일정 단축은 여기서 결정</div>
+      </div>
+      <div class="box issue" style="flex:1.3">
+        <h4>사건 전파 · 재확인 스케줄러 <span class="diamond">◆</span></h4>
+        <ul><li>사건 접수: 고객 신고 / Team의 변화 감지 결과 / <b>운행 이슈 감지(사고·화재·무정차·통제) — 코어 담당</b></li><li>영향 범위 산정 → 영향받는 Team에 replan 배정(재라우팅 / 브로커 / handoff 중 무엇인지 미정)</li><li>공통 타이머(출발 전날·당일 아침·예약 2시간 전) → recheck 배정</li></ul>
+        <div class="foot">이동 모듈은 발신 경로와 무관하게 같은 계약으로 받음. 타이머는 모듈 밖</div>
+      </div>
+      <div class="box"><h4>액티비티 · 요식 Team</h4><ul><li>취소·시간 변경·대체 식당 → <b>코어에 보고만</b></li><li>이동 모듈은 그 결과를 코어 요청(바뀐 시각·좌표)으로 받음</li></ul></div>
+      <div class="box shell"><h4>숙박·항공 (껍데기)</h4><ul><li>잠긴 예약 → 여행 양 끝의 고정 시각(항공)·고정 장소(숙소)</li></ul></div>
+    </div>
+    <div class="hint">필요한 다른 모듈의 데이터는 "요청 payload에 무엇을 담는가"로 해결한다. 모듈 간 교환 시스템은 없다. 카탈로그(장소 ID·좌표)는 읽기 전용 공용 참조.</div>
+  </div>
+
+  <div class="varr"><b>⇅</b> ① ③ TeamTask / TeamResult (코어) &nbsp;&nbsp;&nbsp;&nbsp; <span class="f3">⇅ ② replan 요청 / 변화 감지 결과 (코어 경유)</span></div>
+
+  <div class="contract">
+    <b>모듈 계약 (contracts.py 확인 완료 — TeamModule.execute(TeamTask) → TeamResult, 합의 대상 아님)</b>
+    <div class="detail">capability 3개: ① <b>mobility.validate_legs</b> &nbsp; ② <b>mobility.replan_legs</b>(영향 구간·바뀐 제약·원인) &nbsp; ③ <b>mobility.recheck_legs</b>(코어 스케줄러가 배정<span class="diamond">◆</span>) — 구조화 입력은 전부 <b>ContextPack.current_state</b><span class="diamond">◆</span>(구간·시각 제약·동행 조건·단계·현재 위치·재계획 문맥)<br>
+    응답: <b>TeamResult</b> = decisions(구간별 성립/불가/판단불가 + 사유 + 완화 조건 + 추정치 + 링크) + <b>Evidence</b>(source_id=소스 이름, observed_at=확인 시각, value.grade=확정/추정; 근거 없음은 Evidence 없이 decisions·warnings) + <b>ActionProposal</b>(대안, approval_required<span class="diamond">◆</span>)</div>
+  </div>
+
+  <div class="zone solid">
+    <div class="zl">이동·동선 모듈 내부 &nbsp; <span class="f1" style="font-weight:400">— F1 검증 흐름 (① validate_legs) ▶</span></div>
+    <div class="row">
+      <div class="box"><h4>요청 라우터</h4><ul><li>capability ①②③ 분기</li><li>계약 ↔ 내부 사이 얇은 어댑터</li><li>단계별 파라미터 세트 적용 (단계·위치 없으면 자체 추정 + stage_assumed)</li></ul><div class="foot">단계 = 후보 수·검색 반경·버퍼·택시 허용·시간표 기준일</div></div>
+      <div class="arr">→</div>
+      <div class="box"><h4>경로 후보 조회</h4><ul><li>카카오 대중교통·도보 (택시는 확보 후)</li><li>경로 모양·소요시간이 필요할 때만 호출</li></ul><div class="foot" style="color:var(--orange)">실시간 호출 · 캐시 없음 (약관)</div></div>
+      <div class="arr">→</div>
+      <div class="box"><h4>시각 검증기</h4><ul><li>카카오 응답엔 시각이 없음 → 요청의 시각(출발/도착 필요)에 그 경로의 노선이 존재하나</li><li>첫차·막차·배차·공항편을 시간표 저장소에서</li></ul><div class="foot" style="color:var(--green)">호출 없이 판정 · 규칙</div></div>
+      <div class="arr">→</div>
+      <div class="box"><h4>제약 대조 판정기</h4><ul><li><b>도보 시간은 카카오 값 그대로</b> — 기준선 1.04 m/s <b>실측</b>(성인 평균보다 25% 느림). 보정 계수는 확장 항목, 도보 10분 초과 + 느린 동행이면 경고만</li><li>초행 길찾기 환승당 1분 + 대형 환승역 2분</li><li><b>환승·승차 대기(시간표 배차)</b> — 카카오 totalTime에 대기가 아예 없음(실측)</li><li>도착 추정 + 정책 버퍼 vs 다음 일정 시각</li><li>환승 횟수·도보 상한 초과 → 성립해도 탈락</li></ul><div class="foot" style="color:var(--orange)">카카오가 주는 것(걷기·타기)은 고치고, 주지 않는 것(대기·길찾기·버퍼)만 더한다</div></div>
+      <div class="arr">→</div>
+      <div class="box"><h4>근거·판정 조립</h4><ul><li><b>확정</b>: 시간표·규칙 → Evidence(db/policy), observed_at=수집일·개정일</li><li><b>추정</b>: 카카오 파생값만 → Evidence(tool_result), 원값 없음</li><li><b>근거 없음</b>: Evidence 안 만듦, decisions·warnings에. 전 구간이면 escalate</li></ul></div>
+      <div class="arr">→</div>
+      <div class="box out"><h4>응답 조립 → 코어</h4><ul><li>TeamResult: decisions + evidence + answer 요약</li><li>우리 판정만 전달, 경로 상세는 링크로</li><li>링크 = 장소명+좌표로 우리가 조립 (호출 0)</li></ul><div class="foot">예: 막차 23:52, 도착 필요 23:40 → 불가, 출발 22:50이면 성립</div></div>
+    </div>
+
+    <div class="grid3">
+      <div>
+        <div class="varr g" style="margin:0 0 6px 0"><b>↓</b> ③ recheck 요청 (코어 스케줄러 <span class="diamond">◆</span>)</div>
+        <div class="box watch"><h4>재확인 처리 (F2) — 타이머는 밖</h4><ul><li>입력: 코어가 배정한 재확인 요청 + 이전 판정 이력</li><li>시간표 기준 재판정 → 호출 0</li><li>지난 이력과 다르면 F3 (후보 열거)</li></ul><div class="foot">운행 이슈는 코어가 감지해 조건으로 넘겨준다 — 모듈은 소스를 보지 않는다. 데모는 코어 입력 형태의 Mock</div></div>
+        <div class="varr p" style="margin:6px 0 0 0"><b>↓</b> 변화 감지 → 후보 열거</div>
+      </div>
+      <div>
+        <div class="varr p" style="margin:0 0 6px 0"><b>↓</b> ② replan 또는 재확인 변화</div>
+        <div class="loop"><h4>F3 = 후보 열거 → F1 반복 (별도 부품 아님)</h4>
+          <p>후보 열거 규칙(순서): ⓐ 같은 수단 다른 노선 → ⓑ 수단 변경(지하철↔버스→택시→도보) → ⓒ 출발 시각 조정(앞 일정 단축은 코어에 제안만) → ⓓ 목적지 포기("이 구간 불가"만 보고)</p>
+          <p style="margin-top:6px">각 후보를 위 F1 파이프라인(경로 조회 → 시각 검증 → 제약 대조 → 근거)에 다시 통과 → 통과분 1~2개만 ActionProposal로. max_steps=6 안. <b>규칙 열거, LLM 없음</b> (결정·이유는 아래)</p>
+        </div>
+      </div>
+      <div class="two" style="grid-template-columns:1fr">
+        <div class="box data"><h4>저장소 (모듈이 보관)</h4>
+          <ul><li><b>시간표</b> — TAGO 전 노선 역별 시간표(단일 소스, 행마다 fetched_at·source) + 열린데이터광장 역코드/영문명(참조·교차검증). 공항 리무진·버스는 미확보 → 근거 없음</li>
+          <li><b>규칙 표</b> — <code>rules_v0.2.json</code>: 실측 보행 기준선(1.04 m/s), 보정 계수, 길찾기·대형역 가산, 대기 모델, 버퍼, 상한, 후보 열거 순서. 값마다 grade·근거</li>
+          <li><b>구간 검증 이력</b> — 판정·확인 시각·소스 이름만 (API 응답 숫자는 안 남김)</li></ul>
+        </div>
+        <div class="box" style="border-color:var(--orange)"><h4 style="color:#8f3c12">호출 어댑터 (저장 없음)</h4>
+          <ul><li>카카오 대중교통·도보 경로 — 처리 중 메모리 사용만, 캐시 금지</li><li><s>운행 장애·통제 소스</s> — 코어 담당(소스 후보는 소싱 문서 3-11)</li><li>택시 요금·시간 (확보 후)</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="box" style="border-color:var(--purple);background:var(--purple-s);margin-top:12px">
+      <h4 style="color:var(--purple)">변화 감지 결과 (F3-b) → TeamResult로 코어에</h4>
+      <ul><li>decisions[].changed=true · 원인(막차 경과 / 운행 중단 / 소요 급증 / 고객 신고) · 새 도착 예상 · 살릴 수 있는 뒤 일정 여부 · 대안(ActionProposal) · Evidence</li></ul>
+      <div class="foot">다른 Team 영향 판단·전파는 코어가 한다. 이동 모듈은 handoff 대상을 고르지 않고 판단 재료만 준다 (승인 필요 제안과 handoff는 한 결과에 못 담김 — 계약 검증기).</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h5>흐름 4개</h5>
+    <div class="flowline f1"><b>F1 검증</b> 코어가 각 이동 구간을 ①로 → 경로 조회(필요 시) → 시각 검증 → 제약 대조 → 등급·근거 → "성립 / 불가+사유+완화 조건". 최초 검증과 재검증이 같은 흐름.</div>
+    <div class="flowline f2"><b>F2 재확인</b> 코어 스케줄러가 ③ recheck를 배정 → 시간표로 재판정(호출 0) → 이전 이력과 다르면 F3. 타이머는 모듈 밖.</div>
+    <div class="flowline f3"><b>F3-a 남이 일으킨 사건</b> 액티비티 취소·식당 변경 → 코어가 영향 구간·바뀐 제약을 ② replan으로 → 후보 열거 → F1 반복 → 통과분 ActionProposal → 코어 전체 재검증 → 통지.</div>
+    <div class="flowline f3"><b>F3-b 이동이 일으킨 사건</b> 재확인에서 변화 또는 진행 중 고객 신고(막차 놓침·운행 중단) → changed=true + 대안을 TeamResult로 → 코어가 다른 Team 영향 판단 → 재검증 → 통지.</div>
+    <div style="margin-top:8px;color:var(--gold)">카카오 호출 지점은 셋뿐: 최초 검증(구간당 1회) · 수정/사건(영향 구간 × 후보) · 재확인에서 경로가 바뀌어야 할 때. 시간표 판정·링크 조립·판정 전달은 호출 0. 여행당 30~60회 추정.</div>
+  </div>
+
+  <div class="decide">
+    <h5>모듈 담당 결정 + 이유 (합의 대상 아님)</h5>
+    <dl>
+      <dt>대안 생성 = 규칙 열거, LLM 없음</dt><dd>이동은 후보 공간이 좁다(노선·수단·시각·포기). LLM은 없는 노선을 지어낼 위험만 늘고, 규칙 후보는 시간표로 즉시 검증된다. 팀장 원칙 "대안 생성 = LLM"은 후보가 열린 액티비티·요식에 맞고 이동은 예외.</dd>
+      <dt>구간 검증 이력 = 모듈 내부 저장</dt><dd>코어 여행 상태엔 결과만 올린다. 근거·확인 시각·소스 이름은 모듈이 보관해야 재확인 처리가 "지난번과 달라졌나"를 모듈 안에서 비교할 수 있고 코어 상태가 비대해지지 않는다.</dd>
+      <dt>근거 없음은 Evidence를 만들지 않음</dt><dd>계약의 Evidence는 출처 있는 주장이다. "없다"를 Evidence로 만들면 근거 대조에서 확정과 섞인다. decisions·warnings로 남기고 전 구간 근거 없음이면 escalate.</dd>
+      <dt>타이머는 모듈 밖, 다른 Team 영향 판단은 코어</dt><dd>Dining도 타이머를 갖지 않고 코어 계약에 스케줄 개념이 없다. run_case는 Team 하나만 배정하므로 handoff 대상을 Team이 고르면 Team 간 결합이 생긴다. 모듈은 recheck capability와 판단 재료만 노출한다.</dd>
+      <dt>승인 정책 기본값 (경계는 ◆)</dt><dd>잠긴 예약에 닿지 않는 대안은 approval_required=False(선제 조정·거부권 모델), 잠긴 예약을 건드리면 True·high.</dd>
+      <dt>환승 고정 여유 5분 삭제 (팀 피드백 9/9)</dt><dd>카카오 totalTime 에 환승 도보가 이미 포함돼 있어 고정값을 더하면 같은 시간을 두 번 센다. 지적이 맞다.</dd>
+      <dt>보행 속도는 재서 정했다 (1.04 m/s)</dt><dd>"카카오 값은 노약자까지 고려한 것"이라는 의견을 측정으로 갈랐다. 도보 API 6구간 거리÷시간 중앙값 1.04 m/s(범위 1.01~1.10). 서울시 일반 보행신호 기준 1.0 에 가깝고 성인 평균 1.3 보다 25% 느리다 — 보통 성인보다 느린 건 맞지만 노약자 기준(0.7)은 아니다. 그래서 일반 일행은 1.0, 유아·고령은 교통약자 기준 0.7 대비 비율인 1.5. 요인은 곱하지 않고 최대값 하나만.</dd>
+      <dt>MVP 는 보정 계수를 쓰지 않는다</dt><dd>실측이 "보통 일행엔 이미 여유가 있다"를 보여 준다. 계수는 전부 [추정]이라 넣으면 판정 오류의 원인을 가릴 수 없고 7주 일정에서 이동은 세 번째다. <code>walk_pace.enabled=false</code>로 두고 값·근거는 남긴다. 확장 트리거는 나이·성별이 아니라 <b>동행 조건</b> — 유아차를 미는 30대가 유아차 없는 65세보다 느리다.</dd>
+      <dt>길찾기는 계수가 아니라 고정 가산</dt><dd>초행 외국인이 표지를 찾는 시간은 걷는 거리에 비례하지 않는다. 환승 1회당 1분, 대형 환승역 +2분.</dd>
+      <dt>대기 시간은 카카오에 아예 없다 (실측)</dt><dd>totalTime = step 시간의 합이고 잔여 구간 함의 속도가 도보와 같다. 걷기 + 타기뿐이고 기다리기가 없다. 시간표로 대기를 채우는 것은 이중 계산이 아니라 빈 자리를 메우는 것.</dd>
+      <dt>환승 실패 페널티 = 갈아탈 노선 배차간격</dt><dd>고정 5분이 아니다. 2호선 3분, 경의중앙선 20분으로 판정이 뒤집힌다. 시간표가 있어야 계산되고 경로 API 는 출발 시각을 못 받아 주지 못한다 — 시간표를 따로 모은 이유.</dd>
+      <dt>나머지 초기값</dt><dd>버퍼 10분(진행 중 15분), 유아·짐 도보 상한 800m, 환승 상한 2회(유아·고령·피로도 1회). 보행 기준선만 [확정](실측), 나머지는 [추정] — 합성 여행 20~30건으로 조정.</dd>
+      <dt>등급은 근거/값으로 분리</dt><dd>시간표대로 오는 차는 없으므로 "도착 시각 확정"은 성립하지 않는다. 확정은 기록 자체(막차 23:10, 환승 1회), 값은 항상 추정, 버퍼가 오차를 흡수. 근거 없음은 시간표 미확보 노선·경로 없는 구간에서 발생.</dd>
+      <dt>판정만 전달, 상세는 링크</dt><dd>카카오 약관(실시간 표시만, 캐시·재배포 금지)과 에이전트가 제3자인지 회색이라, 에이전트로는 우리 판정·근거·확인 시각만 보내고 경로 상세는 장소명+좌표로 조립한 카카오맵 링크로 대신한다. 예약 링크 원칙과 같은 모양.</dd>
+      <dt>시간표 우선, 카카오 최소 호출</dt><dd>성립 여부는 시간표로 끝내고 카카오는 경로 모양이 필요할 때만. 비용과 약관 위험을 같이 줄인다. 자체 경로 계산(공공 노선·시간표 + 오픈소스 엔진)은 확장 항목.</dd>
+      <dt>택시 API</dt><dd>확보되는 것 중 고르는 문제. 운행 이슈 소스는 코어로 이관(9/9).</dd>
+    </dl>
+  </div>
+
+  <div class="note" style="background:var(--gold-s);border-color:#d4a72c">
+    <h5><span class="diamond">◆</span> 합의 필요 — 모듈 경계에 걸린 3개</h5>
+    <ol>
+      <li>재확인·재계획 요청의 발신 경로 — 공통 스케줄러와 사건 전파가 코어의 어느 자리에서 recheck/replan을 배정하는가(run_case 재라우팅 / 브로커 / Activity handoff)</li>
+      <li>ContextPack.current_state 키 — 구간·시각 제약·동행 조건·단계·현재 위치·재계획 문맥. ContextBroker가 채워야 하는 항목. 없으면 이동 모듈이 자체 추정(stage_assumed)</li>
+      <li>이동 대안의 approval_required 정책 — 위 기본값 제안이 코어의 선제 조정·승인 정책과 맞는지</li>
+    </ol>
+    <div style="margin-top:6px;color:var(--muted)">계약 이름·필드는 contracts.py로 확인 완료(TeamModule·TeamTask·TeamResult·Evidence·ContextPack·ActionProposal). v0.1 ◆3 "이벤트 형태"는 decisions·ActionProposal로 해소.</div>
+  </div>
+
+</div>
+</div>
+
+<div id="v2" class="view skel"></div>
+
+<div id="v3" class="view simple">
+  <h3>F1 · 검증 — 이 이동이 그 시각에 성립하는가</h3>
+  <div class="row">
+    <div class="box core"><h4>코어</h4><p>구간·시각 제약·동행 조건</p></div>
+    <div class="arr b">→</div>
+    <div class="box"><h4>경로 조회</h4><p>카카오 · 필요할 때만 · 캐시 없음</p></div>
+    <div class="arr">→</div>
+    <div class="box"><h4>시각 검증</h4><p>첫차·막차·배차 · 시간표(호출 0)</p></div>
+    <div class="arr">→</div>
+    <div class="box"><h4>제약 대조</h4><p>보행 보정 · 환승 대기 · 버퍼 · 상한</p></div>
+    <div class="arr">→</div>
+    <div class="box out"><h4>응답</h4><p>성립 / 불가+사유 · 근거 등급/값 등급 · 확인 시각 · 링크</p></div>
+    <div class="arr o">→</div>
+    <div class="box core"><h4>코어</h4><p>전체 정합성 재검증 → 에이전트</p></div>
+  </div>
+
+  <h3 class="p">F3 · 사건 — 후보를 열거해 F1을 다시 돌린다</h3>
+  <div class="row">
+    <div class="box issue"><h4>사건 발생</h4><p>남이: 액티비티 취소·식당 변경 (코어 replan)<br>자체: 재확인 변화·막차 놓침 신고</p></div>
+    <div class="arr p">→</div>
+    <div class="box alt"><h4>후보 열거 (규칙)</h4><p>다른 노선 → 수단 변경 → 시각 조정 → 포기 보고</p></div>
+    <div class="arr p">↻</div>
+    <div class="box"><h4>후보마다 F1</h4><p>시각 검증 · 제약 대조 · 근거</p></div>
+    <div class="arr p">→</div>
+    <div class="box out"><h4>통과분 1~2개 + 근거</h4><p>ActionProposal + Evidence</p></div>
+    <div class="arr o">→</div>
+    <div class="box issue"><h4>코어</h4><p>다른 Team 영향 판단 → 재검증 → 통지</p></div>
+  </div>
+
+  <h3 class="g">F2 · 재확인 — 문제를 고객보다 먼저 알기 (타이머는 코어)</h3>
+  <div class="row">
+    <div class="box core"><h4>코어 스케줄러 ◆</h4><p>출발 전날 · 당일 아침 · 예약 2시간 전에 recheck 배정</p></div>
+    <div class="arr g">→</div>
+    <div class="box watch"><h4>재확인 처리</h4><p>이전 판정 이력 + 코어가 준 이슈 조건</p></div>
+    <div class="arr g">→</div>
+    <div class="box"><h4>시간표로 재검증 (F1)</h4><p>호출 0 · 이력과 비교</p></div>
+    <div class="arr p">→</div>
+    <div class="box alt"><h4>달라지면 F3</h4><p>후보 열거 → changed=true + 대안</p></div>
+  </div>
+
+  <div class="note" style="margin-top:22px">
+    <h5>한 줄 요약</h5>
+    F1이 본체, F2는 코어가 정한 시점에 F1을 다시, F3는 F1을 여러 후보에 다시 돌리는 것. 모듈 코드는 검증기 하나 + 후보 열거 규칙 + 근거 조립으로 구성되고 타이머는 갖지 않는다.
+    저장은 시간표·규칙 표·우리 판정 이력뿐, 카카오 응답은 처리 중 메모리에서만 쓰고 캐시하지 않는다. 에이전트로는 판정과 우리가 조립한 링크만 나간다.
+  </div>
+</div>
+
+</div>
+<script>
+  document.getElementById('v2').innerHTML = document.getElementById('arch').outerHTML.replace('id="arch"','id="arch2"');
+  const tabs=document.querySelectorAll('.tabs button'), views=document.querySelectorAll('.view');
+  tabs.forEach(b=>b.addEventListener('click',()=>{
+    tabs.forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    views.forEach(v=>v.classList.toggle('on', v.id===b.dataset.v));
+  }));
+</script>
+</body>
+</html>

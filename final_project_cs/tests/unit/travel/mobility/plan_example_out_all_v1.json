@@ -1,0 +1,200 @@
+{
+  "items": [
+    {
+      "seq": 1,
+      "kind": "dining",
+      "title": "호텔 조식",
+      "place": "hotel",
+      "starts_at": "2026-09-29T08:30:00+09:00",
+      "ends_at": "2026-09-29T09:15:00+09:00"
+    },
+    {
+      "seq": 2,
+      "kind": "mobility",
+      "title": "명동 호텔 → 경복궁",
+      "starts_at": "2026-09-29T09:18:00+09:00",
+      "ends_at": "2026-09-29T09:46:00+09:00",
+      "route": "hotel_to_gyeongbokgung"
+    },
+    {
+      "seq": 3,
+      "kind": "activity",
+      "title": "경복궁 한복 탐방",
+      "place": "gyeongbokgung",
+      "starts_at": "2026-09-29T10:00:00+09:00",
+      "ends_at": "2026-09-29T12:00:00+09:00"
+    },
+    {
+      "seq": 4,
+      "kind": "mobility",
+      "title": "경복궁 → 성수동 팝업·향수 쇼룸 거리",
+      "starts_at": "2026-09-29T12:36:00+09:00",
+      "ends_at": "2026-09-29T13:13:00+09:00",
+      "route": "gyeongbokgung_to_seongsu"
+    },
+    {
+      "seq": 5,
+      "kind": "activity",
+      "title": "성수동 팝업스토어·향수 쇼룸",
+      "place": "seongsu",
+      "starts_at": "2026-09-29T13:30:00+09:00",
+      "ends_at": "2026-09-29T16:30:00+09:00"
+    },
+    {
+      "seq": 6,
+      "kind": "mobility",
+      "title": "성수동 팝업·향수 쇼룸 거리 → 서울역 저녁 식당(시나리오)",
+      "starts_at": "2026-09-29T17:24:00+09:00",
+      "ends_at": "2026-09-29T17:50:00+09:00",
+      "route": "seongsu_to_dinner"
+    },
+    {
+      "seq": 7,
+      "kind": "dining",
+      "title": "저녁 식사",
+      "place": "dinner",
+      "starts_at": "2026-09-29T18:00:00+09:00",
+      "ends_at": "2026-09-29T19:00:00+09:00"
+    },
+    {
+      "seq": 8,
+      "kind": "mobility",
+      "title": "서울역 저녁 식당(시나리오) → 롯데마트 서울역점",
+      "starts_at": "2026-09-29T19:16:00+09:00",
+      "ends_at": "2026-09-29T19:20:00+09:00",
+      "route": "dinner_to_lotte_mart"
+    },
+    {
+      "seq": 9,
+      "kind": "activity",
+      "title": "롯데마트 서울역점 식료품 쇼핑",
+      "place": "lotte_mart",
+      "starts_at": "2026-09-29T19:30:00+09:00",
+      "ends_at": "2026-09-29T20:30:00+09:00"
+    }
+  ],
+  "routes": {
+    "hotel_to_gyeongbokgung": {
+      "from": "명동 호텔",
+      "to": "경복궁",
+      "planned": "subway_1",
+      "options": [
+        {
+          "id": "subway_1",
+          "label": "2호선 을지로입구→을지로3가 → 3호선 을지로3가→경복궁",
+          "eta_min": 28,
+          "walk_m": 993,
+          "fare_krw": 1550,
+          "uses": [
+            "2호선:을지로입구",
+            "2호선:을지로3가",
+            "3호선:을지로3가",
+            "3호선:경복궁"
+          ]
+        }
+      ]
+    },
+    "gyeongbokgung_to_seongsu": {
+      "from": "경복궁",
+      "to": "성수동 팝업·향수 쇼룸 거리",
+      "planned": "subway_1",
+      "options": [
+        {
+          "id": "subway_1",
+          "label": "3호선 경복궁→을지로3가 → 2호선 을지로3가→성수 — 소요 가장 짧음 · 환승 가장 적음(1회)",
+          "eta_min": 37,
+          "walk_m": 825,
+          "fare_krw": 1550,
+          "uses": [
+            "3호선:경복궁",
+            "3호선:을지로3가",
+            "2호선:을지로3가",
+            "2호선:성수"
+          ]
+        },
+        {
+          "id": "subway_2",
+          "label": "3호선 경복궁→충무로 → 4호선 충무로→동대문역사문화공원 → 2호선 동대문역사문화공원→성수 — 도보 거리 가장 짧음",
+          "eta_min": 43,
+          "walk_m": 738,
+          "fare_krw": 1550,
+          "uses": [
+            "3호선:경복궁",
+            "3호선:충무로",
+            "4호선:충무로",
+            "4호선:동대문역사문화공원",
+            "2호선:동대문역사문화공원",
+            "2호선:성수"
+          ]
+        }
+      ]
+    },
+    "seongsu_to_dinner": {
+      "from": "성수동 팝업·향수 쇼룸 거리",
+      "to": "서울역 저녁 식당(시나리오)",
+      "planned": "subway_1",
+      "options": [
+        {
+          "id": "subway_1",
+          "label": "2호선 성수→동대문역사문화공원 → 4호선 동대문역사문화공원→서울역",
+          "eta_min": 26,
+          "walk_m": 214,
+          "fare_krw": 1550,
+          "uses": [
+            "2호선:성수",
+            "2호선:동대문역사문화공원",
+            "4호선:동대문역사문화공원",
+            "4호선:서울역"
+          ]
+        }
+      ]
+    },
+    "dinner_to_lotte_mart": {
+      "from": "서울역 저녁 식당(시나리오)",
+      "to": "롯데마트 서울역점",
+      "planned": "walk",
+      "options": [
+        {
+          "id": "walk",
+          "label": "도보",
+          "eta_min": 4,
+          "walk_m": 194,
+          "fare_krw": 0,
+          "uses": []
+        }
+      ]
+    }
+  },
+  "skipped": [],
+  "left_out": {
+    "hotel_to_gyeongbokgung": [
+      {
+        "label": "버스 7022 우리은행종로지점→경복궁역3번출구",
+        "code": "before_prev_end",
+        "reason": "앞 일정이 09:15에 끝나고, 이동 출발 09:18 출발은 재판정에서 불성립 · 09:02 출발은 성립 확인(역산) · 환승 0회 · 소요 40분"
+      }
+    ],
+    "dinner_to_lotte_mart": [
+      {
+        "label": "버스 402 서울역버스환승센터→숭례문.서울역4번출구",
+        "code": "before_prev_end",
+        "reason": "앞 일정이 19:00에 끝나고, 이동 출발 19:16 출발은 재판정에서 불성립 · 18:56 출발은 성립 확인(역산) · 환승 0회 · 소요 20분"
+      },
+      {
+        "label": "버스 7011 서울역버스환승센터→숭례문.서울역4번출구",
+        "code": "before_prev_end",
+        "reason": "앞 일정이 19:00에 끝나고, 이동 출발 19:16 출발은 재판정에서 불성립 · 17:59 출발은 성립 확인(역산) · 환승 0회 · 소요 57분"
+      },
+      {
+        "label": "버스 503 서울역서부→서울역버스환승센터",
+        "code": "before_prev_end",
+        "reason": "앞 일정이 19:00에 끝나고, 이동 출발 19:16 출발은 재판정에서 불성립 · 18:49 출발은 성립 확인(역산) · 환승 0회 · 소요 23분"
+      },
+      {
+        "label": "그 밖 버스 직행 43개",
+        "code": "bus_more",
+        "reason": "도보 긴 쪽 — before_prev_end 43"
+      }
+    ]
+  }
+}

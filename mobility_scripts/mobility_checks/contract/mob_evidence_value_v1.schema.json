@@ -1,0 +1,1236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skn32-final-6team/mobility/mob_evidence_value/1.0",
+  "title": "Mobility Evidence.value / mob_verdict_evidence.value (v1)",
+  "description": "이동 모듈이 Evidence.value 와 mob_verdict_evidence.value 에 넣는 유일한 모양. 두 자리에 같은 스키마를 쓴다. additionalProperties:false 가 경로·좌표·외부 API 유래 값의 혼입을 구조로 막는다.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/run"
+    },
+    {
+      "$ref": "#/$defs/verdict"
+    },
+    {
+      "$ref": "#/$defs/timetable"
+    },
+    {
+      "$ref": "#/$defs/rule"
+    },
+    {
+      "$ref": "#/$defs/walk"
+    },
+    {
+      "$ref": "#/$defs/bus"
+    },
+    {
+      "$ref": "#/$defs/issue"
+    },
+    {
+      "$ref": "#/$defs/prev_verdict"
+    },
+    {
+      "$ref": "#/$defs/alt"
+    },
+    {
+      "$ref": "#/$defs/source"
+    },
+    {
+      "$ref": "#/$defs/car_leg"
+    }
+  ],
+  "$defs": {
+    "v": {
+      "const": 1
+    },
+    "grade": {
+      "enum": [
+        "확정",
+        "추정",
+        "근거없음"
+      ]
+    },
+    "leg_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "service_min": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2159,
+      "description": "서비스 분(0=당일 00:00). 24시 초과 허용. 절대 시각 복원은 service_date 와 함께."
+    },
+    "service_min_null": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 2159
+    },
+    "day_type": {
+      "enum": [
+        "weekday",
+        "holiday",
+        "saturday",
+        "sunday"
+      ]
+    },
+    "verdict_value": {
+      "enum": [
+        "ok",
+        "fail",
+        "unknown",
+        "rejected_by_limit"
+      ],
+      "description": "mob_leg_verdict.verdict CHECK 와 같은 어휘. 계약 decisions[] 로 낼 때만 3종(rejected_by_limit → fail + relax)으로 접는다."
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "text"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^MOB_R_[A-Z0-9_]+$"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "relax": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "text"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^MOB_X_[A-Z0-9_]+$"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "depart_min": {
+          "$ref": "#/$defs/service_min"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        }
+      }
+    },
+    "limit_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "value",
+        "limit"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "value": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "number"
+        }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "class",
+        "text",
+        "to_answer"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^MOB_W_[A-Z0-9_]+$"
+        },
+        "class": {
+          "enum": [
+            "grade",
+            "cost",
+            "effort",
+            "better_option",
+            "data"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "to_answer": {
+          "type": "boolean"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        }
+      }
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timetable_built_at",
+        "rules_version"
+      ],
+      "properties": {
+        "timetable_built_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "rules_version": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "db_loaded_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "impl_rev": {
+          "type": "string",
+          "maxLength": 40
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "grade",
+        "verdict",
+        "counts",
+        "legs",
+        "confidence",
+        "basis"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "run"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ok",
+            "fail",
+            "rejected_by_limit",
+            "unknown"
+          ],
+          "properties": {
+            "ok": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fail": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejected_by_limit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "legs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "with_evidence",
+            "without_evidence"
+          ],
+          "properties": {
+            "with_evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/leg_id"
+              },
+              "maxItems": 64,
+              "description": "근거를 실은 구간. 상한 이하의 모든 구간이 여기 들어간다."
+            },
+            "without_evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/leg_id"
+              },
+              "maxItems": 64,
+              "description": "근거 예산 상한(MAXLEG) 초과로 근거를 싣지 못한 구간. 판정 실패와 무관하다."
+            }
+          },
+          "description": "구간이 조용히 사라지지 않는다는 것의 마지막 장치. ★ without_evidence 는 「근거가 없는 구간」이 아니다 — fold.py 에서 i > MAXLEG 인 구간, 즉 근거 예산 상한을 넘어 근거를 싣지 못한 구간만 담는다. 역을 못 찾았는지와 무관하고, 구간 수가 상한 이하이면 항상 빈 목록이다. 구간마다 판정 근거는 근거없음이어도 반드시 하나 만들어지므로, 그 구간은 with_evidence 에 들어간다. (2026-09-14: 이 필드를 「근거 없음」으로 읽고 쓴 점검 항목이 절대 통과할 수 없는 검사가 됐다.)"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          },
+          "maxItems": 20
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidence_used",
+            "cap"
+          ],
+          "properties": {
+            "evidence_used": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cap": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "stage_assumed": {
+          "type": "boolean"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis"
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict_value"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "slack_min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "여유 분. CaseResult.slack_min"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "maxItems": 6
+        },
+        "relax": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relax"
+          },
+          "maxItems": 6
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "verdict",
+        "service_date",
+        "day_type",
+        "basis",
+        "evidence_ids"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "verdict"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "verdict_id": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "mob_leg_verdict.verdict_id 역참조"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict_value"
+        },
+        "service_date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "day_type": {
+          "$ref": "#/$defs/day_type"
+        },
+        "depart_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "arrive_unknown_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^MOB_R_[A-Z0-9_]+$"
+        },
+        "required": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "depart_at_min": {
+              "$ref": "#/$defs/service_min_null"
+            },
+            "arrive_by_min": {
+              "$ref": "#/$defs/service_min_null"
+            },
+            "arrive_fixed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "by_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "subway": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "bus": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "taxi": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "walk": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "airport_bus": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "bike": {
+              "$ref": "#/$defs/verdict_value"
+            },
+            "car": {
+              "$ref": "#/$defs/verdict_value"
+            }
+          }
+        },
+        "slack_min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "결론이 뒤집히기까지의 여유 분. CaseResult.slack_min 과 같은 이름·같은 뜻이다(9/13 실물 확인). null 이면 산출 불가."
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reason"
+          },
+          "maxItems": 6
+        },
+        "relax": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relax"
+          },
+          "maxItems": 6
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/limit_hit"
+          },
+          "maxItems": 6
+        },
+        "alt_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "maxItems": 6
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          },
+          "maxItems": 10
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "maxItems": 10
+        },
+        "basis": {
+          "$ref": "#/$defs/basis"
+        }
+      }
+    },
+    "timetable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "station_key",
+        "day_type",
+        "dep_min",
+        "role"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "timetable"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "station_key": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "day_type": {
+          "$ref": "#/$defs/day_type"
+        },
+        "dep_min": {
+          "$ref": "#/$defs/service_min"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "dest_station_nm": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 30
+        },
+        "train_no": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 20
+        },
+        "role": {
+          "enum": [
+            "boarding",
+            "last_train",
+            "first_train",
+            "candidate"
+          ]
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "grade",
+        "rules_version",
+        "used"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "rule"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "rules_version": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "used": {
+          "type": "object",
+          "description": "스칼라만 허용한다. 중첩을 막아 경로·좌표가 규칙 근거에 섞여 들어오지 못하게 한다.",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "string",
+              "boolean",
+              "null"
+            ]
+          },
+          "maxProperties": 20
+        }
+      }
+    },
+    "walk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "pair",
+        "dist_m",
+        "walk_min"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "walk"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "pair": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "dist_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "walk_min": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "speed_mps": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "bus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "route_id",
+        "speed_kmh",
+        "speed_basis"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "bus"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "route_id": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "speed_kmh": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "speed_basis": {
+          "enum": [
+            "노선실측",
+            "노선유형통계",
+            "근거없음"
+          ]
+        },
+        "dist_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "term_min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "last_time_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "grade_wait": {
+          "$ref": "#/$defs/grade"
+        },
+        "grade_speed": {
+          "$ref": "#/$defs/grade"
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "grade",
+        "disruption"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "issue"
+        },
+        "leg_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "disruption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "station_skip",
+                "edge_closed",
+                "line_closed",
+                "route_closed"
+              ]
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "maxItems": 10
+            },
+            "stations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 30
+              },
+              "maxItems": 20
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "maxItems": 20
+            },
+            "direction": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 20
+            },
+            "from": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 40
+            },
+            "to": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 40
+            },
+            "source_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 60
+            }
+          }
+        },
+        "effect": {
+          "enum": [
+            "passable",
+            "blocked",
+            "endpoint_unusable"
+          ]
+        }
+      }
+    },
+    "prev_verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "verdict",
+        "task_id",
+        "checked_at"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "prev_verdict"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict_value"
+        },
+        "task_id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "checked_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "diff": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "field",
+              "before",
+              "after"
+            ],
+            "properties": {
+              "field": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "before": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "after": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "alt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "axis",
+        "mode",
+        "verdict"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "alt"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "axis": {
+          "enum": [
+            "출발시각_이동",
+            "노선교체",
+            "수단교체",
+            "환승역_교체"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "subway",
+            "bus",
+            "taxi",
+            "walk",
+            "airport_bus",
+            "bike",
+            "car"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict_value"
+        },
+        "depart_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "inherits_issue": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          },
+          "maxItems": 6
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "과도기 kind. 판정기(verify_time.py)의 근거는 아직 구조화 value 를 만들지 않는다(claim 까지만 낸다). 그 근거를 계약으로 올릴 때 쓰는 최소 봉투이고, 판정기가 value 를 만들게 되면 timetable·rule·walk·bus·issue 로 승격한다.",
+      "required": [
+        "v",
+        "kind",
+        "grade",
+        "of"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "source"
+        },
+        "leg_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "of": {
+          "enum": [
+            "timetable",
+            "rule",
+            "walk",
+            "bus",
+            "issue",
+            "bike",
+            "기타"
+          ]
+        }
+      }
+    },
+    "car_leg": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "자동차·택시 구간 요약(21번 방 · v0.6). 저장소 설계 3차 변경점 §3. 좌표열·edge 목록·경로 API 원값은 넣지 않는다 — additionalProperties:false 가 막는다.",
+      "required": [
+        "v",
+        "kind",
+        "leg_id",
+        "grade",
+        "mode",
+        "distance_m",
+        "topis_time_s",
+        "day_type",
+        "hour_start",
+        "coverage_m",
+        "coverage_pct",
+        "source_id"
+      ],
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/v"
+        },
+        "kind": {
+          "const": "car_leg"
+        },
+        "leg_id": {
+          "$ref": "#/$defs/leg_id"
+        },
+        "grade": {
+          "$ref": "#/$defs/grade"
+        },
+        "mode": {
+          "enum": [
+            "car",
+            "taxi"
+          ]
+        },
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "topis_time_s": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gh_time_s": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "GraphHopper 정적 소요 — 참고값. 판정에는 쓰지 않는다(18번: 정적 11.1% vs 프로파일 3.6%)"
+        },
+        "depart_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "arrive_min": {
+          "$ref": "#/$defs/service_min_null"
+        },
+        "day_type": {
+          "enum": [
+            "평일",
+            "토요일",
+            "휴일"
+          ],
+          "description": "프로파일 요일형 — 시간표 day_type(weekday/holiday)과 다른 축이다. config holidays(A10)가 정본"
+        },
+        "hour_start": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "coverage_m": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "topis",
+            "class",
+            "default"
+          ],
+          "properties": {
+            "topis": {
+              "type": "number",
+              "minimum": 0
+            },
+            "class": {
+              "type": "number",
+              "minimum": 0
+            },
+            "default": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "coverage_pct": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "topis",
+            "class",
+            "default"
+          ],
+          "properties": {
+            "topis": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "class": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "default": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        },
+        "n_edges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_links": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "links": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "link_id",
+              "m"
+            ],
+            "properties": {
+              "link_id": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "m": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "description": "어느 링크를 몇 m — 요약. 좌표 없음"
+        },
+        "source_id": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "fare_kind": {
+          "enum": [
+            "중형",
+            "대형_모범"
+          ]
+        },
+        "fare_won": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "meter_won": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toll_won": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toll_basis": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 120
+        },
+        "slow_s": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "slow_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "night_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "out_of_city": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "null = 미판정(서울 경계 폴리곤 없음). 미적용 = 하한 방향"
+        },
+        "fare_basis": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          },
+          "maxItems": 6
+        },
+        "basis": {
+          "$ref": "#/$defs/basis"
+        }
+      }
+    }
+  }
+}

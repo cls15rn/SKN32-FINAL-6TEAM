@@ -1,0 +1,81 @@
+{
+ "note": "28 — 시간표 행선지 빈칸 채우기(chain_v1) + passes() 목적지까지 구간만 등급(28)을 잠근다. 채운 시간표(timetable_v1_meta.json 에 dest_fill 절)가 있어야 통과한다 — 원본 시간표면 D28-01·02 는 근거없음/불가, D28-03 은 22:54 로 MISS 가 난다(그게 이 묶음의 뜻) · 채운 행선지를 쓴 구간은 MOB_W_DEST_INFERRED + 등급 추정(GPT 9/28 #3)",
+ "built_at": "2026-09-28",
+ "주의": "기대값은 2026-09-09 수집 시간표 + chain_v1 채우기 기준. 시간표를 다시 받으면 다시 본다",
+ "cases": [
+  {
+   "id": "D28-01",
+   "note": "04호선 사당→남태령 평일 12:00 — 사당 너머로 가는 편성은 원천이 행선지를 비워 줬다(124편). 채우기로 선바위에서 「오이도」로 이어지고, passes() 가 남태령 너머 안산–신길온천(근거없음)을 더는 보지 않아 12:02 오이도행을 쓴다. 옛 판: 행선지 모름 → 근거없음 / 채우기만 → 안산·금정행 18편만 → 불가 service_gap(425분)",
+   "date": "2026-09-14",
+   "depart_at": "12:00",
+   "legs": [
+    {
+     "line": "04호선",
+     "from": "사당",
+     "to": "남태령"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "12:05",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes": [
+    "MOB_W_DEST_INFERRED"
+   ]
+  },
+  {
+   "id": "D28-02",
+   "note": "04호선 사당→과천 평일 12:00 — 과천선 구간도 같은 오이도행으로 간다(목적지 과천 까지 간선은 추정 이상)",
+   "date": "2026-09-14",
+   "depart_at": "12:00",
+   "legs": [
+    {
+     "line": "04호선",
+     "from": "사당",
+     "to": "과천"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "12:14",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes": [
+    "MOB_W_DEST_INFERRED"
+   ]
+  },
+  {
+   "id": "D28-03",
+   "note": "28 실측 T16(9/11 금 22:12 남부터미널) — 07호선 고속터미널 22:36 편은 원천이 행선지를 비운 온수행. 채우기 전 22:46 석남행까지 기다려 22:54 · 채운 뒤 22:36 온수행 → 22:44(실측 하차 22:35 · @10 안은 아님 — 3호선 대기 7분이 실제보다 길다)",
+   "date": "2026-09-11",
+   "depart_at": "22:12",
+   "legs": [
+    {
+     "line": "03호선",
+     "from": "남부터미널",
+     "to": "고속터미널"
+    },
+    {
+     "line": "07호선",
+     "from": "고속터미널",
+     "to": "남성"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:44",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes": [
+    "MOB_W_DEST_INFERRED"
+   ]
+  }
+ ]
+}

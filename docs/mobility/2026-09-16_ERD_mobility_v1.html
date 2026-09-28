@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>이동 모듈 DB 엔터티 관계도</title>
+<style>
+body{margin:0;background:#fff;font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+svg{display:block}
+.title{font-size:15px;font-weight:700;fill:#222}
+.sub{font-size:11.5px;fill:#333}
+.hd{font-size:10.5px;font-weight:700;fill:#222}
+.at{font-size:9.5px;fill:#333}
+.lb{font-size:8.5px;fill:#444}
+.card{font-size:8.5px;fill:#444}
+.grp{font-size:10.5px;font-weight:700;fill:#555}
+.lg{font-size:9px;fill:#333}
+.lgh{font-size:10px;font-weight:700;fill:#333}
+.imp{stroke:#4a86c8;stroke-width:1.3;fill:#fff}
+.prop{stroke:#888;stroke-width:1;stroke-dasharray:2.5 2.5;fill:#fff}
+.hbar{fill:#f0f0f0}
+.fk{stroke:#4a86c8;stroke-width:1.3;fill:none}
+.lo{stroke:#7a7a7a;stroke-width:1.1;fill:none;stroke-dasharray:4 3}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="820" viewBox="0 0 1180 820">
+<defs>
+  <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#4a86c8"/></marker>
+  <marker id="arg" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#7a7a7a"/></marker>
+</defs>
+
+<text x="590" y="26" text-anchor="middle" class="title">이동 모듈 DB 엔터티 관계도</text>
+<text x="590" y="44" text-anchor="middle" class="sub">저장소 설계 부록 A 기준 · 스키마 mobility 13표 · 주요 컬럼과 제약 키 · 관계 3개(FK 2 · 논리 1) · 코어 접점 E-17</text>
+
+<rect x="22" y="62" width="278" height="150" fill="#fff" stroke="#888" stroke-width="0.8"/>
+<text x="161" y="78" text-anchor="middle" class="lgh">범례·원칙</text>
+<text x="32" y="94" class="lg">[PK] 기본키 · [FK] 외래키 · [UQ] 유일 제약</text>
+<text x="32" y="107" class="lg">M-번호 = 이동 모듈 표. E-번호 = 코어 표(팀 ERD)</text>
+<text x="32" y="120" class="lg">참조 표(M-01~10)와 산출 표(M-11~12)는 FK 없음(일부러)</text>
+<text x="32" y="133" class="lg">— 재적재(TRUNCATE) 시 판정 이력 보존, timetable_built_at 로 판 기록</text>
+<text x="32" y="146" class="lg">코어 표와 FK 없음. 접점은 E-17 evidences 하나(논리 연결)</text>
+<rect x="32" y="156" width="96" height="16" class="imp"/><text x="80" y="167" text-anchor="middle" class="lg">구현 파일 존재</text>
+<rect x="136" y="156" width="96" height="16" class="prop"/><text x="184" y="167" text-anchor="middle" class="lg">설계만 존재(제안)</text>
+<line x1="34" y1="188" x2="90" y2="188" class="fk" marker-end="url(#ar)"/><text x="96" y="191" class="lg">FK 관계 (1:N)</text>
+<line x1="34" y1="203" x2="90" y2="203" class="lo" marker-end="url(#arg)"/><text x="96" y="206" class="lg">논리 연결 (FK 없음)</text>
+
+<text x="22" y="240" class="grp">A. 참조 데이터 10표 — 재생성 가능 · 재적재는 이 묶음만 TRUNCATE</text>
+
+<rect x="22" y="250" width="216" height="118" class="imp"/><rect x="22.7" y="250.7" width="214.6" height="20" class="hbar"/>
+<text x="30" y="264" class="hd">M-01 지하철 시간표 · mob_timetable</text>
+<text x="30" y="284" class="at">[PK] id · [UQ] source, source_station_id, day_type,</text>
+<text x="30" y="296" class="at">      dir, dep_min, arr_min, dest_station_nm, train_no</text>
+<text x="30" y="310" class="at">line · station_nm · day_type</text>
+<text x="30" y="322" class="at">dep_min (분, 24h+ 허용, NULL=출발없음)</text>
+<text x="30" y="334" class="at">dest_station_nm · orig_station_nm (별도 컬럼)</text>
+<text x="30" y="346" class="at">train_no · source · fetched_at</text>
+<text x="30" y="360" class="card">463,326행</text>
+
+<rect x="250" y="250" width="216" height="118" class="imp"/><rect x="250.7" y="250.7" width="214.6" height="20" class="hbar"/>
+<text x="258" y="264" class="hd">M-02 노선별 역 순서 · mob_line_edge</text>
+<text x="258" y="284" class="at">[PK] id · [UQ] line, station_a, station_b</text>
+<text x="258" y="298" class="at">travel_min · distance_m · edge_source</text>
+<text x="258" y="310" class="at">grade · travel_min_grade</text>
+<text x="258" y="322" class="at">dir_a_to_b · dir_b_to_a</text>
+<text x="258" y="360" class="card">777간선 · travel_min 731/777</text>
+
+<rect x="478" y="250" width="216" height="118" class="imp"/><rect x="478.7" y="250.7" width="214.6" height="20" class="hbar"/>
+<text x="486" y="264" class="hd">M-03 역 좌표 · mob_station_coord</text>
+<text x="486" y="284" class="at">[PK] station_key (노선|역명)</text>
+<text x="486" y="298" class="at">line · station_nm · station_nm_en · fr_code</text>
+<text x="486" y="310" class="at">fr_order · is_spur · has_timetable</text>
+<text x="486" y="322" class="at">lat · lng (WGS84)</text>
+<text x="486" y="334" class="at">fetched_at · fetched_at_precision</text>
+<text x="486" y="360" class="card">793역</text>
+
+<rect x="706" y="250" width="216" height="118" class="imp"/><rect x="706.7" y="250.7" width="214.6" height="20" class="hbar"/>
+<text x="714" y="264" class="hd">M-04 환승 도보 · mob_transfer_walk</text>
+<text x="714" y="284" class="at">[PK] id · [UQ] station_nm, from_line, to_line</text>
+<text x="714" y="298" class="at">distance_m · walk_min · grade</text>
+<text x="714" y="310" class="at">checked_at</text>
+<text x="714" y="360" class="card">213쌍 · 74역 · 보행 1.04 m/s 실측</text>
+
+<rect x="934" y="250" width="216" height="118" class="imp"/><rect x="934.7" y="250.7" width="214.6" height="20" class="hbar"/>
+<text x="942" y="264" class="hd">M-05 혼잡도 · mob_congestion</text>
+<text x="942" y="284" class="at">[PK] id · [UQ] src_station_cd, dir_raw, day_type, slot_min</text>
+<text x="942" y="298" class="at">station_key · congestion (NULL=열차 없음)</text>
+<text x="942" y="310" class="at">reason · grade · fetched_at</text>
+<text x="942" y="360" class="card">65,169행 · 요일축 3종(시간표와 다름)</text>
+
+<rect x="22" y="386" width="216" height="104" class="imp"/><rect x="22.7" y="386.7" width="214.6" height="20" class="hbar"/>
+<text x="30" y="400" class="hd">M-06 시내버스 노선 · mob_bus_route</text>
+<text x="30" y="420" class="at">[PK] route_id</text>
+<text x="30" y="434" class="at">route_nm · route_type · corp_nm</text>
+<text x="30" y="446" class="at">first_min · last_min · crosses_midnight</text>
+<text x="30" y="458" class="at">term_min (NULL=배차 개념 없음)</text>
+<text x="30" y="482" class="card">717노선 (적재본 21 · 재적재 예정)</text>
+
+<rect x="250" y="386" width="216" height="104" class="imp"/><rect x="250.7" y="386.7" width="214.6" height="20" class="hbar"/>
+<text x="258" y="400" class="hd">M-07 버스 정류장 · mob_bus_stop</text>
+<text x="258" y="420" class="at">[PK] id · [UQ] route_id, seq</text>
+<text x="258" y="434" class="at">[FK] route_id → mob_bus_route</text>
+<text x="258" y="446" class="at">station_id · station_nm · lat · lng</text>
+<text x="258" y="458" class="at">direction · sect_dist_m</text>
+<text x="258" y="482" class="card">41,820행 (적재본 1,397 · 재적재 예정)</text>
+
+<rect x="478" y="386" width="216" height="104" class="imp"/><rect x="478.7" y="386.7" width="214.6" height="20" class="hbar"/>
+<text x="486" y="400" class="hd">M-08 버스 표정속도 · mob_bus_speed</text>
+<text x="486" y="420" class="at">[PK] route_nm</text>
+<text x="486" y="434" class="at">speed_kmh · stat_kmh · by_hour_kmh (jsonb)</text>
+<text x="486" y="446" class="at">observed_km · observed_min · grade</text>
+<text x="486" y="482" class="card">유형 2종 · 실측 관측 기반(추정)</text>
+
+<rect x="706" y="386" width="216" height="104" class="imp"/><rect x="706.7" y="386.7" width="214.6" height="20" class="hbar"/>
+<text x="714" y="400" class="hd">M-09 공항 리무진 · mob_airport_bus_dep.</text>
+<text x="714" y="420" class="at">[PK] id · route_no · route_key · terminal</text>
+<text x="714" y="434" class="at">dir · day_type · dep_min · first/last_min</text>
+<text x="714" y="446" class="at">timetable_available · fare_adult · grade</text>
+<text x="714" y="482" class="card">8,949행 · 180노선</text>
+
+<rect x="934" y="386" width="216" height="104" class="imp"/><rect x="934.7" y="386.7" width="214.6" height="20" class="hbar"/>
+<text x="942" y="400" class="hd">M-10 공휴일 · mob_holiday</text>
+<text x="942" y="420" class="at">[PK] holiday_date</text>
+<text x="942" y="434" class="at">name · source · fetched_at</text>
+<text x="942" y="482" class="card">46일 · 요일축(평일/휴일) 선택</text>
+
+<line x1="238" y1="412" x2="250" y2="412" class="fk" marker-end="url(#ar)"/>
+<text x="244" y="504" text-anchor="middle" class="lb">R-A0 1:N · FK route_id (M-06 1 → M-07 0..N)</text>
+
+<text x="22" y="536" class="grp">B. 모듈 산출 2표 — 되돌릴 수 없음 · 백업 대상 · 참조 표와 FK 없음(일부러)</text>
+
+<rect x="22" y="546" width="300" height="150" class="imp"/><rect x="22.7" y="546.7" width="298.6" height="20" class="hbar"/>
+<text x="30" y="560" class="hd">M-11 구간 판정 이력 · mob_leg_verdict</text>
+<text x="30" y="580" class="at">[PK] verdict_id ('mob:{case_id}:{leg_id}:{decided_at}')</text>
+<text x="30" y="594" class="at">case_id · task_id · run_id · leg_id · schedule_version</text>
+<text x="30" y="606" class="at">decided_at · verdict (ok/fail/unknown/rejected_by_limit)</text>
+<text x="30" y="618" class="at">evidence_grade (확정/추정/근거없음)</text>
+<text x="30" y="630" class="at">from_name · to_name · depart_at_min · arrive_by/est_min</text>
+<text x="30" y="642" class="at">reasons_json · relax_json · estimate_json (jsonb)</text>
+<text x="30" y="654" class="at">stage_assumed · rules_version · timetable_built_at</text>
+<text x="30" y="676" class="card">참조 표에 FK 없음 · 재확인(F2)의 정본 · 현재 0건</text>
+
+<rect x="392" y="546" width="300" height="150" class="imp"/><rect x="392.7" y="546.7" width="298.6" height="20" class="hbar"/>
+<text x="400" y="560" class="hd">M-12 판정 근거 · mob_verdict_evidence</text>
+<text x="400" y="580" class="at">[PK] verdict_id, evidence_id (복합키 · 9/13)</text>
+<text x="400" y="594" class="at">[FK] verdict_id → mob_leg_verdict (ON DELETE CASCADE)</text>
+<text x="400" y="606" class="at">evidence_id ('mob:{leg_id}:{kind}:{n}')</text>
+<text x="400" y="618" class="at">source_type — CHECK IN ('db','policy','case_event')</text>
+<text x="400" y="630" class="at">source_id · claim · confidence (0~1)</text>
+<text x="400" y="642" class="at">value_json (jsonb · JSON Schema 검증 후 적재)</text>
+<text x="400" y="654" class="at">observed_at (수집일/개정일 · 정밀도 보존)</text>
+<text x="400" y="676" class="card">tool_result(경로 API 응답) 저장을 스키마에서 차단</text>
+
+<line x1="322" y1="620" x2="392" y2="620" class="fk" marker-end="url(#ar)"/>
+<text x="326" y="614" class="card">1</text>
+<text x="386" y="614" text-anchor="end" class="card">0..N</text>
+<text x="357" y="636" text-anchor="middle" class="lb">R-A1 1:N · FK</text>
+
+<rect x="846" y="546" width="300" height="150" class="prop"/><rect x="846.5" y="546.5" width="299" height="20" class="hbar"/>
+<text x="854" y="560" class="hd">E-17 판정 근거(코어) · evidences</text>
+<text x="854" y="580" class="at">[PK] evidence_id</text>
+<text x="854" y="594" class="at">[FK] change_request_id → change_requests</text>
+<text x="854" y="606" class="at">tenant_id · source · source_ref</text>
+<text x="854" y="618" class="at">source_observed_at · fetched_at</text>
+<text x="854" y="630" class="at">data_kind (live/synthetic/mock/replay/…)</text>
+<text x="854" y="642" class="at">sha256 · payload (jsonb)</text>
+<text x="854" y="666" class="card">설계만 존재(제안) · 팀 ERD E-17</text>
+<text x="854" y="680" class="card">이동 판정은 TeamResult.evidence 로 접혀 여기에 남는다</text>
+
+<path d="M692,620 L846,620" class="lo" marker-end="url(#arg)"/>
+<text x="698" y="614" class="card">0..N</text>
+<text x="838" y="614" text-anchor="end" class="card">0..N</text>
+<text x="769" y="636" text-anchor="middle" class="lb">R-A2 N:N · 논리 연결(FK 없음)</text>
+<text x="769" y="648" text-anchor="middle" class="lb">TeamResult.evidence 로 전달</text>
+
+<text x="22" y="730" class="grp">C. 적재 메타 1표</text>
+<rect x="22" y="740" width="300" height="62" class="imp"/><rect x="22.7" y="740.7" width="298.6" height="20" class="hbar"/>
+<text x="30" y="754" class="hd">M-13 적재 메타 · mob_load_meta</text>
+<text x="30" y="774" class="at">[PK] table_name</text>
+<text x="30" y="788" class="at">row_count · src_file · src_built_at · loaded_at</text>
+<text x="340" y="774" class="card">어느 판(src_built_at)으로 채웠는지. 재적재는 M-01~M-10만 TRUNCATE</text>
+<text x="340" y="788" class="card">현재 SQLite · PostgreSQL 16 mobility 스키마로 전환 예정(sql/mobility_schema_pg.sql)</text>
+</svg>
+</body></html>

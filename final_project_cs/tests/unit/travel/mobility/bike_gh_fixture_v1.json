@@ -1,0 +1,57 @@
+{
+ "foot|37.51331,127.10013|37.51409,127.09903": {
+  "distance_m": 164.9,
+  "time_s": 119,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.54436,127.05593|37.54463,127.05598": {
+  "distance_m": 268.7,
+  "time_s": 193,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "bike|37.51409,127.09903|37.54436,127.05593": {
+  "distance_m": 6941.3,
+  "time_s": 1469,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.51331,127.10013|37.51101,127.10114": {
+  "distance_m": 345.9,
+  "time_s": 249,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "bike|37.51101,127.10114|37.54436,127.05593": {
+  "distance_m": 7398.3,
+  "time_s": 1559,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.47654,126.98163|37.47598,126.98391": {
+  "distance_m": 635.9,
+  "time_s": 458,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.56110,127.03680|37.56129,127.03706": {
+  "distance_m": 43.9,
+  "time_s": 32,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "bike|37.47598,126.98391|37.56110,127.03680": {
+  "distance_m": 14158.1,
+  "time_s": 2856,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.55774,126.92649|37.55830,126.92538": {
+  "distance_m": 149.5,
+  "time_s": 108,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "foot|37.56123,126.98750|37.56095,126.98627": {
+  "distance_m": 135.7,
+  "time_s": 98,
+  "source_id": "osm_bike_graph@2026-09-18"
+ },
+ "bike|37.55830,126.92538|37.56123,126.98750": {
+  "distance_m": 6303.0,
+  "time_s": 1341,
+  "source_id": "osm_bike_graph@2026-09-18"
+ }
+}

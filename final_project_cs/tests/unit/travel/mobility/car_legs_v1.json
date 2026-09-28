@@ -1,0 +1,346 @@
+{
+ "note": "자동차·택시 구간 판정 회귀 v1 (21번 방 · 2026-09-20). **합성 경로 픽스처**(tests/mobility/car_routes_fixture_v1.json — 18번 테헤란로 상행 4.0 km TOPIS 링크 체인의 변형)로 돌린다: python scripts/verify_time.py --cases tests/mobility/car_legs_v1.json --gh-url fixture:tests/mobility/car_routes_fixture_v1.json --check-expect. 실제 GraphHopper 로 돌리면 픽스처 좌표가 강남 도로에 스냅되어 다른 경로가 나온다 — 그건 alt_legs 의 expect_taxi 가 본다.",
+ "built_at": "2026-09-20",
+ "주의": [
+  "from/to 가 'lat,lng' 문자열이면 그 좌표가 그대로 라우터 요청이다(역명이면 역 좌표).",
+  "소요는 TOPIS 프로파일(요일형×시간대)이라 날짜가 판정을 바꾼다 — 2026-09-26 은 토요일이지만 추석(config holidays)이라 **휴일** 프로파일이다. 토요일은 2026-10-10.",
+  "요금은 병산(전환속도 미만 edge 시간요금 · 이상 edge 거리요금) + 승차 시각 할증 · 호출료·정차·시계외 미포함 **하한** — MOB_W_TAXI_FARE_LOWER_BOUND 가 answer 로 간다.",
+  "골목(default) 50% 초과 → 등급 근거없음(CAR-06). class/default 10% 이상 → 경고(CAR-05·06·07). 라우터 다운 → 근거없음 + MOB_W_CAR_ROUTER_DOWN(CAR-08).",
+  "selfcheck: false — 자동차 구간은 시간표 불변식(INV-MIDNIGHT 등)의 대상이 아니고, 클라우드(라우터 없음)와 노트북에서 탐침 수가 갈리면 안 된다."
+ ],
+ "cases": [
+  {
+   "id": "CAR-01",
+   "note": "자동차(승용) 테헤란로 상행 4.0 km 평일 18시 — 전부 TOPIS 프로파일(topis 100%) → 추정 · 속도 경고 없음. 18번 합성 시험과 같은 자리(17.6분)",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "18:00",
+   "legs": [
+    {
+     "mode": "car",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "18:18",
+   "expect_grade": "추정",
+   "expect_warn_absent": [
+    "MOB_W_CAR_SPEED_CLASS",
+    "MOB_W_CAR_SPEED_DEFAULT",
+    "MOB_W_CAR_ROUTER_DOWN"
+   ]
+  },
+  {
+   "id": "CAR-02",
+   "note": "택시 같은 구간 평일 03시 — 심야 20% 구간(02~04시). 자유속도라 저속 0초 → 거리요금만: 4,800 + ceil((3988−1600)/131)=19×100 = 6,700 × 1.2 = 8,040 → 8,000",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "03:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "03:10",
+   "expect_warn_codes": [
+    "MOB_W_TAXI_FARE_LOWER_BOUND"
+   ],
+   "expect_taxi_leg": {
+    "fare_won": 8000,
+    "night_rate": 0.2,
+    "slow_s": 0
+   }
+  },
+  {
+   "id": "CAR-03",
+   "note": "택시 같은 구간 2026-09-26 14시 — 달력상 토요일이나 추석이라 **휴일** 프로파일. 저속 edge 가 일부 있어 시간요금이 섞인다",
+   "selfcheck": false,
+   "date": "2026-09-26",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "14:12",
+   "expect_taxi_leg": {
+    "fare_won": 6800,
+    "night_rate": 0.0,
+    "day_type": "휴일"
+   }
+  },
+  {
+   "id": "CAR-03b",
+   "note": "택시 같은 구간 2026-10-10 14시 — 진짜 토요일 프로파일(휴일과 값이 다르다)",
+   "selfcheck": false,
+   "date": "2026-10-10",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_taxi_leg": {
+    "day_type": "토요일",
+    "fare_won": 7100
+   },
+   "expect_arrive": "14:16"
+  },
+  {
+   "id": "CAR-04",
+   "note": "택시 평일 23:30 — 심야 40%. 병산 뒤 총액 100원 최근접",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "23:30",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "23:42",
+   "expect_taxi_leg": {
+    "fare_won": 9500,
+    "night_rate": 0.4
+   }
+  },
+  {
+   "id": "CAR-05",
+   "note": "★ 매칭표에 없는 간선(primary) 100% → 도로급 계수(class) → 등급 추정 유지 + MOB_W_CAR_SPEED_CLASS. 저속 0초(주간선 평일 18시 계수 속도 > 15.72)",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "18:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0410",
+     "to": "37.5106,127.0804"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "18:12",
+   "expect_grade": "추정",
+   "expect_warn_codes": [
+    "MOB_W_CAR_SPEED_CLASS",
+    "MOB_W_TAXI_FARE_LOWER_BOUND"
+   ],
+   "expect_taxi_leg": {
+    "fare_won": 6700,
+    "coverage_class_pct_min": 99
+   }
+  },
+  {
+   "id": "CAR-06",
+   "note": "★ 골목(residential) 100% → 고정속도 15 km/h → default > 50% → 구간·케이스 등급 **근거없음** + MOB_W_CAR_SPEED_DEFAULT. 성립은 성립이다(경로는 있다) — 소요·요금의 근거가 없는 것",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "18:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0510",
+     "to": "37.5106,127.0904"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "18:16",
+   "expect_grade": "근거없음",
+   "expect_warn_codes": [
+    "MOB_W_CAR_SPEED_DEFAULT"
+   ],
+   "expect_warn_absent": [
+    "MOB_W_CAR_SPEED_CLASS"
+   ]
+  },
+  {
+   "id": "CAR-07",
+   "note": "★ 경계값 — 앞 55% edge 는 TOPIS, 뒤는 골목 → default 25.8%: 경고는 뜨지만(≥10%) 등급은 추정(≤50%)",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "18:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0610",
+     "to": "37.5106,127.1004"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true,
+   "expect_arrive": "18:18",
+   "expect_grade": "추정",
+   "expect_warn_codes": [
+    "MOB_W_CAR_SPEED_DEFAULT"
+   ],
+   "expect_taxi_leg": {
+    "fare_won": 7900,
+    "coverage_default_pct_min": 20,
+    "coverage_default_pct_max": 50
+   }
+  },
+  {
+   "id": "CAR-08",
+   "note": "★ 라우터 다운 — 소요·요금을 지어내지 않는다. 근거없음 + MOB_W_CAR_ROUTER_DOWN(answer). 도착 없음",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "18:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0710",
+     "to": "37.5106,127.1104"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_grade": "근거없음",
+   "expect_warn_codes": [
+    "MOB_W_CAR_ROUTER_DOWN"
+   ]
+  },
+  {
+   "id": "CAR-09",
+   "note": "지하철 → 택시 이어 붙이기 — 02호선 강변→잠실 14:00 도착 시각에 택시가 출발한다(환승 1회로 센다 · 승차 대기 0분 근거없음). 택시 소요는 그 시각(14시대) 프로파일 — 강변→잠실 14:05 도착 + 택시 16.2분 = 14:22",
+   "selfcheck": false,
+   "date": "2026-09-22",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    },
+    {
+     "mode": "taxi",
+     "from": "37.4991,127.0310",
+     "to": "37.5106,127.0704"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:50",
+   "expect_arrive": "14:22"
+  },
+  {
+   "id": "CAR-10",
+   "note": "★ 택시 대안 — 지하철 막차 이후(ALT-01 모양)인데 픽스처에 잠실→성수 경로가 없다 → 택시는 근거없음 + MOB_W_CAR_ROUTER_DOWN. 「없어야 한다」 축: expect_taxi.verdict unknown (라우터 유무와 무관하게 잠긴다)",
+   "selfcheck": false,
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 1,
+   "expect_taxi": {
+    "verdict": "unknown",
+    "warn_codes": [
+     "MOB_W_CAR_ROUTER_DOWN"
+    ]
+   }
+  },
+  {
+   "id": "CAR-11",
+   "note": "★ 택시 대안이 소요·요금으로 나온다 — 02호선 강변→잠실 04:30 첫차 이전(ALT-02 모양). 픽스처에 강변→잠실 역 좌표 키의 합성 경로(테헤란로 형상 4.0 km)가 있다. 04:30 승차는 심야 밖. 옛 판정기(v0.5)는 택시가 항상 근거없음이라 이 축이 MISS 다 — 실패 장면",
+   "selfcheck": false,
+   "date": "2026-09-11",
+   "depart_at": "04:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "before_first",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 1,
+   "expect_alt_axis": "출발시각_이동",
+   "expect_taxi": {
+    "verdict": "feasible",
+    "grade": "추정",
+    "fare_min_won": 4800,
+    "warn_codes": [
+     "MOB_W_TAXI_FARE_LOWER_BOUND"
+    ],
+    "arrive": "04:40",
+    "fare_won": 6700
+   }
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

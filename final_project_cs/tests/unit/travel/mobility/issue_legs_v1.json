@@ -1,0 +1,297 @@
+{
+ "note": "이슈 조건(코어 current_state.replan) 회귀. 실제 시간표로 돈다. rules.disruption 절이 대응한다.",
+ "built_at": "2026-09-11",
+ "timetable": "실제 timetable_v1.jsonl",
+ "주의": "★ ISSUE-02 · 03 · 03B 는 **같은 구간·같은 시각**인데 이슈만 다르다. 무정차는 지나가고(02 성립), 한쪽 간선중단은 반대로 돌고(03B 성립), 양쪽이 끊기면 불가다(03). 이 셋이 갈리지 않으면 이슈 모델이 무너진 것이다.",
+ "cases": [
+  {
+   "id": "ISSUE-01",
+   "note": "★무정차 — 도착역이 막힌다. 시연 2구간의 모양이다. 막차가 아니라 무정차로 불가가 된다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "station_skip",
+     "line": "02호선",
+     "station": "성수",
+     "note": "성수역 무정차 통과",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "앞뒤 역",
+   "expect_alt_max": 1,
+   "expect_alt_max_by_mode": {
+    "subway": 0,
+    "bus": 0
+   },
+   "note_v0.7": "2026-09-20 · 22번: 따릉이 대안 1개가 붙는다(성수역 무정차는 자전거와 무관). 지하철·버스 대안 0 잠금은 수단별 축으로 유지"
+  },
+  {
+   "id": "ISSUE-02",
+   "note": "★같은 무정차인데 성수를 **지나가기만** 한다 — 왕십리→강변은 성수를 통과한다. 성립이어야 한다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "station_skip",
+     "line": "02호선",
+     "station": "성수",
+     "note": "성수역 무정차 통과",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "강변"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:55"
+  },
+  {
+   "id": "ISSUE-03",
+   "note": "★ISSUE-02 와 같은 구간·시각인데 간선이 끊겼다 — 지나가지도 못한다. 순환선이라 반대로 돌 수도 있으므로 **양쪽을 다 끊어야** 불가가 된다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "edge_closed",
+     "line": "02호선",
+     "between": [
+      "성수",
+      "건대입구"
+     ],
+     "note": "성수–건대입구 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    },
+    {
+     "kind": "edge_closed",
+     "line": "02호선",
+     "between": [
+      "잠실",
+      "잠실나루"
+     ],
+     "note": "잠실–잠실나루 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "강변"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "더 일찍"
+  },
+  {
+   "id": "ISSUE-03B",
+   "note": "★한쪽만 끊으면 순환선은 **반대로 돌아** 성립한다. 오래 걸리지만 갈 수는 있다 — 끊긴 간선을 '노선 전체 중단'으로 뭉뚱그리면 이 답이 사라진다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "edge_closed",
+     "line": "02호선",
+     "between": [
+      "성수",
+      "건대입구"
+     ],
+     "note": "성수–건대입구 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "강변"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:36"
+  },
+  {
+   "id": "ISSUE-04",
+   "note": "노선 전체 운행중단 — 시간표를 보기도 전에 불가. 대안 열거의 입구는 열려 있어야 한다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "line_closed",
+     "line": "02호선",
+     "note": "2호선 전 구간 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true,
+   "expect_alt_min": 1
+  },
+  {
+   "id": "ISSUE-05",
+   "note": "★환승역 무정차 — 출발·도착역 검사로는 안 잡힌다. 왕십리가 앞 구간의 도착이자 뒤 구간의 출발이라 둘 다 통과해 버린다",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "disruptions": [
+    {
+     "kind": "station_skip",
+     "line": "02호선",
+     "station": "왕십리",
+     "note": "왕십리역 무정차 통과",
+     "grade": "추정",
+     "observed_at": "2026-09-11T09:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    },
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "다른 역"
+  },
+  {
+   "id": "ISSUE-06",
+   "note": "★이슈가 대안으로 승계되는가 — ALT-01 과 같은 상황인데 N73 이 운행중단이다. 지하철·버스 대안이 0개여야 한다. 1개가 나오면 대안 열거가 이슈를 안 보고 있는 것이다. (v0.7 · 22번) 따릉이 대안 1개는 정상 — 버스 운행중단을 상속할 이유가 없다",
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "disruptions": [
+    {
+     "kind": "route_closed",
+     "route": "N73",
+     "note": "N73 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T00:55:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_max": 1,
+   "expect_alt_max_by_mode": {
+    "subway": 0,
+    "bus": 0
+   }
+  },
+  {
+   "id": "ISSUE-07",
+   "note": "대조군 — 같은 케이스에서 이슈만 빼면 N73 대안이 산다(ALT-01 과 같다)",
+   "date": "2026-09-11",
+   "depart_at": "24:55",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:50",
+   "expect_alt_min": 1,
+   "expect_alt_axis": "수단교체"
+  },
+  {
+   "id": "ISSUE-08",
+   "note": "이슈가 있어도 그 노선을 안 쓰면 판정이 바뀌지 않는다 — 5호선 중단, 2호선 구간",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "disruptions": [
+    {
+     "kind": "line_closed",
+     "line": "05호선",
+     "note": "5호선 운행중단",
+     "grade": "확정",
+     "observed_at": "2026-09-11T14:00:00+09:00",
+     "source": "mock.core.replan"
+    }
+   ],
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:50",
+   "expect_arrive": "14:05"
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

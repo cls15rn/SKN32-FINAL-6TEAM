@@ -1,0 +1,340 @@
+{
+  "note": "심야 N노선 회귀 v1 (2026-09-24 · 45번 방 · GPT 대조 반영). 717노선 정규화 결함 셋(N26 첫차 자정 · 심야A21 막차 같은 날 · 8772 첫차=막차=자정)과 service_days · 운행일 경계(04:00)를 잠근다. 실행: python -m app.modules.travel_ops.mobility.engine.verify_time --cases tests/mobility/night_legs_v1.json --check-expect",
+  "built_at": "2026-09-24",
+  "계약": "case.date 는 **운행일**이다. depart_at 이 04:00 전이면 그 운행일의 연장(달력상 다음 날 새벽)으로 +24h 한다(timeutil.to_service_min). 요일형(day_type)은 운행일로 정한다. 그래서 「운행일 토 00:30」은 달력상 일요일 00:30 이다.",
+  "주의": [
+    "NIGHT-01·02·03·05·06·12 는 수정 전 데이터·판정기에서 MISS 가 나는 것을 먼저 봤다(12번 규칙 7).",
+    "N26 첫차는 원문이 익일 00:00 → 운행일 축 24:00. 27 전달문의 「N26 23:50 성립」은 틀렸다(첫차 이전).",
+    "심야A21 service_days=None — 2023-12-04 서울시 게시물은 당시 월~금 운행을 말하지만 현행 적용 미확인. 요일 분기(weekday)는 두지 않았다(운행일/공휴일 의미 미확정).",
+    "NIGHT-09·11 은 현 모델 값이다 — 승차가 막차 뒤로 나가도 성립(전 버스 공통 · 41 에 넘김)."
+  ],
+  "cases": [
+    {
+      "id": "NIGHT-01",
+      "note": "N26 첫차 자정 정규화 — 00:30(=24:30)은 운행 구간 안. 수정 전에는 첫차 00:00·막차 03:25 로 읽혀 after_last 였다",
+      "date": "2026-10-14",
+      "depart_at": "00:30",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible"
+    },
+    {
+      "id": "NIGHT-02",
+      "note": "N26 23:50 은 첫차(24:00) 이전 — 완화 문구가 24:00 을 말해야 한다. 수정 전에는 after_last",
+      "date": "2026-10-14",
+      "depart_at": "23:50",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "infeasible",
+      "expect_reason": "before_first",
+      "expect_relief_contains": "24:00"
+    },
+    {
+      "id": "NIGHT-03",
+      "selfcheck": false,
+      "note": "심야A21 운행일 수(10-14) 00:30 — service_days=None(현행 요일 미확인)이라 no_data. 수정 전에는 막차 03:40(같은 날)로 읽혀 after_last",
+      "date": "2026-10-14",
+      "depart_at": "00:30",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "심야A21",
+          "from": "종로5가역.광장시장",
+          "to": "종로3가역.탑골공원"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "unknown",
+      "expect_reason": "no_data"
+    },
+    {
+      "id": "NIGHT-04",
+      "note": "N61 03:30(=27:30) — 막차 28:10 안. 대조군",
+      "date": "2026-10-14",
+      "depart_at": "03:30",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible"
+    },
+    {
+      "id": "NIGHT-05",
+      "selfcheck": false,
+      "note": "심야A21 운행일 토(10-10) 00:30 = 달력상 일요일 새벽 — 요일 미상이라 역시 no_data(성립을 내면 안 된다)",
+      "date": "2026-10-10",
+      "depart_at": "00:30",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "심야A21",
+          "from": "종로5가역.광장시장",
+          "to": "종로3가역.탑골공원"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "unknown",
+      "expect_reason": "no_data"
+    },
+    {
+      "id": "NIGHT-06",
+      "selfcheck": false,
+      "note": "8772 원문 첫차=막차=자정 — 운행 구간 해석 불가 → no_data. 수정 전에는 「막차 00:00 이후」 확정 불가",
+      "date": "2026-10-14",
+      "depart_at": "11:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "8772",
+          "from": "진관공영차고지",
+          "to": "구파발역입구"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "unknown",
+      "expect_reason": "no_data"
+    },
+    {
+      "id": "NIGHT-07",
+      "note": "N26 첫차 −1분",
+      "date": "2026-10-14",
+      "depart_at": "23:59",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "infeasible",
+      "expect_reason": "before_first",
+      "expect_relief_contains": "24:00"
+    },
+    {
+      "id": "NIGHT-08",
+      "note": "N26 첫차 정각(=24:00)",
+      "date": "2026-10-14",
+      "depart_at": "00:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible"
+    },
+    {
+      "id": "NIGHT-09",
+      "note": "N26 막차 정각(=27:25) — ⚠ 현 모델 값: 막차 근처 대기가 배차 전부(23분)라 승차가 27:48 로 막차 뒤다. 판정기는 승차 ≤ 막차를 보지 않는다(전 버스 공통 · 막차는 기점 출발 시각이라 정류장 통과 시각이 필요 — 41). 고치면 이 케이스가 MISS 로 운다",
+      "date": "2026-10-14",
+      "depart_at": "03:25",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "note_v0.9": "(v0.9 · 41 · 2026-09-25) ⚠ 이 케이스는 시간축(운행일·04시 경계) 정규화를 잠그는 것이다 — 성립 유지. 45 가 적은 「승차가 막차 뒤로 나감」은 승차 시각 상한으로 풀었다: 대기 모델 승차가 막차 통과 추정 뒤라 추정 시각에 탄다(MOB_W_BUS_BOARD_CAPPED · 예정 27:32). 처음 판은 불가 after_last 였다 — 적용 GPT 1·2·12 로 기각",
+      "expect_warn_codes": [
+        "MOB_W_BUS_BOARD_CAPPED"
+      ]
+    },
+    {
+      "id": "NIGHT-10",
+      "note": "N26 막차 +1분(=27:26)",
+      "date": "2026-10-14",
+      "depart_at": "03:26",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "infeasible",
+      "expect_reason": "after_last"
+    },
+    {
+      "id": "NIGHT-11",
+      "note": "N61 운행일 경계 −1분(=27:59) — 성립(같은 ⚠: 승차 28:19 > 막차 28:10)",
+      "date": "2026-10-14",
+      "depart_at": "03:59",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "note_v0.9": "(v0.9 · 41 · 2026-09-25) ⚠ 이 케이스는 시간축(운행일·04시 경계) 정규화를 잠그는 것이다 — 성립 유지. 45 가 적은 「승차가 막차 뒤로 나감」은 승차 시각 상한으로 풀었다: 대기 모델 승차가 막차 통과 추정 뒤라 추정 시각에 탄다(MOB_W_BUS_BOARD_CAPPED · 예정 28:14). 처음 판은 불가 after_last 였다 — 적용 GPT 1·2·12 로 기각",
+      "expect_warn_codes": [
+        "MOB_W_BUS_BOARD_CAPPED"
+      ]
+    },
+    {
+      "id": "NIGHT-12",
+      "selfcheck": false,
+      "note": "N61 04:00 — 운행일 경계(04:00) 뒤지만 전날 운행분(막차 28:10)이 돈다. 수정 전에는 「첫차 23:40 이전」 확정 불가였다 → 판정 안 함",
+      "date": "2026-10-14",
+      "depart_at": "04:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "unknown",
+      "expect_reason": "no_data",
+      "expect_relief_contains": "28:00"
+    },
+    {
+      "id": "NIGHT-13",
+      "selfcheck": false,
+      "note": "N61 04:10 = 전날 막차 28:10 정각 — 판정 안 함",
+      "date": "2026-10-14",
+      "depart_at": "04:10",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "unknown",
+      "expect_reason": "no_data"
+    },
+    {
+      "id": "NIGHT-14",
+      "note": "N61 04:11 — 전날 막차 지남 · 그날 첫차 23:40 이전",
+      "date": "2026-10-14",
+      "depart_at": "04:11",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "infeasible",
+      "expect_internal": "infeasible",
+      "expect_reason": "before_first",
+      "expect_relief_contains": "23:40"
+    },
+    {
+      "id": "NIGHT-15",
+      "note": "N61 운행일 표기 28:00 — 같은 시각을 운행일로 주면 성립",
+      "date": "2026-10-14",
+      "depart_at": "28:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N61",
+          "from": "신정현대아파트",
+          "to": "매봉초등학교"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "note_v0.9": "(v0.9 · 41 · 2026-09-25) ⚠ 이 케이스는 시간축(운행일·04시 경계) 정규화를 잠그는 것이다 — 성립 유지. 45 가 적은 「승차가 막차 뒤로 나감」은 승차 시각 상한으로 풀었다: 대기 모델 승차가 막차 통과 추정 뒤라 추정 시각에 탄다(MOB_W_BUS_BOARD_CAPPED · 예정 28:14). 처음 판은 불가 after_last 였다 — 적용 GPT 1·2·12 로 기각",
+      "expect_warn_codes": [
+        "MOB_W_BUS_BOARD_CAPPED"
+      ]
+    },
+    {
+      "id": "NIGHT-16",
+      "note": "운행일 금(10-16) 01:00 = 달력 토요일 새벽. date 는 운행일이다",
+      "date": "2026-10-16",
+      "depart_at": "01:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "expect_arrive": "25:14"
+    },
+    {
+      "id": "NIGHT-17",
+      "note": "운행일 일(10-18) 01:00 = 달력 월요일 새벽 — holiday 요일형 · 요일축 없음 경고",
+      "date": "2026-10-18",
+      "depart_at": "01:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "expect_arrive": "25:14",
+      "expect_warn_codes": [
+        "MOB_W_BUS_NO_DAYTYPE"
+      ]
+    },
+    {
+      "id": "NIGHT-18",
+      "note": "운행일 공휴일(한글날 10-09) 01:00",
+      "date": "2026-10-09",
+      "depart_at": "01:00",
+      "legs": [
+        {
+          "mode": "bus",
+          "route": "N26",
+          "from": "개화산역2번출구",
+          "to": "한서고등학교.방화사거리"
+        }
+      ],
+      "expect": "feasible",
+      "expect_internal": "feasible",
+      "expect_arrive": "25:14",
+      "expect_warn_codes": [
+        "MOB_W_BUS_NO_DAYTYPE"
+      ]
+    }
+  ]
+}

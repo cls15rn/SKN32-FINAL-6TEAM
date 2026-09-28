@@ -1,0 +1,431 @@
+{
+ "_note": "이동 모듈 접기 골든 픽스처 v1 — TeamResult 한 건. evidence[].value 는 전부 mob_evidence_value_v1.schema.json 을 통과해야 한다. 팀 코드가 도착하면 이 파일을 그대로 contracts.py 로 한 번 통과시켜 본다.",
+ "contract_name": "a_cop.team_result",
+ "contract_version": "1.0",
+ "task_id": "T-0001",
+ "run_id": "R-0001",
+ "team_id": "mobility",
+ "outcome": "completed",
+ "next_action": "respond",
+ "confidence": 0.6,
+ "answer": "3구간 중 1구간이 불가합니다. [L3] 명동교자→경복궁 23:40 도착 불가 — 2호선 막차가 23:52 출발이라 12분 모자랍니다(확정 · 시간표 2026-09-09 수집). 출발을 22:50으로 당기면 성립합니다. 택시 대안은 성립하나 소요는 판단 불가입니다. [L7] 김포공항→명동 성립(추정 · 표정속도 노선유형 통계) — 공항버스는 별도 요금 약 7,500원입니다. [L9] 서울역→회현 성립(확정) — 이 구간의 소요 자료가 없어 도착 시각은 알 수 없습니다.",
+ "evidence": [
+  {
+   "evidence_id": "mob:_:run:1",
+   "source_type": "db",
+   "source_id": "mobility_verdict@T-0001",
+   "claim": "이번 판정 요약 — 3구간 중 성립 2 · 불가 1",
+   "value": {
+    "v": 1,
+    "kind": "run",
+    "grade": "추정",
+    "counts": {
+     "ok": 2,
+     "fail": 1,
+     "rejected_by_limit": 0,
+     "unknown": 0
+    },
+    "legs": {
+     "with_evidence": [
+      "L3",
+      "L7",
+      "L9"
+     ],
+     "without_evidence": []
+    },
+    "confidence": 0.6,
+    "stage_assumed": false,
+    "budget": {
+     "evidence_used": 9,
+     "cap": 34
+    },
+    "warnings": [
+     {
+      "code": "MOB_W_STAGE_ASSUMED",
+      "class": "data",
+      "text": "stage 를 입력에서 받았다",
+      "to_answer": false
+     }
+    ],
+    "basis": {
+     "timetable_built_at": "2026-09-09",
+     "rules_version": "v0.3",
+     "db_loaded_at": "2026-09-11",
+     "impl_rev": "abc1234"
+    },
+    "verdict": "fail",
+    "arrive_min": null,
+    "slack_min": null,
+    "reasons": [
+     {
+      "code": "MOB_R_CASE",
+      "text": "L3 이 불가라 일정 전체가 성립하지 않는다"
+     }
+    ],
+    "relax": [
+     {
+      "code": "MOB_X_DEPART_EARLIER",
+      "text": "L3 출발을 22:50으로 당기면 성립"
+     }
+    ]
+   },
+   "confidence": 0.6,
+   "observed_at": "2026-10-03T22:31:10+09:00"
+  },
+  {
+   "evidence_id": "mob:_:rule:1",
+   "source_type": "policy",
+   "source_id": "mobility_rules@v0.3",
+   "claim": "기본 버퍼 10분 · 환승 대기 배차 절반 · 보행 1.04m/s · 도보 상한 1000m",
+   "value": {
+    "v": 1,
+    "kind": "rule",
+    "grade": "추정",
+    "rules_version": "v0.3",
+    "used": {
+     "buffer_min": 10,
+     "transfer_buffer_min": 15,
+     "wait_model": "headway_half",
+     "walk_speed_mps": 1.04,
+     "walk_m_limit": 1000,
+     "wayfind_min_first_visit": 1,
+     "candidate_scan_min": 90
+    }
+   },
+   "confidence": 0.6,
+   "observed_at": "2026-09-10T00:00:00+09:00"
+  },
+  {
+   "evidence_id": "mob:L3:verdict:1",
+   "source_type": "db",
+   "source_id": "mobility_verdict@T-0001",
+   "claim": "L3 판정 — 불가(확정)",
+   "value": {
+    "v": 1,
+    "kind": "verdict",
+    "leg_id": "L3",
+    "grade": "확정",
+    "verdict": "fail",
+    "service_date": "2026-10-03",
+    "day_type": "holiday",
+    "depart_min": null,
+    "arrive_min": null,
+    "arrive_unknown_code": null,
+    "required": {
+     "depart_at_min": 1400,
+     "arrive_by_min": 1420,
+     "arrive_fixed": true
+    },
+    "by_mode": {
+     "subway": "fail",
+     "bus": "unknown",
+     "taxi": "unknown"
+    },
+    "reasons": [
+     {
+      "code": "MOB_R_LAST_TRAIN_PASSED",
+      "text": "막차 23:52 출발, 버퍼 10분 포함 시 도착 필요 시각을 넘는다"
+     }
+    ],
+    "relax": [
+     {
+      "code": "MOB_X_DEPART_EARLIER",
+      "text": "출발을 22:50으로 당기면 성립",
+      "depart_min": 1370
+     }
+    ],
+    "limits": [],
+    "alt_ids": [
+     "mob:L3:alt:1"
+    ],
+    "warnings": [
+     {
+      "code": "MOB_W_TAXI_UNKNOWN",
+      "class": "data",
+      "text": "택시 소요는 판단 불가 소스",
+      "to_answer": true,
+      "leg_id": "L3"
+     }
+    ],
+    "evidence_ids": [
+     "mob:L3:timetable:1",
+     "mob:_:rule:1"
+    ],
+    "basis": {
+     "timetable_built_at": "2026-09-09",
+     "rules_version": "v0.3"
+    },
+    "verdict_id": "mob:C-0001:L3:2026-10-03T22:31:10+09:00",
+    "slack_min": 12
+   },
+   "confidence": 0.95,
+   "observed_at": "2026-10-03T22:31:10+09:00"
+  },
+  {
+   "evidence_id": "mob:L3:timetable:1",
+   "source_type": "db",
+   "source_id": "tago_subway@2026-09-09",
+   "claim": "2호선 을지로입구 휴일 막차 23:52 출발(행선지 성수)",
+   "value": {
+    "v": 1,
+    "kind": "timetable",
+    "leg_id": "L3",
+    "grade": "확정",
+    "station_key": "02호선|을지로입구",
+    "day_type": "holiday",
+    "dep_min": 1432,
+    "arrive_min": null,
+    "dest_station_nm": "성수",
+    "train_no": "2731",
+    "role": "last_train"
+   },
+   "confidence": 0.95,
+   "observed_at": "2026-09-09T00:00:00+09:00"
+  },
+  {
+   "evidence_id": "mob:L3:alt:1",
+   "source_type": "db",
+   "source_id": "mobility_verdict@T-0001",
+   "claim": "L3 대안 — 택시(수단교체), 성립하나 소요 근거없음",
+   "value": {
+    "v": 1,
+    "kind": "alt",
+    "leg_id": "L3",
+    "grade": "근거없음",
+    "axis": "수단교체",
+    "mode": "taxi",
+    "verdict": "unknown",
+    "depart_min": 1400,
+    "arrive_min": null,
+    "inherits_issue": false,
+    "warnings": [
+     {
+      "code": "MOB_W_TAXI_UNKNOWN",
+      "class": "data",
+      "text": "택시 소요 근거없음 — 성립 여부만",
+      "to_answer": true
+     }
+    ],
+    "note": "순위를 매기지 않는다"
+   },
+   "confidence": 0.2,
+   "observed_at": "2026-10-03T22:31:10+09:00"
+  },
+  {
+   "evidence_id": "mob:L7:verdict:1",
+   "source_type": "db",
+   "source_id": "mobility_verdict@T-0001",
+   "claim": "L7 판정 — 성립(추정)",
+   "value": {
+    "v": 1,
+    "kind": "verdict",
+    "leg_id": "L7",
+    "grade": "추정",
+    "verdict": "ok",
+    "service_date": "2026-10-03",
+    "day_type": "holiday",
+    "depart_min": 1080,
+    "arrive_min": 1147,
+    "arrive_unknown_code": null,
+    "required": {
+     "depart_at_min": 1080,
+     "arrive_by_min": 1170,
+     "arrive_fixed": false
+    },
+    "by_mode": {
+     "airport_bus": "ok",
+     "subway": "ok"
+    },
+    "reasons": [
+     {
+      "code": "MOB_R_WITHIN_SERVICE",
+      "text": "운행 구간 안이고 배차 대기 포함 도착 필요 시각 이전"
+     }
+    ],
+    "relax": [],
+    "limits": [],
+    "alt_ids": [],
+    "warnings": [
+     {
+      "code": "MOB_W_AIRPORT_FARE",
+      "class": "cost",
+      "text": "공항버스는 별도 요금 약 7,500원",
+      "to_answer": true,
+      "leg_id": "L7"
+     }
+    ],
+    "evidence_ids": [
+     "mob:L7:bus:1",
+     "mob:_:rule:1"
+    ],
+    "basis": {
+     "timetable_built_at": "2026-09-09",
+     "rules_version": "v0.3"
+    },
+    "verdict_id": "mob:C-0001:L7:2026-10-03T22:31:10+09:00",
+    "slack_min": 23
+   },
+   "confidence": 0.6,
+   "observed_at": "2026-10-03T22:31:10+09:00"
+  },
+  {
+   "evidence_id": "mob:L7:bus:1",
+   "source_type": "db",
+   "source_id": "seoul_bus@2026-09-10",
+   "claim": "6015 표정속도는 노선유형 통계(간선)로 대용",
+   "value": {
+    "v": 1,
+    "kind": "bus",
+    "leg_id": "L7",
+    "grade": "추정",
+    "route_id": "6015",
+    "speed_kmh": 18.4,
+    "speed_basis": "노선유형통계",
+    "dist_m": 20500,
+    "term_min": 20,
+    "last_time_min": 1410,
+    "grade_wait": "추정",
+    "grade_speed": "추정"
+   },
+   "confidence": 0.6,
+   "observed_at": "2026-09-10T00:00:00+09:00"
+  },
+  {
+   "evidence_id": "mob:L9:verdict:1",
+   "source_type": "db",
+   "source_id": "mobility_verdict@T-0001",
+   "claim": "L9 판정 — 성립(확정) · 도착 미상",
+   "value": {
+    "v": 1,
+    "kind": "verdict",
+    "leg_id": "L9",
+    "grade": "확정",
+    "verdict": "ok",
+    "service_date": "2026-10-03",
+    "day_type": "holiday",
+    "depart_min": 1200,
+    "arrive_min": null,
+    "arrive_unknown_code": "MOB_R_NO_TRAVEL_MIN",
+    "required": {
+     "depart_at_min": 1200,
+     "arrive_by_min": null,
+     "arrive_fixed": false
+    },
+    "by_mode": {
+     "subway": "ok"
+    },
+    "reasons": [
+     {
+      "code": "MOB_R_TRAIN_EXISTS",
+      "text": "그 시각 그 방향 열차가 있다"
+     },
+     {
+      "code": "MOB_R_NO_TRAVEL_MIN",
+      "text": "이 간선의 travel_min 이 없어 도착 시각을 낼 수 없다"
+     }
+    ],
+    "relax": [],
+    "limits": [],
+    "alt_ids": [],
+    "warnings": [
+     {
+      "code": "MOB_W_NO_TRAVEL_MIN",
+      "class": "data",
+      "text": "구간 소요 자료 없음 — 도착 시각 미상",
+      "to_answer": true,
+      "leg_id": "L9"
+     }
+    ],
+    "evidence_ids": [
+     "mob:L9:timetable:1"
+    ],
+    "basis": {
+     "timetable_built_at": "2026-09-09",
+     "rules_version": "v0.3"
+    },
+    "verdict_id": "mob:C-0001:L9:2026-10-03T22:31:10+09:00",
+    "slack_min": null
+   },
+   "confidence": 0.95,
+   "observed_at": "2026-10-03T22:31:10+09:00"
+  },
+  {
+   "evidence_id": "mob:L9:timetable:1",
+   "source_type": "db",
+   "source_id": "tago_subway@2026-09-09",
+   "claim": "4호선 서울역 휴일 20:00 이후 출발 있음",
+   "value": {
+    "v": 1,
+    "kind": "timetable",
+    "leg_id": "L9",
+    "grade": "확정",
+    "station_key": "04호선|서울역",
+    "day_type": "holiday",
+    "dep_min": 1203,
+    "arrive_min": null,
+    "dest_station_nm": "사당",
+    "train_no": "4415",
+    "role": "boarding"
+   },
+   "confidence": 0.95,
+   "observed_at": "2026-09-09T00:00:00+09:00"
+  }
+ ],
+ "decisions": [
+  {
+   "leg_id": "L3",
+   "verdict": "fail",
+   "evidence_grade": "확정",
+   "evidence_ids": [
+    "mob:L3:verdict:1",
+    "mob:L3:timetable:1",
+    "mob:_:rule:1"
+   ]
+  },
+  {
+   "leg_id": "L7",
+   "verdict": "ok",
+   "evidence_grade": "추정",
+   "evidence_ids": [
+    "mob:L7:verdict:1",
+    "mob:L7:bus:1",
+    "mob:_:rule:1"
+   ]
+  },
+  {
+   "leg_id": "L9",
+   "verdict": "ok",
+   "evidence_grade": "확정",
+   "evidence_ids": [
+    "mob:L9:verdict:1",
+    "mob:L9:timetable:1"
+   ]
+  }
+ ],
+ "action_proposals": [
+  {
+   "action_type": "mobility.replace_leg",
+   "arguments": {
+    "leg_id": "L3",
+    "mode": "taxi",
+    "depart_at_min": 1400,
+    "duration_min_est": null,
+    "grade": "근거없음",
+    "note": "택시 소요는 판단 불가 소스 — 성립 여부만"
+   },
+   "idempotency_key": "tmp-mobility-L3-taxi",
+   "approval_required": false,
+   "risk_level": "low",
+   "rationale_evidence_ids": [
+    "mob:L3:verdict:1",
+    "mob:L3:timetable:1"
+   ]
+  }
+ ],
+ "warnings": [
+  "MOB_W_TAXI_UNKNOWN:L3",
+  "MOB_W_AIRPORT_FARE:L7",
+  "MOB_W_NO_TRAVEL_MIN:L9",
+  "MOB_W_STAGE_ASSUMED:_"
+ ]
+}

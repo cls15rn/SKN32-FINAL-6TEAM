@@ -1,0 +1,423 @@
+{
+ "note": "@ 판정 계약 회귀 v1 (2026-09-24 · 39번 방 · 규칙 v0.8). 실제 시간표 기준. 최악값·최선값 이중 계산 · 밖 판정 둘 · 이유 코드 · @ · 여유 · 마지막 성립 출발 · 혼잡 @ 부품을 잠근다. 각 케이스는 만들 때 한 번 실패하는 장면을 봤다(12번 규칙 7).",
+ "cases": [
+  {
+   "id": "J-SLACK-01",
+   "note": "도착 목표 있음 · 여유 양수. 예정 14:05 + @10 = 14:15 ≤ 14:20 → 여유 5. 마지막 성립 출발 14:00(14:06 편은 14:21 로 1분 늦다)",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "14:20",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "14:05",
+   "expect_slack_min": [
+    5,
+    5
+   ],
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "14:00"
+  },
+  {
+   "id": "J-SLACK-02",
+   "note": "도착 목표 14:12 · 여유 −3 → 불가 arrive_late. 완화 조건은 마지막 성립 출발(13:54)로 말한다. 출발시각_이동 대안은 뜻이 없어 택시만",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "14:12",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "arrive_late",
+   "expect_arrive": "14:05",
+   "expect_slack_min": [
+    -3,
+    -3
+   ],
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "13:54",
+   "expect_relief_contains": "13:54",
+   "expect_alt_max": 0
+  },
+  {
+   "id": "J-WORST-01",
+   "note": "★판정은 worst — 버스 2016 예정 11:12 + 버퍼 10 = 11:22 는 목표 11:25 안이지만, 최악(대기 배차 전부) 11:17 + 10 = 11:27 로 2분 늦다 → 불가. best 만 보면 성립으로 틀리는 케이스",
+   "date": "2026-09-11",
+   "depart_at": "11:00",
+   "arrive_by": "11:25",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "arrive_late",
+   "expect_arrive": "11:13",
+   "expect_slack_min": [
+    -4,
+    -4
+   ],
+   "expect_margin_min": [
+    16,
+    16
+   ],
+   "expect_last_depart": "10:56",
+   "expect_warn_codes_absent": [
+    "MOB_W_WORST_NO_SPREAD"
+   ],
+   "note_v0.9": "(v0.9 · 41 · 2026-09-25) 버스 worst 승차에 p90 스프레드가 생겼다(NO_SPREAD 경고 빠짐) — @ 16 · 여유 -4 · 늦어도 10:56"
+  },
+  {
+   "id": "J-WORST-02",
+   "note": "★best 성립 · worst 불가(규칙 14 — 막차는 값이다). N73 잠실→건대입구 24:09: 예정 대기 18분이면 건대입구 02호선 24:58 막차를 타지만(25:01 도착), 최악 대기 35분이면 25:04 도착이라 막차를 놓친다 → 불가 after_last · 늦어도 24:03 출발",
+   "date": "2026-09-11",
+   "depart_at": "24:09",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "N73",
+     "from": "잠실역8번출구",
+     "to": "건대입구역1번출구"
+    },
+    {
+     "line": "02호선",
+     "from": "건대입구",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_arrive": "25:01",
+   "expect_last_depart": "24:02",
+   "expect_warn_codes": [
+    "MOB_W_BEST_OK_WORST_FAIL"
+   ],
+   "expect_relief_contains": "24:02",
+   "expect_reason_contains": "최악값",
+   "note_v0.9": "(v0.9 · 41 · 2026-09-25) 앞 버스 구간(심야) worst 가 p90 누적이라 1분 당겨졌다"
+  },
+  {
+   "id": "J-WORST-03",
+   "note": "같은 구간 24:00 — 최악으로도 24:58 막차를 탄다. @ = (25:01 − 24:46) + 10 = 25. 마지막 성립 출발은 24:03",
+   "date": "2026-09-11",
+   "depart_at": "24:00",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "N73",
+     "from": "잠실역8번출구",
+     "to": "건대입구역1번출구"
+    },
+    {
+     "line": "02호선",
+     "from": "건대입구",
+     "to": "성수"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "24:46",
+   "expect_margin_min": [
+    25,
+    25
+   ],
+   "expect_last_depart": "24:02",
+   "expect_warn_codes_absent": [
+    "MOB_W_BEST_OK_WORST_FAIL"
+   ],
+   "note_v0.9": "(v0.9 · 41 · 2026-09-25) J-WORST-02 와 같음"
+  },
+  {
+   "id": "J-CONG-01",
+   "note": "혼잡 @ 부품 — 02호선 서초 외선 평일 08:30 122.0%(매우혼잡) + 캐리어 → worst 는 다음 편(+2분). @ 12",
+   "date": "2026-09-11",
+   "depart_at": "08:30",
+   "party": {
+    "luggage": 1
+   },
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "서초",
+     "to": "강남"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "08:36",
+   "expect_margin_min": [
+    12,
+    12
+   ],
+   "expect_warn_codes": [
+    "MOB_W_CONGESTION_EXTRA_WAIT"
+   ]
+  },
+  {
+   "id": "J-CONG-02",
+   "note": "같은 구간 · 조건 없음 → 가산 없음. @ 10",
+   "date": "2026-09-11",
+   "depart_at": "08:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "서초",
+     "to": "강남"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "08:36",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_CONGESTION_EXTRA_WAIT",
+    "MOB_W_CONGESTION_SEVERE"
+   ]
+  },
+  {
+   "id": "J-CONG-03",
+   "note": "극심 — 02호선 사당 외선 평일 08:30 144.6% → 경고만(대안 제시는 후보 열거 몫). 시각은 안 바뀐다",
+   "date": "2026-09-11",
+   "depart_at": "08:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "사당",
+     "to": "강남"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "08:41",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes": [
+    "MOB_W_CONGESTION_SEVERE"
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_CONGESTION_EXTRA_WAIT"
+   ]
+  },
+  {
+   "id": "J-NODATA-01",
+   "note": "근거없음 → 밖으로는 불가 no_data (내부 unknown 그대로). 마지막 성립 출발 없음",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "없는역"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_STATION_NOT_IN_TIMETABLE"
+   ]
+  },
+  {
+   "id": "J-LIMIT-01",
+   "note": "동행 상한 탈락 → 밖으로는 불가 over_limit (내부 rejected_by_limit). 어느 시각에 떠나도 환승 2회라 마지막 성립 출발 없음",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "party": {
+    "infant": 1
+   },
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    },
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "잠실"
+    },
+    {
+     "line": "08호선",
+     "from": "잠실",
+     "to": "몽촌토성"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "rejected_by_limit",
+   "expect_reason": "over_limit",
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "J-DISR-01",
+   "note": "이슈(운행중단) → 불가 disruption. 시각을 옮겨도 같으므로 마지막 성립 출발 없음",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "disruptions": [
+    {
+     "kind": "line_closed",
+     "line": "02호선",
+     "note": "시험 이슈",
+     "grade": "추정"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "disruption",
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "J-CONG-04",
+   "note": "★순환선 결함 잠금 — 서초→강남 08:33 + 캐리어. 다음 편은 같은 경로(외선)여야 한다. 출발 목록의 다음 출발을 집으면 내선 한 바퀴 편성이 잡혀 @94 가 나왔다(2026-09-24 대조)",
+   "date": "2026-09-11",
+   "depart_at": "08:33",
+   "party": {
+    "luggage": 1
+   },
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "서초",
+     "to": "강남"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    14
+   ],
+   "expect_warn_codes": [
+    "MOB_W_CONGESTION_EXTRA_WAIT"
+   ]
+  },
+  {
+   "id": "J-MULTI-01",
+   "note": "multi + 도착 목표 — 후보마다 밖 판(out.candidates). 잠실→성수 14:00, 14:30 까지. 케이스 밖 판은 후보 밖 판으로 센다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "14:30",
+   "multi": {
+    "from": "잠실",
+    "to": "성수"
+   },
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_candidates_min": 1
+  },
+  {
+   "id": "J-CAR-01",
+   "note": "자동차 첫 구간 + 도착 목표 — 시간표가 없어 마지막 성립 출발 없음(라우터를 수백 번 부르지 않는다). 라우터 없는 클라우드에서는 no_data",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "15:00",
+   "legs": [
+    {
+     "mode": "taxi",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "J-LATE-02",
+   "note": "GPT 대조 #1 — 첫차 직후 출발·목표가 너무 이르다. 역산으로 성립 출발이 없으면 「N분 당기면 성립」을 말하지 않는다(당기면 첫차 이전이다). 택시로만",
+   "date": "2026-09-11",
+   "depart_at": "05:36",
+   "arrive_by": "05:40",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "arrive_late",
+   "expect_last_depart_none": true,
+   "expect_relief_contains": "맞는 편이 없다"
+  },
+  {
+   "id": "J-CONG-05",
+   "note": "GPT 대조 #2 — 일반 토요일(2026-09-19)은 혼잡도 saturday. 04호선 남태령 상행 10:30 토요일 104%(매우혼잡) · 일요일 68% — 캐리어 동행이면 토요일엔 다음 편",
+   "date": "2026-09-19",
+   "depart_at": "10:30",
+   "party": {
+    "luggage": 1
+   },
+   "legs": [
+    {
+     "line": "04호선",
+     "from": "남태령",
+     "to": "사당"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_warn_codes": [
+    "MOB_W_CONGESTION_EXTRA_WAIT"
+   ]
+  },
+  {
+   "id": "J-CONG-06",
+   "note": "GPT 대조 #2 — 토요일과 겹친 공휴일(2026-09-26 추석 연휴)은 saturday 가 아니라 sunday(규칙 congestion.day_type.공휴일_처리). 같은 구간·시각·캐리어인데 가산이 없어야 한다",
+   "date": "2026-09-26",
+   "depart_at": "10:30",
+   "party": {
+    "luggage": 1
+   },
+   "legs": [
+    {
+     "line": "04호선",
+     "from": "남태령",
+     "to": "사당"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_CONGESTION_EXTRA_WAIT"
+   ]
+  }
+ ]
+}

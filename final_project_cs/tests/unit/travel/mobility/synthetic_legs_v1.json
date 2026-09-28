@@ -1,0 +1,602 @@
+{
+ "note": "이동 모듈 시각 검증기 회귀 케이스 v1 (지하철 분기). 축소 시간표(mini_timetable_v2.jsonl) 기준 기대값이다. 실제 시간표로 돌리면 시각이 달라 기대값이 맞지 않는다 — 실제 실행은 --check-expect 없이 눈으로 본다.",
+ "built_at": "2026-09-10",
+ "day_notes": {
+  "2026-09-11": "금 · weekday",
+  "2026-09-12": "토 · holiday 시간표 · 신정지선 예외 대상",
+  "2026-09-13": "일 · holiday 시간표 · 예외 아님",
+  "2026-10-03": "개천절(토) · holiday + 토요일이라 예외도 걸린다"
+ },
+ "cases": [
+  {
+   "id": "BASE-01",
+   "note": "평일 낮 한 구간",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:46"
+  },
+  {
+   "id": "BASE-02",
+   "note": "도착 필요 시각에 여유가 있다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "14:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_slack_min": [
+    15,
+    15
+   ],
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "14:14"
+  },
+  {
+   "id": "BASE-03",
+   "note": "열차는 있는데 버퍼까지 세면 못 맞춘다 — 불가",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "arrive_by": "14:12",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "arrive_late",
+   "expect_slack_min": [
+    -3,
+    -3
+   ],
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "13:54"
+  },
+  {
+   "id": "FIRST-01",
+   "note": "첫차 이전 — 기다리면 되는 게 아니라 그 시각에 불가",
+   "date": "2026-09-11",
+   "depart_at": "04:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "before_first",
+   "expect_last_depart": "24:46",
+   "expect_relief_contains": "05:36"
+  },
+  {
+   "id": "LAST-01",
+   "note": "★24 시 넘김 — 24:30 출발이 막차 안이다",
+   "date": "2026-09-11",
+   "depart_at": "24:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:46"
+  },
+  {
+   "id": "LAST-02",
+   "note": "★24 시 넘김 — 막차 이후",
+   "date": "2026-09-11",
+   "depart_at": "24:50",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:46",
+   "expect_relief_contains": "수단 교체"
+  },
+  {
+   "id": "WALL-01",
+   "note": "★고객이 준 벽시계 00:30 은 24:30 과 같아야 한다 (LAST-01 과 같은 판정)",
+   "date": "2026-09-11",
+   "depart_at": "00:30",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:46"
+  },
+  {
+   "id": "WALL-02",
+   "note": "★벽시계 00:50 = 24:50 — 막차 이후 (LAST-02 와 같은 판정)",
+   "date": "2026-09-11",
+   "depart_at": "00:50",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:46",
+   "expect_relief_contains": "수단 교체"
+  },
+  {
+   "id": "SHORT-01",
+   "note": "5호선 여의도→왕십리 평시",
+   "date": "2026-09-11",
+   "depart_at": "23:00",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:01"
+  },
+  {
+   "id": "SHORT-02",
+   "note": "★단축운행 — 24:36 애오개행이 있지만 왕십리 앞에서 내려준다. 시각만 보면 성립이 나오는 자리",
+   "date": "2026-09-11",
+   "depart_at": "24:10",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:01"
+  },
+  {
+   "id": "SHORT-03",
+   "note": "같은 열차라도 애오개까지는 간다 — 단축운행을 통째로 버리지 않는다",
+   "date": "2026-09-11",
+   "depart_at": "24:10",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "애오개"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "25:06"
+  },
+  {
+   "id": "TERM-01",
+   "note": "★종착 열차 — 24:47 여의도행은 손님이 탈 수 있는 출발이 아니다",
+   "date": "2026-09-11",
+   "depart_at": "24:40",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:01",
+   "expect_relief_contains": "수단 교체"
+  },
+  {
+   "id": "NODEST-01",
+   "note": "★행선지 없는 24:55 행을 막차로 잡으면 안 된다 (거른 행 계수에 나온다)",
+   "date": "2026-09-11",
+   "depart_at": "24:52",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "after_last",
+   "expect_last_depart": "24:01"
+  },
+  {
+   "id": "DIR-01",
+   "note": "방향은 dest_nm 으로 — 잠실에서 성수행",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "잠실",
+     "to": "성수"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:04"
+  },
+  {
+   "id": "DIR-02",
+   "note": "★가장 이른 출발 ≠ 가장 이른 도착 — 강변 14:00 내선 성수행은 성수까지 40정거장, 14:08 외선 성수행은 3정거장이다. 출발만 보면 78분 늦는 답을 낸다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "성수"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:08"
+  },
+  {
+   "id": "LOOP-01",
+   "note": "★순환선 시발역 — 성수 출발은 전부 '성수행'이다. 종착으로 걸러 버리면 성수 출발이 통째로 '열차 없음'이 된다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "성수",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:40",
+   "expect_warn_codes": [
+    "MOB_W_ORIGIN_TERMINAL_DEST"
+   ]
+  },
+  {
+   "id": "ORIG-01",
+   "note": "★지선 종점 시발 — 까치산 출발은 전부 '까치산행'. 입고 열차가 아니라 시발이다. 열차는 찾아내지만 신정네거리–까치산 간선에 travel_min 이 없어 소요는 판단 불가 — 마지막 구간이고 도착 제약이 없으면 **성립**으로 내되 도착 시각은 만들지 않는다(설계서: 성립 여부는 내고 소요는 판단 불가)",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "까치산",
+     "to": "도림천"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:45"
+  },
+  {
+   "id": "ORIG-02",
+   "note": "시발역에서 반대 방향 — 성수→강변(내선). 등급은 추정으로 내리고 경고를 남긴다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "성수",
+     "to": "강변"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:40"
+  },
+  {
+   "id": "TRANS-01",
+   "note": "환승 2회 — 5호선→2호선(왕십리)→8호선(잠실). 둘 다 대형 환승역",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    },
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "잠실"
+    },
+    {
+     "line": "08호선",
+     "from": "잠실",
+     "to": "몽촌토성"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:31"
+  },
+  {
+   "id": "LIMIT-01",
+   "note": "같은 경로에 유아 동반 — 성립하지만 환승 상한 1회를 넘어 탈락. 불가와 구분한다",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "party": {
+    "infant": 1
+   },
+   "legs": [
+    {
+     "line": "05호선",
+     "from": "여의도",
+     "to": "왕십리"
+    },
+    {
+     "line": "02호선",
+     "from": "왕십리",
+     "to": "잠실"
+    },
+    {
+     "line": "08호선",
+     "from": "잠실",
+     "to": "몽촌토성"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "rejected_by_limit",
+   "expect_reason": "over_limit",
+   "expect_last_depart_none": true
+  },
+  {
+   "id": "LIMIT-02",
+   "note": "유아 동반이라도 환승 1회는 상한 안",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "party": {
+    "infant": 1
+   },
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    },
+    {
+     "line": "08호선",
+     "from": "잠실",
+     "to": "몽촌토성"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:14"
+  },
+  {
+   "id": "SAT-01",
+   "note": "★신정지선 토요일 — 예외를 걸어 경고를 남기고 등급을 추정 아래로 내린다",
+   "date": "2026-09-12",
+   "depart_at": "10:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "양천구청",
+     "to": "신정네거리"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:55",
+   "expect_warn_codes": [
+    "MOB_W_SINJEONG_SAT"
+   ]
+  },
+  {
+   "id": "SUN-01",
+   "note": "같은 구간 일요일 — 예외 대상이 아니라 경고를 남기지 않는다(등급 추정은 신정네거리–까치산 간선이 단방향관측이라 그렇다)",
+   "date": "2026-09-13",
+   "depart_at": "10:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "양천구청",
+     "to": "신정네거리"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:55"
+  },
+  {
+   "id": "HOL-01",
+   "note": "개천절(토) — 공휴일이면서 토요일이라 신정지선 예외도 함께 걸린다",
+   "date": "2026-10-03",
+   "depart_at": "10:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "양천구청",
+     "to": "신정네거리"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:55"
+  },
+  {
+   "id": "HOL-02",
+   "note": "공휴일에는 holiday 시간표를 본다",
+   "date": "2026-10-03",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "강변",
+     "to": "잠실"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:44"
+  },
+  {
+   "id": "GAP-01",
+   "note": "배차 공백 — 다음 출발까지 상한(180분)을 넘게 기다려야 하면 '그 시각에는 운행하지 않는다'",
+   "date": "2026-09-13",
+   "depart_at": "12:50",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "까치산",
+     "to": "도림천"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "infeasible",
+   "expect_reason": "service_gap",
+   "expect_last_depart": "23:36",
+   "expect_relief_contains": "기다리면"
+  },
+  {
+   "id": "NOSTN-01",
+   "note": "시간표에 없는 역 — 근거없음. 정상으로 바꾸지 않고 비슷한 역명을 같이 낸다",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "신답",
+     "to": "성수"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_warn_codes": [
+    "MOB_W_STATION_NOT_IN_TIMETABLE"
+   ]
+  },
+  {
+   "id": "RIDE-01",
+   "note": "열차는 있는데 그 구간 소요를 우리 데이터로 못 낸다(신도림–도림천 간선에 travel_min 없음) — 마지막 구간이고 도착 제약이 없으면 **성립**으로 내되 도착 시각은 만들지 않는다(설계서: 성립 여부는 내고 소요는 판단 불가)",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "02호선",
+     "from": "신도림",
+     "to": "도림천"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:50"
+  }
+ ],
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+}

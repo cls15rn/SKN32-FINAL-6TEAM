@@ -182,5 +182,23 @@ program/산출물양식/_backup/
 # (골든셋) 는 걸리지 않아야 한다.
 /datasets/
 
+# mobility local
+.metrics/
+Claude outputs/
+*.bak_*
+demo*.html
+selfcheck*.json
+fold_sample.json
+# 39 (2026-09-24) 자기점검 보고서는 미추적 — 기본 출력은 .metrics/ (50 결함 2)
+selfcheck_report.md
+# 39 (2026-09-24) 방 작업폴더·스크립트는 git 밖(27번 규칙 22)
+_39/
+_50/
+50_*.ps1
+# 40 (2026-09-24) 방 작업폴더는 git 밖 · 판정 로그는 DATA_DIR logs\ (한 기기)
+_40/
 # 파이참 작업 공간. 사람마다 다르다.
 .idea/
+
+docs/mobility/*.docx
+docs/mobility/*.png

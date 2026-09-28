@@ -1,0 +1,236 @@
+{
+ "note": "버스 구간 통행시간 프로파일 회귀 v1 (2026-09-25 · 41번 방 · 규칙 v0.9). 진입 시각대 누적 · 대체 구간 · 04시 전 요일형 갈림 · 승차 ≤ 막차 통과 · p90_eta_min 을 잠근다. 실행: python -m app.modules.travel_ops.mobility.engine.verify_time --cases tests/mobility/bus_profile_legs_v1.json --check-expect",
+ "built_at": "2026-09-25",
+ "기대값_근거": "기대 도착·@·p90 은 판정기 코드를 쓰지 않고 bus_seg_profile_v1.jsonl.gz · bus_stops_v1.jsonl · bus_route_v1.jsonl 을 직접 읽는 별도 계산으로 뽑았다(41 작업메모 §적용). 프로파일을 다시 만들면(기간이 바뀌면) 값이 움직인다 — 그때는 같은 계산으로 다시 뽑는다.",
+ "주의": [
+  "BP-01·02·03a·05 는 수정 전 판정기(v0.8)와 변이 판정기(고정 시간 칸 · 요일형 한 칸 · min_days 무시 · worst p50)에서 MISS 가 나는 것을 먼저 봤다(12번 규칙 7).",
+  "값은 날짜별 시간대 평균의 분위다 — 개별 운행 분위가 아니다(41 GPT 4).",
+  "막차(적용 GPT 1·2): 막차 통과 추정으로 새 불가를 만들지 않는다 — 대기 모델 승차가 추정 통과 뒤면 추정 시각에 탄다(상한). BP-04a/b·05 가 이것을 잠근다. 처음 판(p10 초과 → after_last)은 기각."
+ ],
+ "cases": [
+  {
+   "id": "BP-01",
+   "note": "진입 시각대 누적 — 472 순천향대학병원→세브란스병원(14구간) 평일 17:40. 17:45 승차 후 18시를 넘긴 뒤 구간은 18시 칸을 쓴다. 17시 칸 고정이면 예정 18:31(3분 이르다). p90 누적은 17:49 승차 기준 65.8분 → @ 31(= 21 + 버퍼 10) · p90_eta 71(= eta 54 + ⌈65.8−48.8⌉)",
+   "date": "2026-09-10",
+   "depart_at": "17:40",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "472",
+     "from": "순천향대학병원",
+     "to": "세브란스병원"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "18:34",
+   "expect_margin_min": [
+    31,
+    31
+   ],
+   "expect_p90_eta": [
+    71,
+    71
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_WORST_NO_SPREAD",
+    "MOB_W_BUS_PROFILE_FALLBACK",
+    "MOB_W_SPEED_NO_PEAK"
+   ]
+  },
+  {
+   "id": "BP-02",
+   "note": "대체 구간 — 6015 충무로역.한옥마을.한국의집→충정로역2호선(4구간) 평일 22:00(막차 23:00 의 60분 전이라 대기 배차 전부 13분). 남대문시장.회현역→한국경제신문사 구간의 22시 칸이 3일뿐(min_days 5 미만) → 그 구간만 표정속도(공항 → 간선 대용 15.3)로 셈한다. p90_eta 는 내지 않는다(대체 구간이 섞이면 스프레드 소스가 아니다)",
+   "date": "2026-09-10",
+   "depart_at": "22:00",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "6015",
+     "from": "충무로역.한옥마을.한국의집",
+     "to": "충정로역2호선"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:25",
+   "expect_margin_min": [
+    12,
+    12
+   ],
+   "expect_p90_eta": null,
+   "expect_warn_codes": [
+    "MOB_W_BUS_PROFILE_FALLBACK",
+    "MOB_W_BUS_SPEED_PROXY_AIRPORT",
+    "MOB_W_AIRPORT_FARE"
+   ]
+  },
+  {
+   "id": "BP-03a",
+   "note": "04시 전 요일형 갈림 — N26 서울성심병원→신내새한아파트.신내교회 운행일 금(평일) 01:30(=25:30). 달력상 토요일(휴일) 새벽이라 두 칸 중 느린 쪽을 쓴다(원천 날짜 기준 미확인 · 41 GPT 9). 평일 칸만 쓰면 예정 25:58",
+   "date": "2026-09-11",
+   "depart_at": "01:30",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "N26",
+     "from": "서울성심병원",
+     "to": "신내새한아파트.신내교회"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "25:59",
+   "expect_margin_min": [
+    26,
+    26
+   ],
+   "expect_p90_eta": [
+    34,
+    34
+   ],
+   "expect_warn_codes": [
+    "MOB_W_BUS_PROFILE_DAYTYPE_EDGE"
+   ]
+  },
+  {
+   "id": "BP-03b",
+   "note": "04시 전이지만 요일형이 안 갈린다 — 같은 구간 운행일 토(휴일) 01:30 → 달력상 일요일(휴일). 갈림 경고가 없어야 한다",
+   "date": "2026-09-12",
+   "depart_at": "01:30",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "N26",
+     "from": "서울성심병원",
+     "to": "신내새한아파트.신내교회"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "25:58",
+   "expect_margin_min": [
+    27,
+    27
+   ],
+   "expect_p90_eta": [
+    34,
+    34
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_BUS_PROFILE_DAYTYPE_EDGE"
+   ]
+  },
+  {
+   "id": "BP-04a",
+   "note": "승차 시각 상한 — 기점에서 먼 정류장. 2016 막차 22:20(기점 출발) · 건대입구역1번출구 통과 추정은 22:56 뒤라 22:20 요청 → 22:31 승차(대기 배차 전부)에 상한이 걸리지 않는다",
+   "date": "2026-09-10",
+   "depart_at": "22:20",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "건대입구역1번출구",
+     "to": "성수역1번출구"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:36",
+   "expect_margin_min": [
+    11,
+    11
+   ],
+   "expect_p90_eta": [
+    17,
+    17
+   ],
+   "expect_warn_codes_absent": [
+    "MOB_W_BUS_BOARD_CAPPED"
+   ]
+  },
+  {
+   "id": "BP-04b",
+   "note": "승차 시각 상한 — 기점 가까운 정류장. 2016 신내초등학교.신내교회 막차 통과 추정 = 22:20 + ⌈기점→여기 p50 누적⌉ = 22:26. 22:20 요청의 대기 모델 승차 22:31 은 그 뒤라 22:26 에 탄다고 본다(성립 · 예정 22:40). 처음 판은 p10 경계를 넘었다고 불가 after_last 였다 — 적용 GPT 1·2 로 기각(대기 모델은 못 탄다는 근거가 아니다)",
+   "date": "2026-09-10",
+   "depart_at": "22:20",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "신내초등학교.신내교회",
+     "to": "면목마젤란아파트"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:40",
+   "expect_margin_min": [
+    13,
+    13
+   ],
+   "expect_p90_eta": [
+    23,
+    23
+   ],
+   "expect_warn_codes": [
+    "MOB_W_BUS_BOARD_CAPPED"
+   ]
+  },
+  {
+   "id": "BP-05",
+   "note": "적용 GPT 1 의 반례 — 기점에 막차(22:20) 5분 전 도착. 대기 모델(막차 근처 배차 전부 11분)로는 22:26 승차라 처음 판은 불가였지만, 막차가 22:20 에 기점을 떠나므로 탈 수 있다 → 22:20 승차 · 예정 22:26",
+   "date": "2026-09-10",
+   "depart_at": "22:15",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "중랑공영차고지.신내역",
+     "to": "신내초등학교.신내교회"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:26",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_p90_eta": [
+    12,
+    12
+   ],
+   "expect_warn_codes": [
+    "MOB_W_BUS_BOARD_CAPPED"
+   ]
+  },
+  {
+   "id": "BP-06",
+   "note": "상한이 걸리는 도착 목표 역산(적용 2차 GPT 6·11) — 2016 신내초등학교.신내교회→면목마젤란아파트 · 도착 목표 22:50. 22:15~22:20 출발은 모두 막차 통과 추정 22:26 승차(평탄 구간)라 최악 도착 22:43 + 버퍼 10 > 22:50 → 불성립. 역산은 1분씩 전부 다시 판정해 22:12 를 찾아야 한다. 22:05 요청은 예정 22:30 · @13 · 여유 7",
+   "date": "2026-09-10",
+   "depart_at": "22:05",
+   "arrive_by": "22:50",
+   "legs": [
+    {
+     "mode": "bus",
+     "route": "2016",
+     "from": "신내초등학교.신내교회",
+     "to": "면목마젤란아파트"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_arrive": "22:30",
+   "expect_margin_min": [
+    13,
+    13
+   ],
+   "expect_slack_min": [
+    7,
+    7
+   ],
+   "expect_last_depart": "22:12"
+  }
+ ]
+}
