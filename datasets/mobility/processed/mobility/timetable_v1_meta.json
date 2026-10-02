@@ -473,18 +473,34 @@
   "backup": "timetable_v1_before_destfill_20261001_1234.jsonl",
   "report": "timetable_v1_destfill_report.md"
  },
- "dest_fill_src": {
-  "script": "scratch/_79/p79_srcfill.py",
-  "room": "79",
-  "line": "04호선",
-  "day_type": "holiday",
-  "source": "data.go.kr 15098251 서울교통공사_서울 도시철도 열차운행시각표_20260901",
-  "source_url": "https://www.data.go.kr/data/15098251/fileData.do",
-  "source_checked_at": "2026-10-01T10:41+09:00",
-  "source_sha256": "fd7e7b6edc18a5ac4f40f53b594d460d5cbd96d90919aaeb54b957890080d606",
-  "match": "station_nm + dir + dep_time exact · single 도착역",
-  "basis": "src:seoulmetro_15098251_20260901",
-  "rows_filled": 3016,
-  "at": "2026-10-01T12:34:55"
- }
+ "dest_fill_src": [
+  {
+   "script": "scratch/_79/p79_srcfill.py",
+   "room": "79",
+   "line": "04호선",
+   "day_type": "holiday",
+   "source": "data.go.kr 15098251 서울교통공사_서울 도시철도 열차운행시각표_20260901",
+   "source_url": "https://www.data.go.kr/data/15098251/fileData.do",
+   "source_checked_at": "2026-10-01T10:41+09:00",
+   "source_sha256": "fd7e7b6edc18a5ac4f40f53b594d460d5cbd96d90919aaeb54b957890080d606",
+   "match": "station_nm + dir + dep_time exact · single 도착역",
+   "basis": "src:seoulmetro_15098251_20260901",
+   "rows_filled": 3016,
+   "at": "2026-10-01T12:34:55"
+  },
+  {
+   "script": "scratch/_79/p79_srcfill.py",
+   "room": "79",
+   "line": "04호선",
+   "day_type": "weekday",
+   "source": "data.go.kr 15098251 서울교통공사_서울 도시철도 열차운행시각표_20260901",
+   "source_url": "https://www.data.go.kr/data/15098251/fileData.do",
+   "source_checked_at": "2026-10-01T10:41+09:00",
+   "source_sha256": "fd7e7b6edc18a5ac4f40f53b594d460d5cbd96d90919aaeb54b957890080d606",
+   "match": "station_nm + dir + dep_time exact · single 도착역",
+   "basis": "src:seoulmetro_15098251_20260901",
+   "rows_filled": 455,
+   "at": "2026-10-01T16:46:45"
+  }
+ ]
 }
