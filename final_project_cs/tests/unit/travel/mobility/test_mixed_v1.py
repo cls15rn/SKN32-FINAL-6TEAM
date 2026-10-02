@@ -481,3 +481,217 @@ def test_full_plain_options_unchanged_by_mixed():
         plain = [o for o in on[0]["options"] if not ("subway" in o["id"] and "bus" in o["id"])]
         strip = lambda o: {k: v for k, v in o.items() if k != "label"}       # noqa: E731 — 축별 사실 문구는 실린 후보끼리 비교라 바뀔 수 있다
         assert [strip(o) for o in plain] == [strip(o) for o in off[0]["options"]], (a["name"], b["name"])
+
+
+# ══ 환승 2회까지(94 · 2026-10-02) — 생성기 게이트(데이터 없음) ══════════════════════════════════
+#   출발 A(37.500, 127.000) → 도착 B(37.500, 127.100). 한 노선으로는 못 간다.
+#   X1: A앞 → M1(127.030) → X끝          X2: M1b(M1 에서 약 35 m) → B앞            — 버스→버스(만남 100 m 안)
+#   X3: M1far(M1 에서 약 300 m) → B앞3                                             — 만남 500 m 에서만
+#   Y1: A앞y → N1(127.031 · 북쪽)   Ym: N1(같은 정류장 ID) → N2(127.065)   Y2: N2b → B앞y — 버스→버스→버스
+A_LAT, A_LNG, B_LAT, B_LNG = 37.500, 127.000, 37.500, 127.100
+
+
+def _xstop(rid, seq, nm, lat, lng, sid=None):
+    return {"route_id": rid, "seq": seq, "station_nm": nm, "lat": lat, "lng": lng, "sect_dist_m": 100,
+            "station_id": sid or f"{rid}-{seq}"}
+
+
+class _XBus:
+    def __init__(self, routes):
+        R = lambda rid, t="간선": SimpleNamespace(route_id=rid, route_nm=rid.upper(), route_type_nm=t, term_min=10,  # noqa: E731
+                                                  first_min=300, last_min=1400)
+        self.by_id = {rid: R(rid, t) for rid, (t, _rows) in routes.items()}
+        self.by_nm = {r.route_nm: r for r in self.by_id.values()}
+        self.stops = {rid: rows for rid, (_t, rows) in routes.items()}
+
+
+def _xworld(*names):
+    all_ = {
+        "x1": ("간선", [_xstop("x1", 1, "A앞", A_LAT, A_LNG + 0.0005), _xstop("x1", 2, "M1", 37.500, 127.030),
+                       _xstop("x1", 3, "X끝", 37.520, 127.030)]),
+        "x2": ("간선", [_xstop("x2", 1, "M1b", 37.5003, 127.0301), _xstop("x2", 2, "B앞", B_LAT, B_LNG - 0.0005)]),
+        "x3": ("지선", [_xstop("x3", 1, "M1far", 37.5027, 127.030), _xstop("x3", 2, "B앞3", B_LAT, B_LNG - 0.0008)]),
+        "y1": ("간선", [_xstop("y1", 1, "A앞y", A_LAT + 0.0005, A_LNG), _xstop("y1", 2, "N1", 37.540, 127.031, "N1")]),
+        "ym": ("간선", [_xstop("ym", 1, "N1", 37.540, 127.031, "N1"), _xstop("ym", 2, "N2", 37.540, 127.065)]),
+        "y2": ("간선", [_xstop("y2", 1, "N2b", 37.5402, 127.0651), _xstop("y2", 2, "B앞y", B_LAT + 0.0005, B_LNG)]),
+        "ap": ("공항", [_xstop("ap", 1, "M1c", 37.5001, 127.0301), _xstop("ap", 2, "B앞공항", B_LAT, B_LNG - 0.0003)]),
+        "tr": ("투어", [_xstop("tr", 1, "M1t", 37.5001, 127.0302), _xstop("tr", 2, "B앞투어", B_LAT, B_LNG - 0.0002)]),
+    }
+    return _XBus({k: all_[k] for k in names})
+
+
+def _chain(bus, tlim=2, **kw):
+    mg = _gen(bus=bus, tlim=tlim)
+    return CD.ChainGenerator(mg, **kw)
+
+
+def _xlegs(c):
+    return [(l["route"], l["from"], l["to"]) for l in c.legs]
+
+
+def test_bus_bus_meets_within_radius():
+    """버스→버스 — 앞 노선 하차 정류장과 뒤 노선 승차 정류장이 만남 반경 안(다른 정류장 · 도보)일 때 끊는다. 구간에 순번을 싣는다."""
+    g = _chain(_xworld("x1", "x2"))
+    cs = g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100)
+    assert [_xlegs(c) for c in cs] == [[("X1", "A앞", "M1"), ("X2", "M1b", "B앞")]]
+    c = cs[0]
+    assert c.shape == "BB" and c.transfers == 1 and 20 < c.link_m < 60 and g.materialize(c)
+    assert c.legs[0]["from_seq"] == 1 and c.legs[0]["to_seq"] == 2 and c.legs[1]["from_seq"] == 1
+    assert [rid for rid, _row in c.rides] == ["x1", "x2"]
+
+
+def test_bus_bus_radius_widening_is_callers_choice():
+    """만남 반경 100 m 에서는 후보가 없고 500 m 에서만 나오는 짝(약 300 m 걸어서 옮겨 탄다)."""
+    g = _chain(_xworld("x1", "x3"))
+    assert g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100) == []
+    cs = g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 500)
+    assert [_xlegs(c) for c in cs] == [[("X1", "A앞", "M1"), ("X3", "M1far", "B앞3")]] and 250 < cs[0].link_m < 350
+
+
+def test_bus_bus_excludes_airport_and_tour_routes():
+    """공항버스·투어버스는 갈아타는 후보에 쓰지 않는다."""
+    g = _chain(_xworld("x1", "ap", "tr"))
+    assert g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100) == []
+
+
+def test_bus_bus_bus_through_middle_route():
+    """버스→버스→버스 — 1회로는 못 잇고(후보 없음) 가운데 노선을 거쳐야 잇는다 · 같은 정류장 ID 는 0 m."""
+    g = _chain(_xworld("y1", "ym", "y2"))
+    assert g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100) == []
+    cs = g.bus_chain(2, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100)
+    assert [_xlegs(c) for c in cs] == [[("Y1", "A앞y", "N1"), ("YM", "N1", "N2"), ("Y2", "N2b", "B앞y")]]
+    assert cs[0].shape == "BBB" and cs[0].transfers == 2 and cs[0].link_m < 40      # N1 0 m + N2↔N2b 약 24 m
+
+
+def test_chain_cap_and_generated_count():
+    """단계마다 내는 후보 상한(cap) — 넘는 수는 n_generated 로 부르는 쪽이 「상한」으로 적는다."""
+    g = _chain(_xworld("x1", "x2", "x3"), cap=1)
+    cs = g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 500)
+    assert len(cs) == 1 and g.n_generated == 2
+    assert _xlegs(cs[0])[1][0] == "X2"                                              # 추정 소요 짧은 쪽(걷는 거리 짧음)
+
+
+def test_xfer_rule_proposed_and_validation():
+    assert (CD.xfer_rule(RULES, "cuts"), CD.xfer_rule(RULES, "mid"), CD.xfer_rule(RULES, "max")) == (
+        CD.XFER_CUTS_PER_PAIR_PROPOSED, CD.XFER_MID_PER_PAIR_PROPOSED, CD.XFER_MAX_PROPOSED) == (1, 2, 3)
+    r = json.loads(json.dumps(RULES))
+    r["candidates"]["환승_후보_최대"] = {"value": 5}
+    assert CD.xfer_rule(r, "max") == 5                                              # 규칙에 들어가면 규칙 값이 이긴다
+    r["candidates"]["환승_후보_최대"] = {"value": 0}
+    with pytest.raises(ValueError):
+        CD.xfer_rule(r, "max")
+
+
+# 혼합 2회 — 지하철 두 노선(L1: S1–S2 · L2: T1–T2)이 서로 안 이어진 세계
+class _LO2:
+    def __init__(self):
+        self.doc = {"lines": {
+            "L1": {"stations": [{"station_nm": "S1"}, {"station_nm": "S2"}], "edges": [{"a": "S1", "b": "S2", "travel_min": 5}]},
+            "L2": {"stations": [{"station_nm": "T1"}, {"station_nm": "T2"}], "edges": [{"a": "T1", "b": "T2", "travel_min": 5}]}}}
+
+
+class _SC2:
+    POS = {"S1": ("L1", 37.50, 127.00), "S2": ("L1", 37.50, 127.03), "T1": ("L2", 37.50, 127.06), "T2": ("L2", 37.50, 127.09)}
+
+    def __init__(self):
+        self.by_key = {f"{ln}|{nm}": {"station_nm": nm, "line": ln, "lat": la, "lng": lo, "station_key": f"{ln}|{nm}"}
+                       for nm, (ln, la, lo) in self.POS.items()}
+
+    def phys_key(self, rec):
+        return rec["station_nm"]
+
+    def group_lines(self, rec):
+        return frozenset({rec["line"]})
+
+    def resolve(self, nm, lines=None):
+        return self.by_key.get(f"{self.POS[nm][0]}|{nm}") if nm in self.POS else None
+
+    def is_ambiguous(self, nm):
+        return False
+
+
+def _chain2(routes, tlim=2):
+    cg = CandidateGraph(_LO2(), None, RULES, True)
+    mg = MixedGenerator(cg, _XBus(routes), _SC2(), None, radius_m=500, near_m=500, cuts=3, tlim=tlim,
+                        excluded=["관광", "투어"], ride_min=lambda r, x, y: 10.0 * (y["seq"] - x["seq"]),
+                        wayfinding=1, walk_speed=1.04, detour=1.4)
+    return CD.ChainGenerator(mg)
+
+
+def test_subway_bus_subway_bridges_two_lines():
+    """지하철→버스→지하철 — 서로 안 이어진 두 노선을 버스 한 구간이 잇는다(S1→S2 · 버스 · T1→T2). 환승 상한 1 이면 안 만든다."""
+    routes = {"k1": ("간선", [_xstop("k1", 1, "S2앞", 37.5003, 127.0301), _xstop("k1", 2, "T1앞", 37.5003, 127.0601)])}
+    g = _chain2(routes)
+    cs = g.subway_bus_subway([("S1", None, 100)], [("T2", None, 100)])
+    assert len(cs) == 1 and g.materialize(cs[0])
+    c = cs[0]
+    assert [(l.get("route") or l.get("line"), l["from"], l["to"]) for l in c.legs] == [
+        ("L1", "S1", "S2"), ("K1", "S2앞", "T1앞"), ("L2", "T1", "T2")]
+    assert c.shape == "SBS" and c.transfers == 2 and (c.walk_in_m, c.walk_out_m) == (100, 100)
+    assert _chain2(routes, tlim=1).subway_bus_subway([("S1", None, 100)], [("T2", None, 100)]) == []
+
+
+def test_bus_subway_bus_and_station_exclusion():
+    """버스→지하철→버스 — 출발점 앞 정류장 → S1 앞 · L1 S1→S2 · S2 앞 → 도착점 앞. 걸어갈 역(excl)은 끊지 않는다."""
+    o_lat, o_lng, d_lat, d_lng = 37.53, 126.98, 37.53, 127.05
+    routes = {"h1": ("간선", [_xstop("h1", 1, "O앞", o_lat, o_lng), _xstop("h1", 2, "S1앞", 37.5003, 127.0001)]),
+              "h2": ("간선", [_xstop("h2", 1, "S2앞", 37.5003, 127.0301), _xstop("h2", 2, "D앞", d_lat, d_lng)])}
+    g = _chain2(routes)
+    cs = g.bus_subway_bus(o_lat, o_lng, d_lat, d_lng, 1200)
+    assert len(cs) == 1 and g.materialize(cs[0])
+    assert [(l.get("route") or l.get("line"), l["from"], l["to"]) for l in cs[0].legs] == [
+        ("H1", "O앞", "S1앞"), ("L1", "S1", "S2"), ("H2", "S2앞", "D앞")]
+    assert cs[0].shape == "BSB" and cs[0].transfers == 2
+    assert g.bus_subway_bus(o_lat, o_lng, d_lat, d_lng, 1200, excl_a={"S1"}) == []
+    assert _chain2(routes, tlim=1).bus_subway_bus(o_lat, o_lng, d_lat, d_lng, 1200) == []
+
+
+# ── GPT 94 대조 반영 ──
+def test_chain_counts_cut_points_dropped_by_estimate():
+    """GPT 94 #1 — 같은 노선쌍의 다른 갈아타는 자리를 추정으로 접으면 그 수를 n_pruned 로 남긴다(「판정하지 않은 후보」에 든다)."""
+    routes = {
+        "x1": ("간선", [_xstop("x1", 1, "A앞", A_LAT, A_LNG + 0.0005), _xstop("x1", 2, "M1", 37.500, 127.030),
+                       _xstop("x1", 3, "M2", 37.500, 127.050)]),
+        "x2": ("간선", [_xstop("x2", 1, "M1b", 37.5003, 127.0301), _xstop("x2", 2, "M2b", 37.5003, 127.0501),
+                       _xstop("x2", 3, "B앞", B_LAT, B_LNG - 0.0005)]),
+    }
+    g = _chain(_XBus(routes))
+    cs = g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100)
+    assert len(cs) == 1 and g.n_generated == 1 and g.n_pruned == 1
+    g = _chain(_XBus(routes), cuts=2)
+    assert len(g.bus_chain(1, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100)) == 2 and g.n_pruned == 0
+
+
+def test_bbb_keeps_second_first_route_when_best_equals_last_route():
+    """GPT 94 #4 — 가운데 노선 승차 자리에 R1(빠름)·R2 로 닿을 수 있고 끝 노선도 R1 이면, R1→가운데→R1 은 빼되 R2→가운데→R1 은 남는다."""
+    routes = {
+        "r1": ("간선", [_xstop("r1", 1, "A앞", A_LAT, A_LNG + 0.0005), _xstop("r1", 2, "N1", 37.540, 127.031, "N1"),
+                       _xstop("r1", 3, "먼곳", 37.60, 127.00), _xstop("r1", 4, "N2r", 37.5401, 127.0651),
+                       _xstop("r1", 5, "B앞", B_LAT, B_LNG - 0.0005)]),
+        "r2": ("간선", [_xstop("r2", 1, "A앞2", A_LAT + 0.0005, A_LNG), _xstop("r2", 2, "돌아", 37.52, 127.01),
+                       _xstop("r2", 3, "N1", 37.540, 127.031, "N1")]),
+        "rm": ("간선", [_xstop("rm", 1, "N1", 37.540, 127.031, "N1"), _xstop("rm", 2, "N2", 37.540, 127.065)]),
+    }
+    cs = _chain(_XBus(routes)).bus_chain(2, A_LAT, A_LNG, B_LAT, B_LNG, 1200, 100)
+    assert [_xlegs(c) for c in cs] == [[("R2", "A앞2", "N1"), ("RM", "N1", "N2"), ("R1", "N2r", "B앞")]]
+
+
+def test_bsb_uses_other_head_when_nearest_head_is_the_tail_station():
+    """GPT 94 #3 — 마지막 버스로 갈아탈 역(S2)에 버스로 바로 닿는 길이 가장 짧아도(지하철 구간 없음 → 제외), S1 에서 지하철로 오는 후보는 남는다."""
+    o_lat, o_lng, d_lat, d_lng = 37.53, 126.98, 37.53, 127.05
+    routes = {"h0": ("간선", [_xstop("h0", 1, "O앞b", o_lat, o_lng + 0.0003), _xstop("h0", 2, "S2앞x", 37.5004, 127.0302)]),
+              "h1": ("간선", [_xstop("h1", 1, "O앞", o_lat, o_lng), _xstop("h1", 2, "S1앞", 37.5003, 127.0001)]),
+              "h2": ("간선", [_xstop("h2", 1, "S2앞", 37.5003, 127.0301), _xstop("h2", 2, "D앞", d_lat, d_lng)])}
+    g = _chain2(routes)
+    cs = g.bus_subway_bus(o_lat, o_lng, d_lat, d_lng, 1200)
+    got = [[(l.get("route") or l.get("line"), l["from"], l["to"]) for l in c.legs] for c in cs if g.materialize(c)]
+    assert [("H1", "O앞", "S1앞"), ("L1", "S1", "S2"), ("H2", "S2앞", "D앞")] in got, got
+
+
+def test_sbs_keeps_access_and_egress_walks_apart():
+    """GPT 94 #5 — 같은 역명이 출발·도착 목록 양쪽에 있어도 접근 거리(800)와 이탈 거리(100)가 섞이지 않는다."""
+    routes = {"k1": ("간선", [_xstop("k1", 1, "S2앞", 37.5003, 127.0301), _xstop("k1", 2, "T1앞", 37.5003, 127.0601)])}
+    g = _chain2(routes)
+    cs = g.subway_bus_subway([("S1", None, 800)], [("T2", None, 100), ("S1", None, 50)])
+    assert len(cs) == 1 and g.materialize(cs[0])
+    assert (cs[0].walk_in_m, cs[0].walk_out_m) == (800, 100)

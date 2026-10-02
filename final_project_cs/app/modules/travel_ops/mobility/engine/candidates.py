@@ -734,3 +734,526 @@ def interleave(a_list, b_list):
         if i < len(b_list):
             out.append(b_list[i])
     return out
+
+
+# ══ 환승 2회까지(94 · 2026-10-02 · 본인 「버스만이어도 환승은 있을 수밖에 없다」) ══════════════════════════════
+# 87 의 끊는 지점 방식을 이어 **모양을 더한다**(본인 10/2 설계 답 — 통합 탐색기가 아니다):
+#   BB  버스→버스            BBB 버스→버스→버스           (「버스만」 칸 · plan.Planner._bus_transfer)
+#   BSB 버스→지하철→버스      SBS 지하철→버스→지하철       (「지하철+버스」 칸 · plan.Planner._mixed2)
+# ★ 판정하지 않는다 — 여기 값(추정 소요)은 **판정에 넣을 순서**만 정한다. 성립·시각은 판정기(verify_case)가 낸다.
+# ★ 노선끼리 「만나는 자리」 = 앞 노선 하차 정류장과 뒤 노선 승차 정류장이 같은 정류장이거나 만남 반경 안. 반경은 기존 규칙 값
+#   둘을 차례로 쓴다(새 숫자 없음 · 본인 10/2): alternatives.정류장_동일_반경_m(100 · 같은 정류장·길 건너 짝) → 그 반경에서
+#   후보가 하나도 없을 때만 alternatives.정류장_반경_m(500 · 「역 앞」과 같은 값). 판정기의 환승 도보 상한(limits.walk_m)은
+#   판정기가 따로 본다(transfer.bus_bus_walk).
+# ★ 만남 표를 파일로 두지 않는다(본인 10/2) — 정류장 행 격자(반경 크기 칸)를 버스 표 객체마다 한 번 만들어 두고(약한 키 캐시),
+#   구간마다 「출발 쪽에서 한 번 타서 닿는 행」과 「도착 쪽으로 한 번 타고 오는 행」을 그 격자에서 맞춘다. 정류장 파일이 바뀌면
+#   표 객체가 새로 생겨 격자도 새로 만든다(어긋날 파일이 없다).
+# ★ 공항버스는 이 모양들에 쓰지 않는다(공항버스는 87 의 A 공항→시내만 — 공항행 시각 근거가 판정기에 없다 · 37).
+# ★ 막는 값은 규칙 **변경안**(27 규칙 32 · 규칙 파일은 모아서 한 번에 · 규칙에 들어가면 규칙 값이 이긴다 · mix_rule):
+#: 노선쌍당 끊는 지점 — 같은 두 노선이 여러 정류장에서 만나면 추정 소요가 가장 짧은 자리 하나(같은 길을 같이 달리는 구간의
+#:   앞뒤 정류장은 같은 후보다). grade 추정.
+XFER_CUTS_PER_PAIR_PROPOSED = 1
+#: 2회 환승에서 양 끝 노선쌍당 가운데 노선(또는 가운데 구간) 수 — 추정 소요 짧은 순. grade 추정.
+XFER_MID_PER_PAIR_PROPOSED = 2
+#: 단계마다 판정에 넣는 후보 수(추정 소요 짧은 순 · 첫 노선·끝 노선이 겹치지 않게 먼저 고른다) — 버스_직행_최대(3)·혼합 판정
+#:   상한(3)과 같은 크기. grade 추정.
+XFER_MAX_PROPOSED = 3
+XFER_KEYS = {"cuts": ("환승_끊는_지점_최대", XFER_CUTS_PER_PAIR_PROPOSED),
+             "mid": ("환승_가운데_노선_최대", XFER_MID_PER_PAIR_PROPOSED),
+             "max": ("환승_후보_최대", XFER_MAX_PROPOSED)}
+
+
+def xfer_rule(rules, name):
+    key, proposed = XFER_KEYS[name]
+    return mix_rule(rules, key, proposed)
+
+
+@dataclass
+class ChainCandidate:
+    """환승 후보(BB · BBB · BSB · SBS). plan.Planner._mixed_one 이 MixedCandidate 와 같은 칸으로 읽는다."""
+    shape: str
+    legs: list                      # 판정기 입력 — 버스 구간은 from_seq·to_seq 를 싣는다(같은 이름 정류장이 한 노선에 두 번 있다)
+    est_min: float                  # 고르는 순서용 추정(판정 아님)
+    transfers: int
+    walk_in_m: float
+    walk_out_m: float
+    link_m: float                   # 환승 도보 직선 m 합(정류장↔정류장 · 정류장↔역 출구)
+    route_nm: str                   # 표시용(노선 이름 이어 붙임)
+    rides: list = field(default_factory=list)       # [(route_id, 타는 행)] — 운행 시간 추정(순서용)에 쓴다
+    radius_m: float = 0.0           # 이 후보를 만든 만남 반경
+    sub_walk_min: float = 0.0
+    grade: str = "추정"
+    fallback_edges: list = field(default_factory=list)
+    cut_station: str = ""
+    end_station: str = ""
+
+    def key(self):
+        return tuple((l.get("route") or l.get("line"), l["from"], l["to"], l.get("from_seq"), l.get("to_seq"))
+                     for l in self.legs)
+
+    def cut_key(self):
+        """끊는 자리를 뺀 키 — 같은 노선열(끊는 정류장만 다른 후보)을 한 묶음으로 볼 때."""
+        return tuple(l.get("route") or l.get("line") for l in self.legs)
+
+
+_GRID = _weakref.WeakKeyDictionary()      # 버스 표 객체 → {칸 크기 m: (칸 → [정류장 행])}
+#: 격자 칸 번호를 매길 때 쓰는 **고정** 경도 축척(서울 위도 37.5°) — 행마다 제 위도의 cos 를 쓰면 위도가 조금만 달라도 칸 번호가
+#:   어긋난다(경도 127° × 축척 차). 칸은 「근처 후보를 모으는 그물」일 뿐이고 거리는 행마다 제 위도로 다시 잰다.
+_GRID_COS = 0.7933533
+
+
+def _row_grid(bus, cell_m):
+    per = _GRID.setdefault(bus, {})
+    g = per.get(cell_m)
+    if g is None:
+        import math
+        g = collections.defaultdict(list)
+        for rows in bus.stops.values():
+            for s in rows:
+                if s.get("lat") is None or s.get("lng") is None or _VIRTUAL in str(s.get("station_nm")):
+                    continue
+                g[(math.floor(s["lat"] * 111_320 / cell_m), math.floor(s["lng"] * 111_320 * _GRID_COS / cell_m))].append(s)
+        per[cell_m] = g = dict(g)
+    return g
+
+
+def _rows_near(bus, row, within_m):
+    """정류장 행 근처(직선 within_m 안)의 다른 행 [(m, 행)]. 같은 정류장(station_id)은 0 m(판정기 bus_bus_walk 와 같은 뜻)."""
+    import math
+    cell = max(float(within_m), 50.0)
+    g = _row_grid(bus, cell)
+    la, lo = row["lat"], row["lng"]
+    cy = math.floor(la * 111_320 / cell)
+    cx = math.floor(lo * 111_320 * _GRID_COS / cell)
+    out = []
+    for dy_ in (-1, 0, 1):
+        for dx_ in (-2, -1, 0, 1, 2):          # 고정 축척과 실제 축척의 차(서울 안 0.5% 미만)만큼 한 칸 더 본다
+            for s in g.get((cy + dy_, cx + dx_), ()):
+                if s.get("station_id") and s.get("station_id") == row.get("station_id"):
+                    out.append((0.0, s))
+                    continue
+                m = math.hypot((s["lat"] - la) * 111_320,
+                               (s["lng"] - lo) * 111_320 * math.cos(math.radians((s["lat"] + la) / 2)))
+                if m <= within_m:
+                    out.append((m, s))
+    return out
+
+
+class ChainGenerator:
+    """환승 2회까지의 후보 생성기 — MixedGenerator(mg)의 조각(근처 정류장 · 승차 추정 · 역 앞 정류장 · 지하철 그래프)을 쓴다.
+    cuts · mid · cap = 규칙 변경안(노선쌍당 끊는 지점 · 가운데 노선 · 단계마다 내는 후보 수)."""
+
+    def __init__(self, mg, *, cuts=XFER_CUTS_PER_PAIR_PROPOSED, mid=XFER_MID_PER_PAIR_PROPOSED, cap=XFER_MAX_PROPOSED):
+        self.mg, self.bus = mg, mg.bus
+        self.cuts, self.mid, self.cap = cuts, mid, cap
+        self.n_generated = 0               # 마지막 호출이 상한으로 자르기 전 후보 수(부르는 쪽이 dropped 를 적는다)
+        #: (GPT 94 #1) 마지막 호출이 **추정으로 접은** 후보 수 — 노선쌍당 끊는 지점(cuts)·가운데 노선(mid) 밖. 같은 후보가 아니라
+        #:   추정 소요로 고른 것이라 「판정하지 않은 후보가 남았다」에 든다(부르는 쪽이 xfer_skipped 로 적는다).
+        self.n_pruned = 0
+
+    # ── 조각 ──
+    def _usable(self, r):
+        return r is not None and r.route_type_nm not in self.mg.excluded and r.route_type_nm != AIRPORT_TYPE
+
+    def _wait(self, r):
+        return (r.term_min or 0) / 2
+
+    def _fwd(self, lat, lng, walk_lim):
+        """출발점에서 **한 번 타서** 닿는 행 {(route_id, 내리는 seq): (추정 분, 접근 직선 m, 타는 행, 내리는 행, 노선)}."""
+        mg, out = self.mg, {}
+        for d, x, r in mg._boards(lat, lng, walk_lim):
+            if not self._usable(r):
+                continue
+            base = mg._walk_min(d) + self._wait(r)
+            for y in self.bus.stops.get(r.route_id, []):
+                if y["seq"] <= x["seq"] or y.get("lat") is None or _VIRTUAL in str(y.get("station_nm")):
+                    continue
+                ride = mg._ride(r, x, y)
+                if ride is None:
+                    continue
+                k = (r.route_id, y["seq"])
+                cur = out.get(k)
+                if cur is None or base + ride < cur[0]:
+                    out[k] = (base + ride, d, x, y, r)
+        return out
+
+    def _bwd(self, lat, lng, walk_lim):
+        """도착점으로 **한 번 타고** 오는 행 {(route_id, 타는 seq): (추정 분(대기 + 승차 + 이탈 도보), 이탈 직선 m, 타는 행, 내리는 행, 노선)}."""
+        mg, out = self.mg, {}
+        for d, y, r in mg._boards(lat, lng, walk_lim):
+            if not self._usable(r):
+                continue
+            tail = mg._walk_min(d) + self._wait(r)
+            for x in self.bus.stops.get(r.route_id, []):
+                if x["seq"] >= y["seq"] or x.get("lat") is None or _VIRTUAL in str(x.get("station_nm")):
+                    continue
+                ride = mg._ride(r, x, y)
+                if ride is None:
+                    continue
+                k = (r.route_id, x["seq"])
+                cur = out.get(k)
+                if cur is None or tail + ride < cur[0]:
+                    out[k] = (tail + ride, d, x, y, r)
+        return out
+
+    @staticmethod
+    def _keep2(table, k, item):
+        """(GPT 94 #4) 가운데 노선의 같은 자리(k)에 닿는 길을 **끝 노선이 다른 것 둘까지** 남긴다(item = (추정, 만남 m, 앞·뒤 재료, 행) ·
+        재료[4] = 끝 노선). 하나만 남기면, 나중에 「첫 노선 = 끝 노선」으로 그 하나가 빠질 때 다른 노선으로 닿는 길까지 같이 사라진다."""
+        cur = table.setdefault(k, [])
+        nm = item[2][4].route_nm
+        for i, old in enumerate(cur):
+            if old[2][4].route_nm == nm:
+                if item[0] < old[0]:
+                    cur[i] = item
+                break
+        else:
+            cur.append(item)
+        cur.sort(key=lambda t: t[0])
+        del cur[2:]
+
+    @staticmethod
+    def _bus_leg(r, x, y):
+        return {"mode": "bus", "route": r.route_nm, "from": x["station_nm"], "to": y["station_nm"],
+                "from_seq": x["seq"], "to_seq": y["seq"]}
+
+    @staticmethod
+    def _m(a_lat, a_lng, b_lat, b_lng):
+        import math
+        return math.hypot((a_lat - b_lat) * 111_320,
+                          (a_lng - b_lng) * 111_320 * math.cos(math.radians((a_lat + b_lat) / 2)))
+
+    def _pick(self, cands, first, last):
+        """추정 소요 순으로 cap 개 — 첫 노선·끝 노선이 겹치지 않는 것을 먼저 고르고(같은 길을 같이 달리는 노선 짝이 목록을 덮지
+        않게 · 「같은 방향 중복」), 자리가 남으면 나머지를 추정 순으로 채운다."""
+        cands.sort(key=lambda c: (c.est_min, c.route_nm))
+        self.n_generated = len(cands)
+        out, f_seen, l_seen = [], set(), set()
+        for c in cands:
+            if len(out) >= self.cap:
+                break
+            if first(c) in f_seen or last(c) in l_seen:
+                continue
+            out.append(c)
+            f_seen.add(first(c))
+            l_seen.add(last(c))
+        for c in cands:
+            if len(out) >= self.cap:
+                break
+            if c not in out:
+                out.append(c)
+        out.sort(key=lambda c: (c.est_min, c.route_nm))
+        return out
+
+    # ── BB · BBB ──
+    def bus_chain(self, n_transfers, a_lat, a_lng, b_lat, b_lng, walk_lim, meet_m):
+        """버스만 n_transfers(1 · 2)회 환승 후보. meet_m = 만남 반경(직선 m)."""
+        mg = self.mg
+        F = self._fwd(a_lat, a_lng, walk_lim)
+        B = self._bwd(b_lat, b_lng, walk_lim)
+        self.n_generated = self.n_pruned = 0
+        if not F or not B:
+            return []
+        wf = mg.wayfinding
+        # 걸어서 갈 수 있는 자리에서 갈아타는 후보는 만들지 않는다 — 출발점 근처(정류장 반경 안)에서 뒤 노선을 바로 타거나
+        #   (뒤 노선 직행), 도착점 근처에서 앞 노선을 내리면(앞 노선 직행) 환승이 필요 없다. 그 정류장은 직행 후보(_bus_direct)가
+        #   쓰는 것과 같은 반경 안이라 「더 일찍 떠나 걸어가서 그 노선을 타는」 직행이 같은 도착 목표를 맞춘다 — 직행이 성립하면
+        #   이 단계는 아예 안 온다. ★(GPT 94 #2) 예외는 남는다: 직행은 노선마다 정거장 수가 가장 적은 짝 하나만 보므로 다른 정류장
+        #   짝이어야 성립하는 경우 · 걸어가서는 그 노선 첫차 전인데 앞 버스로는 닿는 경우. 확정 탈락이 아니라 정책상 생략이다.
+        near_a = lambda s: self._m(s["lat"], s["lng"], a_lat, a_lng) <= mg.radius_m
+        near_b = lambda s: self._m(s["lat"], s["lng"], b_lat, b_lng) <= mg.radius_m
+        if n_transfers == 1:
+            best = collections.defaultdict(list)                 # (r1, r2) → [(추정, 후보 재료)]
+            for (rid1, _s), (e1, d1, x1, y1, r1) in F.items():
+                if near_b(y1):
+                    continue
+                for m, x2 in _rows_near(self.bus, y1, meet_m):
+                    rid2 = x2["route_id"]
+                    got = B.get((rid2, x2["seq"]))
+                    if got is None or rid2 == rid1 or near_a(x2):
+                        continue
+                    e2, d2, _x2, y2, r2 = got
+                    if r2.route_nm == r1.route_nm:
+                        continue                                  # 같은 노선 되돌아가기
+                    est = e1 + mg._walk_min(m) + wf + e2
+                    best[(rid1, rid2)].append((est, m, d1, d2, x1, y1, r1, x2, y2, r2))
+            cands = []
+            for lst in best.values():
+                lst.sort(key=lambda t: (t[0], t[4]["seq"], t[7]["seq"]))
+                self.n_pruned += max(0, len(lst) - self.cuts)
+                for est, m, d1, d2, x1, y1, r1, x2, y2, r2 in lst[:self.cuts]:
+                    cands.append(ChainCandidate(
+                        "BB", [self._bus_leg(r1, x1, y1), self._bus_leg(r2, x2, y2)], round(est, 1), 1, d1, d2, m,
+                        f"{r1.route_nm}→{r2.route_nm}", rides=[(r1.route_id, x1), (r2.route_id, x2)], radius_m=meet_m))
+            return self._pick(cands, lambda c: c.legs[0]["route"], lambda c: c.legs[-1]["route"])
+        # 2회 — 가운데 노선 rm: 앞 노선 하차 자리 근처에서 타고(p) 뒤 노선 승차 자리 근처에서 내린다(q)
+        P, Q = {}, {}                                            # (rm, seq) → (추정, 만남 m, 앞·뒤 재료)
+        for (rid1, _s), f in F.items():
+            y1 = f[3]
+            if near_b(y1):
+                continue
+            for m, p in _rows_near(self.bus, y1, meet_m):
+                rm = self.bus.by_id.get(p["route_id"])
+                if p["route_id"] == rid1 or not self._usable(rm) or rm.route_nm == f[4].route_nm or near_a(p):
+                    continue
+                arr = f[0] + mg._walk_min(m) + wf + self._wait(rm)
+                self._keep2(P, (p["route_id"], p["seq"]), (arr, m, f, p))
+        for (rid2, _s), b in B.items():
+            x2 = b[2]
+            if near_a(x2):
+                continue
+            for m, q in _rows_near(self.bus, x2, meet_m):
+                rm = self.bus.by_id.get(q["route_id"])
+                if q["route_id"] == rid2 or not self._usable(rm) or rm.route_nm == b[4].route_nm or near_b(q):
+                    continue
+                frm = mg._walk_min(m) + wf + b[0]
+                self._keep2(Q, (q["route_id"], q["seq"]), (frm, m, b, q))
+        by_p, by_q = collections.defaultdict(list), collections.defaultdict(list)
+        for (rid, _s), vs in P.items():
+            by_p[rid].extend(vs)
+        for (rid, _s), vs in Q.items():
+            by_q[rid].extend(vs)
+        best = collections.defaultdict(dict)                     # (r1, r2) → {rm: (추정, 재료)}
+        for rid, ps in by_p.items():
+            qs = by_q.get(rid)
+            if not qs:
+                continue
+            rm = self.bus.by_id[rid]
+            for arr, m1, f, p in ps:
+                for frm, m2, b, q in qs:
+                    if p["seq"] >= q["seq"] or f[4].route_id == b[4].route_id or f[4].route_nm == b[4].route_nm:
+                        continue
+                    ride = mg._ride(rm, p, q)
+                    if ride is None:
+                        continue
+                    est = arr + ride + frm
+                    slot = best[(f[4].route_id, b[4].route_id)]
+                    if rid not in slot or est < slot[rid][0]:
+                        slot[rid] = (est, m1, m2, f, p, q, b, rm)
+        cands = []
+        for slot in best.values():
+            self.n_pruned += max(0, len(slot) - self.mid)
+            for est, m1, m2, f, p, q, b, rm in sorted(slot.values(), key=lambda t: (t[0], t[7].route_nm))[:self.mid]:
+                _e1, d1, x1, y1, r1 = f
+                _e2, d2, x2, y2, r2 = b
+                cands.append(ChainCandidate(
+                    "BBB", [self._bus_leg(r1, x1, y1), self._bus_leg(rm, p, q), self._bus_leg(r2, x2, y2)],
+                    round(est, 1), 2, d1, d2, m1 + m2, f"{r1.route_nm}→{rm.route_nm}→{r2.route_nm}",
+                    rides=[(r1.route_id, x1), (rm.route_id, p), (r2.route_id, x2)], radius_m=meet_m))
+        return self._pick(cands, lambda c: c.legs[0]["route"], lambda c: c.legs[-1]["route"])
+
+    # ── 지하철 한 노선 안 거리(환승 없이) ──
+    def _line_dist(self, seeds):
+        """seeds = [(역명, 노선 집합, 시작 비용 분, 표식)] → ({(노선, 역): 분}, {(노선, 역): 표식}) · self._alt = 노드마다 표식이
+        다른 것 둘까지(가장 짧은 표식이 부르는 쪽 조건으로 빠질 때 쓸 다음 것). **갈아타지 않고** 그 노선으로만
+        닿는 역 — 2회 환승 모양은 버스↔지하철 환승이 이미 둘이라 지하철 안 환승 자리가 (환승 상한 − 2)뿐이다(기본 상한 2 → 0).
+        실제 구간열과 환승 상한은 materialize 가 다시 본다."""
+        cg, dist, src, pq, tick = self.mg.cg, {}, {}, [], 0
+        alt = {}                           # (GPT 94 #3) 노드 → [(분, 표식)] 표식이 다른 것 둘까지(가장 짧은 것 + 다른 출발의 가장 짧은 것)
+        for nm, lines, c0, tag in seeds:
+            for ln in lines:
+                heapq.heappush(pq, (c0, tick, (ln, nm), tag))
+                tick += 1
+        while pq:
+            d, _, node, tag = heapq.heappop(pq)
+            got = alt.setdefault(node, [])
+            if len(got) >= 2 or any(t == tag for _d, t in got):
+                continue
+            got.append((d, tag))
+            if node not in dist:
+                dist[node], src[node] = d, tag
+            for v, w, _fb in cg.adj[node]:
+                if len(alt.get(v, ())) < 2:
+                    tick += 1
+                    heapq.heappush(pq, (d + w, tick, v, tag))
+        self._alt = alt
+        return dist, src
+
+    def _sub(self, a_nm, a_lines, b_nm, b_lines):
+        cap = self.mg.tlim - 2
+        if cap < 0:
+            return None
+        s = self.mg.cg.search(a_nm, b_nm, "최단", cap, origin_lines=sorted(a_lines), dest_lines=sorted(b_lines),
+                              avoid_lines=self.mg.avoid)
+        return s if s is not None and s.legs else None
+
+    # ── BSB: 버스 → 지하철 → 버스 ──
+    def bus_subway_bus(self, a_lat, a_lng, b_lat, b_lng, walk_lim, excl_a=None, excl_b=None):
+        """출발점 → 버스 → 역 앞에서 내려 → 지하철(갈아타지 않고) → 역 앞 정류장 → 버스 → 도착점.
+        excl_a · excl_b = 끊지 않을 물리적 역(출발·도착 장소에서 지하철 후보가 이미 본 역 — 그 역은 걸어가면 된다 · 87 과 같은 규칙)."""
+        mg = self.mg
+        self.n_generated = self.n_pruned = 0
+        if mg.sc is None or mg.tlim < 2:
+            return []
+        F = self._fwd(a_lat, a_lng, walk_lim)
+        B = self._bwd(b_lat, b_lng, walk_lim)
+        heads, tails = {}, {}                                    # 물리적 역 → (추정, 역 레코드, 노선, 버스 재료, 정류장↔역 m)
+        for f in F.values():
+            for link, rec in mg._stations_by(f[3]):
+                pk = mg.sc.phys_key(rec)
+                ls = mg._lines(rec)
+                if not ls or (excl_a and pk in excl_a) or (excl_b and pk in excl_b):
+                    continue
+                arr = f[0] + mg._walk_min(link) + mg.wayfinding + mg.cg.transfer_wait
+                if pk not in heads or arr < heads[pk][0]:
+                    heads[pk] = (arr, rec, ls, f, link)
+        for b in B.values():
+            for link, rec in mg._stations_by(b[2]):
+                pk = mg.sc.phys_key(rec)
+                ls = mg._lines(rec)
+                if not ls or (excl_a and pk in excl_a) or (excl_b and pk in excl_b):
+                    continue
+                frm = mg._walk_min(link) + mg.wayfinding + b[0]
+                if pk not in tails or frm < tails[pk][0]:
+                    tails[pk] = (frm, rec, ls, b, link)
+        if not heads or not tails:
+            return []
+        self._line_dist([(rec["station_nm"], ls, arr, pk) for pk, (arr, rec, ls, _f, _l) in heads.items()])
+        alt = self._alt
+        self.n_pruned = 0
+        best = collections.defaultdict(list)
+        for pk2, (frm, rec2, ls2, b, link2) in tails.items():
+            for ln in ls2:
+                # (GPT 94 #3) 가장 짧게 닿는 출발 역이 이 역 자신이거나(지하철 구간 없음) 같은 버스 노선이면 그다음 출발 역을 본다
+                for d_, pk1 in alt.get((ln, rec2["station_nm"]), ()):
+                    if pk1 == pk2:
+                        continue
+                    _arr, rec1, ls1, f, link1 = heads[pk1]
+                    if f[4].route_nm == b[4].route_nm:
+                        continue
+                    best[(f[4].route_id, b[4].route_id)].append((d_ + frm, ln, rec1, ls1, f, link1, rec2, ls2, b, link2))
+                    break
+        cands = []
+        for lst in best.values():
+            lst.sort(key=lambda t: (t[0], t[2]["station_nm"], t[6]["station_nm"]))
+            self.n_pruned += max(0, len(lst) - self.mid)
+            for est, ln, rec1, ls1, f, link1, rec2, ls2, b, link2 in lst[:self.mid]:
+                _e1, d1, x1, y1, r1 = f
+                _e2, d2, x2, y2, r2 = b
+                c = ChainCandidate("BSB", [self._bus_leg(r1, x1, y1), self._bus_leg(r2, x2, y2)], round(est, 1), 2, d1, d2,
+                                   link1 + link2, f"{r1.route_nm}→{ln}→{r2.route_nm}",
+                                   rides=[(r1.route_id, x1), (r2.route_id, x2)],
+                                   cut_station=rec1["station_nm"], end_station=rec2["station_nm"])
+                c._sub = (rec1["station_nm"], ls1, rec2["station_nm"], ls2)
+                cands.append(c)
+        return self._pick(cands, lambda c: c.legs[0]["route"], lambda c: c.legs[-1]["route"])
+
+    # ── SBS: 지하철 → 버스 → 지하철 ──
+    def subway_bus_subway(self, sources, targets, excl_a=None, excl_b=None):
+        """sources 중 한 역 → 지하철(갈아타지 않고) → 역 앞 정류장 → 버스 → 역 앞에서 내려 → 지하철(갈아타지 않고) → targets 중 한 역.
+        sources · targets = [(역명, 노선 목록 또는 None, 장소↔역 직선 m)] — 부르는 쪽이 도보 상한 안 역을 준다.
+        excl_a · excl_b = 버스로 잇지 않을 물리적 역(출발·도착 장소의 역 — 그 역끼리는 지하철 후보의 몫)."""
+        mg = self.mg
+        self.n_generated = self.n_pruned = 0
+        if mg.sc is None or mg.tlim < 2:
+            return []
+        sr, tg = mg._ends(sources), mg._ends(targets)
+        if not sr or not tg:
+            return []
+        # (GPT 94 #5) 출발 쪽·도착 쪽을 **따로** 든다 — 표식은 목록 순번(같은 역명이 양쪽에 있거나 동명이역이어도 접근·이탈 거리와
+        #   노선이 섞이지 않는다). 역은 역명이 아니라 물리적 역 키로 묶는다.
+        dF, sF = self._line_dist([(nm, ls, mg._walk_min(w), i) for i, (nm, ls, w) in enumerate(sr)])
+        dB, sB = self._line_dist([(nm, ls, mg._walk_min(w), i) for i, (nm, ls, w) in enumerate(tg)])
+
+        def pk_of(nm, ls):
+            rec = mg.sc.resolve(nm, sorted(ls))
+            return mg.sc.phys_key(rec) if rec is not None else nm
+        ends = {pk_of(nm, ls) for nm, ls, _w in sr} | {pk_of(nm, ls) for nm, ls, _w in tg}
+        reach = None
+        self.n_pruned = 0
+
+        def stops_by(dist, src_of):
+            """한 노선으로 닿는 역마다 역 앞 정류장 행 {(route_id, seq): (분, 역 레코드, 노선, 끝 역, 정류장↔역 m, 행)}."""
+            nonlocal reach
+            if reach is None:
+                reach = exit_reach_m(mg.sc, mg.ex)
+            per_st = {}
+            for (ln, nm), d in dist.items():
+                if (ln, nm) in mg.skip_at:
+                    continue
+                rec = mg.sc.resolve(nm, [ln])
+                if rec is None or rec.get("lat") is None:
+                    continue
+                pk = mg.sc.phys_key(rec)
+                if pk in ends or (excl_a and pk in excl_a) or (excl_b and pk in excl_b):
+                    continue
+                cur = per_st.get(pk)
+                if cur is None or d < cur[0]:
+                    per_st[pk] = (d, ln, src_of[(ln, nm)], rec)
+            out = {}
+            for _pk, (d, ln, end_nm, rec) in per_st.items():
+                for _d0, row in _stop_index(self.bus).near(rec["lat"], rec["lng"], mg.near_m + reach + 1):
+                    r = self.bus.by_id.get(row["route_id"])
+                    if not self._usable(r) or _VIRTUAL in str(row.get("station_nm")):
+                        continue
+                    link = mg._link(row, rec)
+                    if link > mg.near_m:
+                        continue
+                    v = d + mg._walk_min(link) + mg.wayfinding
+                    k = (row["route_id"], row["seq"])
+                    if k not in out or v < out[k][0]:
+                        out[k] = (v, rec, ln, end_nm, link, row)
+            return out
+        P, Q = stops_by(dF, sF), stops_by(dB, sB)
+        by_p, by_q = collections.defaultdict(list), collections.defaultdict(list)
+        for (rid, _s), v in P.items():
+            by_p[rid].append(v)
+        for (rid, _s), v in Q.items():
+            by_q[rid].append(v)
+        best = {}
+        for rid, ps in by_p.items():
+            qs = by_q.get(rid)
+            if not qs:
+                continue
+            r = self.bus.by_id[rid]
+            for a, rec1, ln1, src1, link1, p in ps:
+                for b, rec2, ln2, dst2, link2, q in qs:
+                    if p["seq"] >= q["seq"] or mg.sc.phys_key(rec1) == mg.sc.phys_key(rec2):
+                        continue
+                    ride = mg._ride(r, p, q)
+                    if ride is None:
+                        continue
+                    est = a + self._wait(r) + ride + b + mg.cg.transfer_wait
+                    k = (rid, mg.sc.phys_key(rec1), mg.sc.phys_key(rec2))
+                    if k not in best or est < best[k][0]:
+                        best[k] = (est, r, p, q, rec1, ln1, src1, link1, rec2, ln2, dst2, link2)
+        per_route = collections.defaultdict(list)
+        for v in best.values():
+            per_route[v[1].route_id].append(v)
+        cands = []
+        for lst in per_route.values():
+            lst.sort(key=lambda t: (t[0], t[4]["station_nm"], t[8]["station_nm"]))
+            self.n_pruned += max(0, len(lst) - self.mid)
+            for est, r, p, q, rec1, ln1, i1, link1, rec2, ln2, i2, link2 in lst[:self.mid]:
+                (src1, _l1, w_in), (dst2, _l2, w_out) = sr[i1], tg[i2]
+                c = ChainCandidate("SBS", [self._bus_leg(r, p, q)], round(est, 1), 2, w_in, w_out, link1 + link2,
+                                   f"{ln1}→{r.route_nm}→{ln2}", rides=[(r.route_id, p)],
+                                   cut_station=rec1["station_nm"], end_station=rec2["station_nm"])
+                c._sub = (src1, [ln1], rec1["station_nm"], [ln1], rec2["station_nm"], [ln2], dst2, [ln2])
+                cands.append(c)
+        return self._pick(cands, lambda c: (c._sub[0], c.legs[0]["route"]), lambda c: (c._sub[6], c.legs[0]["route"]))
+
+    def materialize(self, c):
+        """BSB · SBS 의 지하철 구간열을 채운다(지하철 안 환승 상한 = 총 상한 − 2). 성공하면 True. BB · BBB 는 늘 True."""
+        if getattr(c, "_done", False) or c.shape in ("BB", "BBB"):
+            return True
+        if c.shape == "BSB":
+            a, la, b, lb = c._sub
+            s = self._sub(a, la, b, lb)
+            if s is None:
+                return False
+            c.legs = [c.legs[0]] + [dict(x) for x in s.legs] + [c.legs[-1]]
+            c.transfers = 2 + s.transfers
+            c.sub_walk_min, c.grade, c.fallback_edges = s.walk_min, s.grade, list(s.fallback_edges)
+        else:
+            a, la, b, lb, c2, lc, d, ld = c._sub
+            s1, s2 = self._sub(a, la, b, lb), self._sub(c2, lc, d, ld)
+            if s1 is None or s2 is None or s1.transfers + s2.transfers > self.mg.tlim - 2:
+                return False
+            c.legs = [dict(x) for x in s1.legs] + [c.legs[0]] + [dict(x) for x in s2.legs]
+            c.transfers = 2 + s1.transfers + s2.transfers
+            c.sub_walk_min = (s1.walk_min or 0) + (s2.walk_min or 0)
+            c.grade = "근거없음" if "근거없음" in (s1.grade, s2.grade) else "추정"
+            c.fallback_edges = list(s1.fallback_edges) + list(s2.fallback_edges)
+        c._done = True
+        return True
