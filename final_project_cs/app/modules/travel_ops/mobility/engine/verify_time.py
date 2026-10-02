@@ -67,7 +67,7 @@
 #   rejected_by_limit 성립하지만 동행 상한 초과로 탈락
 #   unknown           근거 없음
 #   ※ 탈락과 불가를 구분하는 게 핵심이다. 탈락은 "되지만 이 일행에게 무리", 불가는 "안 된다".
-import argparse, json, math, os, sys, difflib, collections, gzip
+import argparse, bisect, json, math, os, sys, difflib, collections, gzip
 from dataclasses import dataclass, field
 from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
 from pathlib import Path
@@ -256,6 +256,114 @@ class CaseResult:
     out: dict = None                         # 밖으로 나가는 판 — _out() 이 만든다
 
 
+# ── 92: 그 편이 도착역에 서는가 — 두 역 시간표의 편 잇기 ─────────────────────
+# ☆`[2026-10-02 92번 방]` 시간표에는 열차 번호가 없다(TAGO 원천). 「출발역 a 를 t 분에 떠난 D 행 편이 도착역 b 에 서는가」는
+#   b 의 같은 행선지 출발 행 가운데 그 편의 것이 있는지로만 알 수 있다. 계획 시간표라 같은 편성 종류끼리는 두 역 사이 시차가
+#   분 단위로 같다(01호선 청량리→부평 인천행 99편 중 97편이 65분 · 용산→부평 동인천행 급행 76편 전부 34분 · 10/1 판).
+#   ① 완행 시차 = 역 순서 표 소요(est · 인접 역 출발 시차의 합)와 ±1분 남짓 → 먼저 짝짓는다(급행이 완행 행을 가로채지 않게)
+#   ⓞ ①에서 한 편도 안 이어졌는데 a 의 편 대부분이 b 를 est 만큼 **먼저** 떠난 행과 맞으면 반대로 가는 묶음이다(원천이 행선지를
+#     잘못 적음) — 전부 짝 없음. 배차가 고르면 「다음 편의 행」과 일정한 시차가 생겨 ②가 가짜 묶음을 만든다(GPT 대조 1).
+#   ② 남은 편은 같은 시차(±1분)로 이어지는 **서로 다른 짝이 둘 이상**인 묶음을 큰 것부터(급행끼리 · 대피로 늦는 완행끼리).
+#     한 번 쓴 행은 다시 안 쓴다 · 한 편이 두 행과 맞는 것은 한 짝으로 센다(GPT 대조 2)
+#   ③ 그래도 남은 편 — 이미 나온 시차(±1분)에 남은 행이 있으면 짝. 새 시차로 늦게 닿는 한 편(교행·대피 — 서해선 원종 18:12 →
+#     백마 18:37 · 25분)은 ①②에서 이어진 편이 있고 남은 편과 남은 행이 창 안에서 **서로 하나뿐일 때만** 받고(남은 급행이 늦은
+#     완행의 행을 가로채지 않게 — 후보가 둘이면 둘 다 짝 없음), **약한 짝**으로 표시한다 — 판정 등급을 추정으로(GPT 대조 3).
+#   ④ 도착역 출발이 꼭 24:00 이 되는 편은 원천 표기 한계(000000 = 출발 없음)로 행이 없다 — 같은 시차 묶음이 있을 때 **한 편만**
+#     선다고 보고 약한 짝으로 표시한다(GPT 대조 5).
+#   짝이 없는 편 = b 의 시간표에 그 편의 행이 없다 — 무정차 통과이거나 원천에서 행이 빠진 것. 여기서는 못 가른다.
+#   창: 급행 하한 = 소요×0.45−2분 · 늦는 완행 상한 = 소요×1.3+10분(경의선 도농 20:15 용문행은 대피로 운길산까지 20분 거리를
+#   29분에 간다 — 좁게 잡으면 서는 편을 버린다). 창과 「둘 이상」은 코드 상수다 — 규칙 파일 값으로 옮기는 변경안은 92 닫힘 문서.
+STOP_FAST_RATIO, STOP_SLOW_RATIO, STOP_SLOW_PAD_MIN, STOP_CLASS_MIN = 0.45, 1.3, 10, 2
+STOP_REVERSED_SHARE = 0.8
+MIDNIGHT_MIN = 24 * 60
+STOP_CACHE_MAX = 20000
+
+
+def match_stops(a_mins, b_mins, est, n_edges):
+    """a_mins: 출발역의 그 묶음 출발 분 · b_mins: 도착역의 같은 묶음 출발 분(둘 다 정렬 · 중복 없음)
+    → ({a 분: 짝지은 b 분}, {약한 짝인 a 분}). 약한 짝 = ③의 늦은 한 편 · ④의 자정 정각 — 시간표 행으로 직접 확인한 것이 아니다."""
+    if not a_mins or not b_mins:
+        return {}, set()
+    if est is not None:
+        lo, hi = max(1, int(est * STOP_FAST_RATIO) - 2), int(math.ceil(est * STOP_SLOW_RATIO)) + STOP_SLOW_PAD_MIN
+    else:                                   # 소요를 모르는 구간(구조만 이어진 간선) — 간선 수로 넉넉한 창만 잡는다
+        lo, hi = max(1, n_edges), n_edges * 8
+    rem_a, rem_b, matched, weak, seen, used = list(a_mins), list(b_mins), {}, set(), set(), set()
+
+    def pairs():
+        out = collections.defaultdict(list)
+        for a in rem_a:
+            for b in rem_b[bisect.bisect_left(rem_b, a + lo):bisect.bisect_right(rem_b, a + hi)]:
+                out[b - a].append((a, b))
+        return out
+
+    def pick(P, deltas):
+        """deltas 순서대로 훑어 a·b 를 한 번씩만 쓰는 짝 목록."""
+        ua, ub, got = set(), set(), []
+        for k in deltas:
+            for a, b in P.get(k, ()):
+                if a not in ua and b not in ub:
+                    ua.add(a)
+                    ub.add(b)
+                    got.append((a, b, k))
+        return got
+
+    def commit(got, as_weak=False):
+        nonlocal rem_a, rem_b
+        if not got:
+            return
+        for a, b, k in got:
+            matched[a] = b
+            used.add(k)
+            if as_weak:
+                weak.add(a)
+        ua, ub = {g[0] for g in got}, {g[1] for g in got}
+        rem_a = [a for a in rem_a if a not in ua]
+        rem_b = [b for b in rem_b if b not in ub]
+
+    if est is not None:                                   # ① 완행
+        near = sorted(range(int(math.floor(est)) - 1, int(math.ceil(est)) + 2), key=lambda k: abs(k - est))
+        got = pick(pairs(), near)
+        if got:
+            commit(got)
+            seen.update(near)
+        elif len(a_mins) >= STOP_CLASS_MIN:               # ⓞ 반대로 가는 묶음
+            bs, r = set(b_mins), int(round(est))
+            rev = sum(1 for a in a_mins if any((a - r + j) in bs for j in (-1, 0, 1)))
+            if rev >= STOP_REVERSED_SHARE * len(a_mins):
+                return {}, set()
+    while rem_a and rem_b:                                # ② 같은 시차 묶음 — 서로 다른 짝이 둘 이상
+        P = pairs()
+        if not P:
+            break
+        ref = est if est is not None else (lo + hi) / 2
+        best, best_got = None, []
+        for k in sorted(P, key=lambda k: abs(k - ref)):
+            got = pick(P, (k, k - 1, k + 1))
+            if len(got) > len(best_got):
+                best, best_got = k, got
+        if len(best_got) < STOP_CLASS_MIN:
+            break
+        commit(best_got)
+        seen.update((best - 1, best, best + 1))
+    if rem_a and rem_b:                                   # ③ 남은 편
+        P = pairs()
+        ref = est if est is not None else 0
+        commit(pick(P, sorted((k for k in P if k in seen), key=lambda k: abs(k - ref))))
+        if rem_a and rem_b and used and est is not None:
+            late = [(a, b, k) for k, v in pairs().items() if k >= est - 2 for a, b in v]
+            ca, cb = collections.Counter(x[0] for x in late), collections.Counter(x[1] for x in late)
+            commit([x for x in late if ca[x[0]] == 1 and cb[x[1]] == 1], as_weak=True)   # 서로 하나뿐인 짝만
+    # ④ 자정 정각 — 원천은 00:00:00 출발을 「출발 없음」과 같은 값(000000)으로 줘서 그 행이 시간표에 없다(build_timetable hhmmss).
+    #   같은 시차로 이어진 편이 이미 있을 때 한 편만(그 행은 하나뿐이다) · 08호선 휴일 모란행 막차의 수진 등.
+    for a in rem_a:
+        if any(a + k == MIDNIGHT_MIN for k in used):
+            matched[a] = MIDNIGHT_MIN
+            weak.add(a)
+            break
+    return matched, weak
+
+
 # ── 검증기 ────────────────────────────────────────────────────────────────
 class Verifier:
     def __init__(self, tt, lo, rules, holidays, tw=None, bus=None, sc=None, ex=None, car=None,
@@ -285,6 +393,7 @@ class Verifier:
         self._passes_cache = {}
         self._origin_cache = {}
         self._dominant_cache = {}
+        self._stop_cache = {}       # 92: (노선, 출발역, 도착역, 요일, 행선지) → 도착역 정차 대조 결과
         sj = rules["last_train"]["신정지선_토요일_예외"]["value"]
         self.sinjeong = (sj["line"], set(sj["stations"]))
         self.disr = []          # 이 케이스의 이슈 조건. verify_case 가 매 건 갈아 끼운다.
@@ -446,6 +555,58 @@ class Verifier:
             self._origin_cache[k] = bool(n and self_n / n >= thr)
         return self._origin_cache[k]
 
+    # ── 92: 그 편이 도착역에 서는가 ──
+    def _stop_status(self, line, origin, target, day_type, d, v):
+        """그 편(d)이 target 에 **서는가** → "stop" · "weak" · "skip" · "unknown" · None(대조하지 않음).
+
+        ☆`[2026-10-02 92번 방]` 앞 판은 역 순서상 「지난다」만 보고 그 편으로 내리는 것을 성립시켰다 — 01호선 개봉→구일 09:42
+          용산행(경인 급행 · 구일 무정차)을 「성립·확정」으로 냈다. 정차역 목록을 따로 두지 않고 **도착역 시간표**로 가른다.
+          · stop    — 도착역 시간표에 그 편의 행이 있다(짝짓기 ①②③의 확인된 시차)
+          · weak    — 선다고 보지만 행으로 직접 확인한 것은 아니다(늦은 한 편 · 자정 정각) → 쓰되 등급을 추정으로 내린다
+          · skip    — 그 행선지 묶음이 도착역에 하루 0행인데, 도착역에는 같은 방향 다른 행선지 행이 있다(묶음 전체에 행이 없다)
+          · unknown — 묶음의 다른 편은 도착역에 행이 있는데 이 편의 행은 없다(섞인 묶음의 급행 · 원천 누락 · 잘못 적힌 행선지)
+                      또는 도착역에 그 방향·그 요일 출발 행이 통째로 없다
+          · None    — 순환선(행선지를 지나쳐 돈다) · 도착역이 그 편의 종착역(출발 행이 원래 없다) · 도착역 시간표를 안 올렸다
+        skip·unknown 은 둘 다 「무정차인지 원천 누락인지 못 가른다」 — 그 편을 쓰지 않고, 「못 간다」를 말할 때 미확인 편으로 센다.
+        지나가는 것(`passes`)은 그대로다 — 서지 않는 역을 지나 더 먼 역에서 내리는 것은 그 역의 행으로 다시 본다.
+        ★ 캐시는 이 판정기가 든 시간표·역 순서가 **바뀌지 않는다**는 전제다(Timetable 은 적재 뒤 읽기만 한다). 도착역을 아직 안 올린
+          경우(None)는 캐시하지 않는다 — 일부만 올린 실행(회귀 CLI)과 전체 상주(서버)가 같은 역을 올렸을 때 같은 값을 낸다."""
+        dest = self.lo.resolve_dest(line, d.dest)
+        if dest is None or dest == target or self.lo.is_loop(line) or not v.path or target not in v.path:
+            return None
+        if not self.tt.has_station(line, target):
+            return None
+        k = (line, origin, target, day_type, dest)
+        tab = self._stop_cache.get(k)
+        if tab is None:
+            if len(self._stop_cache) >= STOP_CACHE_MAX:  # 상주 서버에서 (역 쌍 × 요일 × 행선지)가 끝없이 쌓이지 않게 — 통째로 비운다
+                self._stop_cache.clear()
+            tab = self._stop_cache[k] = self._stop_table(line, origin, target, day_type, dest, v.path)
+        if isinstance(tab, str):
+            return tab
+        matched, weak = tab
+        if d.min not in matched:
+            return "unknown"
+        return "weak" if d.min in weak else "stop"
+
+    def _stop_table(self, line, origin, target, day_type, dest, path):
+        tdeps = self.tt.departures(line, target, day_type)
+        if not tdeps:
+            return "unknown"                # 올린 역인데 그 요일 출발 행이 0 — 종착역이 아닌 자리라 확인할 수 없다(GPT 대조 6)
+        res = self.lo.resolve_dest
+        b_mins = sorted({x.min for x in tdeps if x.dest and res(line, x.dest) == dest})
+        i = path.index(target)
+        if not b_mins:
+            nxt = path[i + 1] if i + 1 < len(path) else None
+            for other in {res(line, x.dest) for x in tdeps if x.dest} - {None, target, dest}:
+                p2 = self.lo.path(line, target, other)
+                if p2 and len(p2) > 1 and p2[1] == nxt:
+                    return "skip"           # 같은 방향 다른 행선지 편은 행이 있는데 이 묶음만 0행
+            return "unknown"                # 그 방향 출발 행이 통째로 없다
+        a_mins = sorted({x.min for x in self.tt.departures(line, origin, day_type)
+                         if x.dest and res(line, x.dest) == dest})
+        return match_stops(a_mins, b_mins, self.lo.travel_min_on_path(line, path, target), i)
+
     # ── 출발 후보 고르기 — 막차 4종이 전부 여기 있다 ──
     def candidates(self, line, origin, target, day_type):
         """그 역 출발행에서 **목적지까지 가는 열차**만 남긴다. 막차 4종이 전부 여기 있다."""
@@ -456,7 +617,7 @@ class Verifier:
         last_at_target = tdeps[-1].min if tdeps else None
         margin = self.rv("last_train", "한바퀴_도착_여유_분")
         closed = self._disr_edges(line)      # 끊긴 간선 — 그 위를 지나는 편성은 쓸 수 없다
-        out, drop = [], collections.Counter()
+        out, drop, unk, weak = [], collections.Counter(), [], set()
         for d in deps:
             if not d.dest:                                    # ② dest_nm 없음
                 drop["행선지없음"] += 1
@@ -480,11 +641,22 @@ class Verifier:
                     if ride is not None and d.min + math.ceil(ride) > last_at_target + margin:
                         drop["운행종료후_한바퀴"] += 1        # 막차가 한 바퀴 돈다는 판정을 막는다
                         continue
+                # ☆`[2026-10-02 92번 방]` 지나가는 것과 서는 것은 다르다 — 도착역 시간표에 그 편의 행이 없으면 그 편으로 내리지 못한다.
+                #   시발 열차(행선지가 역 자신)는 어느 묶음인지 몰라 대조하지 않는다(등급은 이미 추정).
+                st = None if (self_dest and is_origin) else self._stop_status(line, origin, target, day_type, d, v)
+                if st in ("skip", "unknown"):
+                    drop["무정차_통과" if st == "skip" else "정차_미확인"] += 1
+                    unk.append(d.min)
+                    continue
+                if st == "weak":
+                    weak.add(d.min)
                 out.append((d, v, full))
             elif v.value is False:
                 drop["단축운행"] += 1
             else:
                 drop["행선지_해석불가"] += 1
+        drop.unknown_mins = unk         # 92: 도착역 행이 없어 뺀 편(무정차_통과 + 정차_미확인)의 출발 분 — verify_leg 가 「못 간다」를 말하기 전에 본다
+        drop.weak_mins = weak           # 92: 약한 짝(늦은 한 편 · 자정 정각)으로 남긴 편 — 그 편을 쓰면 등급을 추정으로 내린다
         return out, drop, is_origin
 
     @staticmethod
@@ -545,7 +717,10 @@ class Verifier:
             #   + 행선지없음(원천 빈칸). 이런 편이 한 편이라도 있으면 「열차가 없다(확정)」·「이슈로 전부 끊겼다(더 일찍·늦게도 같다)」고
             #   말하지 않는다 — 모른다고 한다. 앞 판은 가장 많이 버린 이유만 봐서, 상봉→회기처럼 춘천행(단축운행 63편)이 다수이고
             #   청량리행 12편이 해석불가인 자리를 no_service·확정으로 냈다(그 12편은 실제로 간다). GPT 대조 5·6.
-            unresolved = drop.get("행선지_해석불가", 0) + drop.get("행선지없음", 0)
+            # ☆`[2026-10-02 92번 방]` 도착역 시간표에 행이 없어 뺀 편(정차_미확인 · 무정차_통과)도 「배제하지 못한 편」이다 —
+            #   원천 누락이면 실제로 서는 편이다. 묶음 전체가 0행인 것도 누락과 못 가르므로 같이 센다(GPT 대조 4).
+            stop_unk = drop.get("정차_미확인", 0) + drop.get("무정차_통과", 0)
+            unresolved = drop.get("행선지_해석불가", 0) + drop.get("행선지없음", 0) + stop_unk
             if drop.get("이슈_구간차단") and not unresolved:
                 # ★ 이슈로 길이 끊긴 것과 원래 열차가 없는 것을 섞어 말하면 안 된다.
                 #   완화 조건이 다르다 — 이쪽은 더 일찍 출발해도 안 된다.
@@ -567,6 +742,12 @@ class Verifier:
             if unresolved:
                 blocked = (f" (이슈로 끊긴 구간을 지나는 편 {drop['이슈_구간차단']}편은 못 쓴다)"
                            if drop.get("이슈_구간차단") else "")
+                if stop_unk and not (drop.get("행선지_해석불가") or drop.get("행선지없음")):
+                    return LegResult(idx, label, "unknown",
+                                     f"{a} 에서 {b} 쪽으로 가는 편은 있는데 {b} 의 시간표에서 그 편의 정차 행을 확인하지 못했다 "
+                                     f"(이 편만 행 없음 {drop.get('정차_미확인', 0)}편 · 그 행선지 편이 하루 0행 "
+                                     f"{drop.get('무정차_통과', 0)}편){blocked}",
+                                     grade="근거없음", dropped=dict(drop), code="no_data")
                 return LegResult(idx, label, "unknown",
                                  f"{a} 출발 열차의 행선지를 확인할 수 없어 {b} 까지 간다고 말할 수 없다{blocked}",
                                  grade="근거없음", dropped=dict(drop), code="no_data")
@@ -594,6 +775,17 @@ class Verifier:
 
         # 2) 첫차 이전 · 막차 이후
         after = [(d, v) for d, v, _f in cands if d.min >= now_min]
+        # ☆`[2026-10-02 92번 방]` 「못 간다」(막차 이후 · 첫차 이전 · 배차 공백)는 그 사이에 **정차를 확인 못 해 뺀 편**이 없을 때만
+        #   말한다 — 그 편이 실제로 서면 판정이 뒤집힌다. 있으면 모른다(no_data). 무정차_통과(묶음 전체 0행)도 같이 센다(GPT 대조 4).
+        unk = [m for m in getattr(drop, "unknown_mins", ()) if m >= now_min]
+        unk_until = (after[0][0].min if after else None)
+        unk_hit = [m for m in unk if unk_until is None or m < unk_until]
+        if unk_hit and (not after or now_min < first or after[0][0].min - now_min > gap_max):
+            return LegResult(idx, label, "unknown",
+                             f"{fmt_min(now_min)} 이후 {a} 를 떠나 {b} 쪽으로 가는 편 {len(unk_hit)}편"
+                             f"({fmt_min(unk_hit[0])}~)이 {b} 에 서는지 시간표에서 확인하지 못했다 — "
+                             + (f"확인된 다음 편은 {fmt_min(after[0][0].min)}" if after else "확인된 편은 더 없다"),
+                             grade="근거없음", dropped=dict(drop), code="no_data")
         if not after:
             # ☆`[2026-09-29 문제목록 #4]` 새벽(24 시 이상) 요청의 「첫차를 기다리면 성립」은 **다음 운행일**의 첫차다.
             #   앞 판은 그날(전날 운행일) 요일형의 첫차를 썼다 — 평일 다음 날이 공휴일이면 휴일 시간표의 첫차여야 한다.
@@ -700,6 +892,12 @@ class Verifier:
                               f"{fmt_min(after[0][0].min)}~ 안에서 도착이 가장 이른 편)"
                               + (f" · 행선지는 원천 빈칸을 열차 잇기로 채운 값({nxt.inferred})" if nxt.inferred else ""),
                               grade="추정" if nxt.inferred else "확정"))
+        if nxt.min in getattr(drop, "weak_mins", ()):
+            # ☆ 92 — 이 편의 도착역 정차는 시간표 행으로 직접 확인한 것이 아니다(늦은 한 편 · 자정 정각). 등급을 추정으로.
+            grade = worst_grade(grade, "추정")
+            ev.append(self._ev_tt(line, b, day_type,
+                                  f"{fmt_min(nxt.min)} {a} 출발 {nxt.dest}행의 {b} 정차는 같은 행선지 다른 편의 시차로 미룬 것"
+                                  "(그 편의 행을 직접 확인하지 못함)", grade="추정"))
         if nxt.inferred:
             # ★ 28 — 채운 행선지는 추정이다. 「목적지를 지난다」가 그 값에 기대므로 구간 등급도 추정 이하로
             grade = worst_grade(grade, "추정")

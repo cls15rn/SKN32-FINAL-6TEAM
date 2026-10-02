@@ -812,7 +812,183 @@
    "expect": "infeasible",
    "expect_internal": "unknown",
    "expect_reason": "no_data"
+  },
+  {
+   "id": "R-EXPRESS-01",
+   "note": "★92 — 하차 · 01호선 개봉→구일. 09:42 용산행(경인 급행)은 구일에 서지 않는다(용산행 묶음은 구일에 하루 0행) → 09:47 양주행. 앞 판은 역 순서상 「지난다」만 보고 09:42 편으로 09:44 도착·확정을 냈다",
+   "date": "2026-09-11",
+   "depart_at": "09:40",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "개봉",
+     "to": "구일"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:25",
+   "expect_arrive": "09:49",
+   "expect_reason_contains": "양주행"
+  },
+  {
+   "id": "R-EXPRESS-02",
+   "note": "★92 — 하차 · 섞인 묶음. 01호선 역곡→온수 09:45 구로행은 급행(구로행 평일 18편 중 13편이 온수에 행이 없다 · 완행 5편은 선다) → 그 편을 쓰지 않고 09:49 동두천행. 같은 행선지라도 편마다 도착역 행을 대조한다",
+   "date": "2026-09-11",
+   "depart_at": "09:44",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "역곡",
+     "to": "온수"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:18",
+   "expect_arrive": "09:51",
+   "expect_reason_contains": "동두천행"
+  },
+  {
+   "id": "R-EXPRESS-03",
+   "note": "★92 — 지나감 유지. 01호선 개봉→신도림은 09:42 용산행 급행 그대로(구일을 서지 않고 지나 구로·신도림에 선다). 무정차역을 지나는 편을 통째로 버리면 09:47 편으로 늦어진다",
+   "date": "2026-09-11",
+   "depart_at": "09:40",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "개봉",
+     "to": "신도림"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:34",
+   "expect_arrive": "09:50",
+   "expect_reason_contains": "용산행"
+  },
+  {
+   "id": "R-EXPRESS-04",
+   "note": "★92 — 환승. 01호선 부천→온수 + 07호선 온수→가산디지털단지. 10:48 용산행 급행은 온수에 서지 않는다 → 10:57 동두천행으로 11:04 온수 · 7호선 11:09 편. 앞 판은 급행으로 10:55 온수 환승(11:13 도착)을 냈다",
+   "date": "2026-09-11",
+   "depart_at": "10:46",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "부천",
+     "to": "온수"
+    },
+    {
+     "line": "07호선",
+     "from": "온수",
+     "to": "가산디지털단지"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:13",
+   "expect_arrive": "11:19",
+   "expect_reason_contains": "동두천행"
+  },
+  {
+   "id": "R-EXPRESS-05",
+   "note": "★92 — 행선지가 잘못 적힌 편. 경부선 수원의 「제물포」「도원」행(평일 45편 · 실제로는 서울 쪽으로 가는 상행)은 부개 시간표에 이어지는 행이 없다 → 「모른다」. 앞 판은 09:03 제물포행으로 수원→부개 직통 10:08 도착·확정을 냈다(그런 직통은 없다)",
+   "date": "2026-09-11",
+   "depart_at": "09:00",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "수원",
+     "to": "부개"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data",
+   "expect_last_depart_none": true,
+   "expect_reason_contains": "정차 행을 확인하지 못했다"
+  },
+  {
+   "id": "R-EXPRESS-06",
+   "note": "★92 — 자정 정각. 08호선 휴일 동구릉→수진 23:16 모란행(막차)은 수진 출발이 꼭 24:00 이라 원천에 그 행이 없다(000000 = 출발 없음과 같은 값) — 같은 시차로 이어진 편이 있으므로 선다고 본다. 이 예외가 없으면 막차가 「모른다」가 된다",
+   "date": "2026-09-13",
+   "depart_at": "23:08",
+   "legs": [
+    {
+     "line": "08호선",
+     "from": "동구릉",
+     "to": "수진"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:16",
+   "expect_arrive": "24:01"
+  },
+  {
+   "id": "R-EXPRESS-07",
+   "note": "★92 — 승차 쪽은 그대로. 01호선 구일→구로 — 구일 시간표에는 급행 행이 없어 원래 완행만 후보다(09:40 소요산행)",
+   "date": "2026-09-11",
+   "depart_at": "09:40",
+   "legs": [
+    {
+     "line": "01호선",
+     "from": "구일",
+     "to": "구로"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:27",
+   "expect_arrive": "09:43"
+  },
+  {
+   "id": "R-EXPRESS-08",
+   "note": "★92 — 도착역에 행이 없는 편(급행 없는 노선). 07호선 이수 08:32·08:35 온수행은 남성 시간표에 이어지는 행이 없다(평일 온수행 83편 중 7편) — 무정차인지 누락인지 못 가르므로 그 편을 쓰지 않고 행이 확인되는 08:37 석남행",
+   "date": "2026-09-11",
+   "depart_at": "08:31",
+   "legs": [
+    {
+     "line": "07호선",
+     "from": "이수",
+     "to": "남성"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:44",
+   "expect_arrive": "08:39",
+   "expect_reason_contains": "석남"
   }
  ],
- "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."
+ "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다.",
+ "note_v92": "2026-10-02 · 92번 방 — R-EXPRESS-01~08(전체층). 「지나간다」와 「선다」를 가른다 — 도착역 시간표에 그 편의 출발 행이 없으면 그 편으로 내리지 않는다(급행 무정차 · 섞인 묶음 · 잘못 적힌 행선지 · 원천에 행이 없는 편). 지나가는 것은 유지. 값은 10/1 수집 시간표 기준"
 }
