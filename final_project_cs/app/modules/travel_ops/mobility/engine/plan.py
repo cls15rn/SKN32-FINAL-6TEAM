@@ -126,10 +126,17 @@ BY_MODE_UNCONFIRMED = "unconfirmed"
 BY_MODE_LIMIT_CODES = frozenset({"mix_cap", "mix_skipped", "xfer_cap", "xfer_skipped"})
 #: ☆`[2026-10-02 94 · 본인 「버스만이어도 환승은 있을 수밖에 없다」]` 환승 2회까지 후보 — **수단별 칸(by_mode)에서만** 만든다
 #:   (options[]·계획 수단은 그대로 · 켜지 않으면 호출 0).
-#:   · 「버스만」 칸: 직행이 성립하면 거기서 끝 → 없으면 버스→버스(1회) → 그래도 없으면 버스→버스→버스(2회).
-#:   · 「지하철+버스」 칸: 1회 혼합(87 A·B)에 성립 후보가 없을 때만 버스→지하철→버스 · 지하철→버스→지하철(2회).
-#:   · 다음 단계로 내려가는 조건 = **앞 단계에 성립 후보가 없다**(판정 결과). 만남 반경을 넓히는 조건 = 그 반경에서 **후보가 하나도
-#:     없다**(생성 결과 · 본인 10/2). 전체 환승 수는 limits.transfers(동행 조건별) 안 — 넘는 단계는 만들지 않고 이유를 남긴다.
+#:   · 「버스만」 칸: 직행 · 버스→버스(1회) · 버스→버스→버스(2회) · 「지하철+버스」 칸: 1회 혼합(87 A·B) · 2회(버스→지하철→버스 ·
+#:     지하철→버스→지하철).
+#:   ☆`[2026-10-03 94-2 · 본인 「환승 횟수가 적다고 추천 우선이 되면 안 된다 · 2회여도 더 빠르면 그쪽이 위」]` 단계에서 멈추지 않는다 —
+#:     모든 단계의 성립 후보를 **한 목록**으로 대표 고르기(_by_mode_pick)에 넣는다: 대표 = 가장 늦게 떠나도 되는 후보 · 환승이 더 적은
+#:     후보는 양보 분(candidates.대표_환승_양보_분 · 5) 안으로 따라올 때만 대표. 94 의 「앞 단계가 성립하면 다음 단계를 안 찾는다」는
+#:     크게 돌아가는 1회 환승(170분)을 대표로 냈다(더 빠른 2회 85분이 있는데도).
+#:   · 다음 단계를 **판정하는 조건**(본인 10/3 「추정이 더 빠를 때만」 · GPT 94-2 #3 으로 축을 출발 시각에 맞춤) = 앞 단계까지 대표
+#:     자격 후보가 없거나, 추정으로 본 출발(도착 목표 − 가장 짧은 추정 소요 − 단계 버퍼)이 앞 단계 후보의 가장 늦은 출발보다 늦다.
+#:     아니면 판정하지 않고 `xfer_skipped` 로 적는다(→ 칸 search_limited — 추정은 하한이 아니다 · 불가 확정 아님). 새 숫자는 없다.
+#:   · 만남 반경을 넓히는 조건 = 그 반경에서 **후보가 하나도 없다**(생성 결과 · 본인 10/2). 전체 환승 수는 limits.transfers(동행 조건별)
+#:     안 — 넘는 단계는 만들지 않고 이유를 남긴다.
 #:   · 막는 값(노선쌍당 끊는 지점 · 가운데 노선 · 단계마다 판정에 넣는 수 · 소요 배수)은 규칙 변경안(candidates.py · XFER_*).
 #:     단계 안에서 추정 소요가 그 단계 가장 짧은 후보 × candidates.허용_소요_배수(1.5 · 기존 규칙)를 넘는 후보는 판정하지 않는다.
 #: 환승 후보 _n 시작(동률 깨기 순서 — 혼합 300 다음) · 단계(환승 수)마다 XFER_N_STEP
@@ -915,6 +922,7 @@ class Planner:
             if not gen.materialize(c):
                 n_none += 1
                 continue
+            self._xfer_verified = getattr(self, "_xfer_verified", 0) + 1          # 판정기에 넣은 수(GPT 94-2 #5)
             o, why = self._mixed_one(c, i, a_place, b_place, arrive_dt, sdate, arrive_by, party, first_visit, case_id,
                                      key=(kind, stage, i), n=XFER_N_BASE + XFER_N_STEP * stage + i, tag=what)
             if o is None:
@@ -936,16 +944,46 @@ class Planner:
                                     "남겼다(불가 확정 아님)")
         return kept
 
-    def _bus_transfer(self, a_place, b_place, arrive_dt, sdate, arrive_by, party, first_visit, case_id, wlim):
-        """「버스만」 환승 후보 — 버스→버스(1회) → 성립 후보가 없으면 버스→버스→버스(2회). 직행이 성립한 구간에서는 부르지 않는다.
-        (성립 후보, left, note): note = {"stages": [{transfers, meet_m, generated, feasible}], "limit", "which",
-        "blocked": 환승 상한 때문에 만들지 않은 단계(환승 수) 또는 None}."""
+    @staticmethod
+    def _slot_ok(o, lim):
+        """수단별 칸의 대표가 될 자격 — uses 표기 검사 통과 · 환승 상한 안(_by_mode 의 put() 과 같은 조건 · GPT 94-2 #1)."""
+        return not O.uses_problems(o["uses"]) and o["_transfers"] <= lim
+
+    def _stage_wanted(self, gen, cands, pool, what, left, arrive_by):
+        """다음 단계 후보(cands)를 판정할까(94-2). 앞 단계까지 대표 자격이 있는 성립 후보(pool)가 없으면 판정한다. 있으면
+        **대표 고르기와 같은 축(출발 시각)** 으로 본다(GPT 94-2 #3): 환승이 더 많은 후보는 앞 단계 후보 중 **가장 늦은 출발보다 늦게**
+        떠날 수 있을 때만 대표 고르기(_by_mode_pick)에 영향을 준다(더 늦지 않으면 맨 위가 못 되고, 환승이 더 많아 양보로도 안 뽑힌다).
+        → 추정으로 본 출발(도착 목표 − 가장 짧은 추정 소요 − 단계 버퍼)이 그 출발보다 늦을 때만 판정한다. 아니면 판정하지 않고 left 에
+        `xfer_skipped` 로 접어 적는다(추정은 하한이 아니다 — 불가 확정 아님).
+        ★1판은 「추정 소요 < 앞 대표의 예정 소요」였다 — 대표는 소요가 아니라 출발 시각으로 고르므로(여유·남는 분이 후보마다 다르다)
+          추정이 정확해도 대표가 될 후보를 건너뛰었다. 양보 분을 여기서 더하지 않는다 — 더하면 「2회가 맨 위가 되고 그 5분 안의 1회가
+          대표」인 경우의 1회 단계를 건너뛴다(GPT 94-2 #4). 버퍼는 기존 값(buffer.by_stage) — 새 숫자 없음."""
+        if not pool:
+            return True
+        top = max(o["_start"] for o in pool)
+        est = min(c.est_min for c in cands)
+        buf = self.v.rv("buffer", "by_stage", self.stage)
+        if arrive_by - est - buf > top:
+            return True
+        n = max(gen.n_generated, len(cands))
+        left.append({"_o": {"_legs": []}, "label": f"그 밖 {what} 후보 {n}개", "code": "xfer_skipped",
+                     "reason": f"추정 기반 탐색 생략 — 가장 짧은 추정 소요 {est:g}분으로는 앞 단계까지의 성립 후보보다 늦게 떠날 수 없어 "
+                               "판정하지 않았다(불가 확정 아님)"})
+        return False
+
+    def _bus_transfer(self, a_place, b_place, arrive_dt, sdate, arrive_by, party, first_visit, case_id, wlim, base=()):
+        """「버스만」 환승 후보 — 버스→버스(1회) · 버스→버스→버스(2회)를 **단계에서 멈추지 않고** 환승 상한까지(94-2). base = 직행 성립
+        후보(대표 비교용 — 돌려주지는 않는다). 다음 단계는 앞 단계까지 대표 자격 후보가 없거나 추정으로 앞 단계 후보보다 늦게
+        떠날 수 있을 때만 판정(_stage_wanted). (성립 후보(모든 단계), left, note): note = {"stages": [{transfers, meet_m, generated
+        (만든 수), verified(판정기에 넣은 수), feasible(성립 수), judged(단계를 판정했나)}], "limit", "which", "blocked": 환승 상한
+        때문에 만들지 않은 단계(환승 수) 또는 None}."""
         gen, lim, which = self._chain_gen(party, first_visit)
         note = {"stages": [], "limit": lim, "which": which, "blocked": None}
-        left, seen = [], set()
+        left, seen, out = [], set(), []
         if gen is None:
             return [], left, note
         radii = [self.v.rv("alternatives", k) for k in XFER_MEET_KEYS]
+        pool = [o for o in base if self._slot_ok(o, lim)]
         for n in (1, 2):
             if n > lim:
                 note["blocked"] = n
@@ -955,17 +993,22 @@ class Planner:
                 cands = gen.bus_chain(n, a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"], wlim, meet)
                 if cands:
                     break
+            n_gen = gen.n_generated if cands else 0
+            judged = bool(cands) and self._stage_wanted(gen, cands, pool, what, left, arrive_by)
+            self._xfer_verified = 0
             kept = self._verify_chain(gen, cands, "busx", n, what, a_place, b_place, arrive_dt, sdate, arrive_by, party,
-                                      first_visit, f"{case_id}~x{n}", left, seen) if cands else []
-            note["stages"].append({"transfers": n, "meet_m": meet, "generated": gen.n_generated if cands else 0,
-                                   "feasible": len(kept)})
-            if kept:
-                return kept, left, note
-        return [], left, note
+                                      first_visit, f"{case_id}~x{n}", left, seen) if judged else []
+            note["stages"].append({"transfers": n, "meet_m": meet, "generated": n_gen, "verified": self._xfer_verified,
+                                   "feasible": len(kept), "judged": judged})
+            out += kept
+            pool += [o for o in kept if self._slot_ok(o, lim)]
+        return out, left, note
 
-    def _mixed2(self, a_place, b_place, sa, sb, arrive_dt, sdate, arrive_by, party, first_visit, case_id, wlim, left):
-        """「지하철+버스」 2회 환승 후보 — 버스→지하철→버스(BSB) · 지하철→버스→지하철(SBS). 1회 혼합(_mixed)에 성립 후보가 없을
-        때만 부른다. 환승 상한이 2 미만이면 만들지 않는다((후보, False)). 두 모양을 번갈아 추정 소요 순으로 판정한다."""
+    def _mixed2(self, a_place, b_place, sa, sb, arrive_dt, sdate, arrive_by, party, first_visit, case_id, wlim, left,
+                base=()):
+        """「지하철+버스」 2회 환승 후보 — 버스→지하철→버스(BSB) · 지하철→버스→지하철(SBS). base = 1회 혼합 성립 후보(대표 비교용).
+        1회 혼합이 성립해도 부른다(94-2) — 판정은 1회 성립 후보가 없거나 추정으로 1회 후보보다 늦게 떠날 수 있을 때만(_stage_wanted).
+        환승 상한이 2 미만이면 만들지 않는다((후보, True)). 두 모양을 번갈아 추정 소요 순으로 판정한다."""
         gen, lim, _which = self._chain_gen(party, first_visit)
         if gen is None or self.v.sc is None or lim < 2:
             return [], gen is not None and self.v.sc is not None and lim < 2
@@ -979,8 +1022,11 @@ class Planner:
             n_gen, n_cut = n_gen + gen.n_generated, n_cut + gen.n_pruned
         cands = interleave(bsb, sbs)[:gen.cap]
         gen.n_generated, gen.n_pruned = n_gen, n_cut
+        pool = [o for o in base if self._slot_ok(o, lim)]
+        if not cands or not self._stage_wanted(gen, cands, pool, "혼합 2회 환승", left, arrive_by):
+            return [], False
         kept = self._verify_chain(gen, cands, "mix2", 2, "혼합 2회 환승", a_place, b_place, arrive_dt, sdate, arrive_by, party,
-                                  first_visit, f"{case_id}~2", left, set()) if cands else []
+                                  first_visit, f"{case_id}~2", left, set())
         return kept, False
 
     # ── 수단별 대표 후보(93 · 봉투 by_mode) ──────────────────────────────────────
@@ -1056,6 +1102,14 @@ class Planner:
                 modes[key] = self._by_mode_found(self._by_mode_pick(ok, ymin), sdate, rf)
                 if limited:
                     modes[key]["search_limited"] = True       # 판정하지 않은 후보가 남아 있다 — 제한된 탐색에서 고른 대표
+            elif limited:
+                # (GPT 94-2 #2) 대표 자격이 있는 후보가 없는데 판정하지 않은 후보가 남았다 — 「없다」가 아니라 「확인 못 함」이 먼저다
+                dropped = ([f"환승 상한 {lim}회({which})를 넘는 성립 후보 {len(over)}개"] if over else []) + (
+                    [f"uses 표기 검사 불통과 성립 후보 {len(cands) - len(over) - len(ok)}개"] if len(cands) > len(over) + len(ok) else [])
+                base_r = none_reason if none_code == BY_MODE_UNCONFIRMED else (
+                    "판정하지 않은 후보가 남아 있다 — 성립 후보가 없다고 확인한 것은 아니다")
+                modes[key] = {"status": "none", "code": BY_MODE_UNCONFIRMED,
+                              "reason": base_r + (f" · 대표에서 뺀 것: {' · '.join(dropped)}" if dropped else "")}
             elif over:
                 modes[key] = {"status": "none", "code": "transfer_limit",
                               "reason": f"성립 후보가 환승 상한 {lim}회({which})를 넘는다"}
@@ -1093,7 +1147,7 @@ class Planner:
                 if visited:
                     reason = f"검토한 역 짝 {len(visited)}개({' · '.join(visited)})에서 성립하는 지하철 후보 없음 — {reason}"
             put("subway", rail, code, reason)
-        # ② 버스만 — 한 노선 직행이 성립하면 거기서 끝 · 없으면 버스→버스 → 그래도 없으면 버스→버스→버스(94 · _bus_transfer)
+        # ② 버스만 — 한 노선 직행 + 버스→버스 + 버스→버스→버스를 한 목록으로(94-2 · 환승이 적다고 우선하지 않는다 · _bus_transfer)
         if "bus" not in self.modes:
             modes["bus"] = {"status": "none", "code": BY_MODE_NOT_REQUESTED, "reason": "고른 수단에 버스가 없다"}
         elif self.v.bus is None:
@@ -1101,39 +1155,39 @@ class Planner:
         else:
             radius = self.v.rv("alternatives", "정류장_반경_m")
             tried = [e for e in left if _is_bus(e["_o"])]
-            bus_all, limited = list(bus_opts), False
             code = reason = None
-            if not bus_opts:
-                xo, xleft, note = self._bus_transfer(a_place, b_place, arrive_dt, sdate, arrive_by, party, first_visit,
-                                                     case_id, wlim)
-                bus_all = xo
-                n_skip = sum(1 for e in xleft if e["code"] in BY_MODE_LIMIT_CODES)
-                limited = bool(n_skip)
-                xtried = [e for e in xleft if e["code"] not in BY_MODE_LIMIT_CODES]
-                made = [f"환승 {s_['transfers']}회 {s_['generated']}개(만남 반경 {s_['meet_m']:g} m)"
-                        for s_ in note["stages"] if s_["generated"]]
-                block = ("" if note["blocked"] is None else
-                         f" · 환승 {note['blocked']}회 후보는 환승 상한 {note['limit']}회({note['which']})라 만들지 않았다")
-                if not xo:
-                    if tried or xtried:
-                        first = (tried or xtried)[0]
-                        parts = ([f"한 노선 직행 {len(tried)}개"] if tried else []) + made
-                        if n_skip:
-                            code = BY_MODE_UNCONFIRMED
-                            reason = (f"버스 후보({' · '.join(parts)}) 중 판정한 것은 이 도착 목표에 성립하지 않고, 판정하지 않은 "
-                                      f"후보가 남아 있다 — 성립 후보가 없다고 확인한 것은 아니다 · {first['label']}: {first['reason']}{block}")
-                        else:
-                            code = first["code"]
-                            reason = (f"버스 후보({' · '.join(parts)})가 있지만 이 도착 목표에 성립하는 것이 없다 — "
-                                      f"{first['label']}: {first['reason']}{block}")
-                    elif n_skip:
+            ok0 = [o for o in bus_opts if self._slot_ok(o, lim)]
+            xo, xleft, note = self._bus_transfer(a_place, b_place, arrive_dt, sdate, arrive_by, party, first_visit,
+                                                 case_id, wlim, base=ok0)
+            bus_all = list(bus_opts) + xo
+            n_skip = sum(1 for e in xleft if e["code"] in BY_MODE_LIMIT_CODES)
+            limited = bool(n_skip)
+            xtried = [e for e in xleft if e["code"] not in BY_MODE_LIMIT_CODES]
+            # (GPT 94-2 #5) 만든 수와 실제로 판정기에 넣은 수를 따로 적는다 — 단계를 통째로 생략했으면 판정 0개
+            made = [f"환승 {s_['transfers']}회 {s_['generated']}개 중 판정 {s_.get('verified', 0)}개(만남 반경 {s_['meet_m']:g} m)"
+                    for s_ in note["stages"] if s_["generated"]]
+            block = ("" if note["blocked"] is None else
+                     f" · 환승 {note['blocked']}회 후보는 환승 상한 {note['limit']}회({note['which']})라 만들지 않았다")
+            if not any(self._slot_ok(o, lim) for o in bus_all):
+                if tried or xtried:
+                    first = (tried or xtried)[0]
+                    parts = ([f"한 노선 직행 {len(tried)}개"] if tried else []) + made
+                    if n_skip:
                         code = BY_MODE_UNCONFIRMED
-                        reason = f"판정하지 않은 버스 환승 후보가 남아 있다({' · '.join(made)}) — 성립 후보가 없다고 확인한 것은 아니다{block}"
+                        reason = (f"버스 후보({' · '.join(parts)}) 중 판정한 것은 이 도착 목표에 성립하지 않고, 판정하지 않은 "
+                                  f"후보가 남아 있다 — 성립 후보가 없다고 확인한 것은 아니다 · {first['label']}: {first['reason']}{block}")
                     else:
-                        meets = "→".join(f"{self.v.rv('alternatives', k):g}" for k in XFER_MEET_KEYS)
-                        code = "no_service"
-                        reason = (f"두 장소 근처 정류장(반경 {radius} m)을 버스로 잇는 경로가 없다 — 한 노선 직행 · 갈아타는 후보"
-                                  f"(환승 {min(2, note['limit']) if note['limit'] is not None else 0}회까지 · 만남 반경 {meets} m) 모두 없음{block}")
+                        code = first["code"]
+                        reason = (f"버스 후보({' · '.join(parts)})가 있지만 이 도착 목표에 성립하는 것이 없다 — "
+                                  f"{first['label']}: {first['reason']}{block}")
+                elif n_skip:
+                    code = BY_MODE_UNCONFIRMED
+                    reason = f"판정하지 않은 버스 환승 후보가 남아 있다({' · '.join(made)}) — 성립 후보가 없다고 확인한 것은 아니다{block}"
+                else:
+                    meets = "→".join(f"{self.v.rv('alternatives', k):g}" for k in XFER_MEET_KEYS)
+                    code = "no_service"
+                    reason = (f"두 장소 근처 정류장(반경 {radius} m)을 버스로 잇는 경로가 없다 — 한 노선 직행 · 갈아타는 후보"
+                              f"(환승 {min(2, note['limit']) if note['limit'] is not None else 0}회까지 · 만남 반경 {meets} m) 모두 없음{block}")
             put("bus", bus_all, code, reason, limited=limited)
         # ③ 지하철+버스 — 「낫고 1.5배 안」 조건 없이 대표 하나
         if not {"subway", "bus"} <= self.modes:
@@ -1145,12 +1199,13 @@ class Planner:
             mixed = self._mixed(a_place, b_place, sa, sb, arrive_dt, sdate, arrive_by, party, first_visit,
                                 f"{case_id}~m", wlim, [], mleft)
             block = ""
-            if not mixed:
-                # 94 — 1회 혼합에 성립 후보가 없을 때만 2회(버스→지하철→버스 · 지하철→버스→지하철)
-                mixed, capped = self._mixed2(a_place, b_place, sa, sb, arrive_dt, sdate, arrive_by, party, first_visit,
-                                             f"{case_id}~m", wlim, mleft)
-                if capped:
-                    block = f" · 환승 2회 혼합은 환승 상한 {lim}회({which})라 만들지 않았다"
+            # 94-2 — 1회 혼합이 성립해도 2회(버스→지하철→버스 · 지하철→버스→지하철)를 같이 본다(한 목록에서 대표)
+            ok1 = [o for o in mixed if self._slot_ok(o, lim)]
+            m2, capped = self._mixed2(a_place, b_place, sa, sb, arrive_dt, sdate, arrive_by, party, first_visit,
+                                      f"{case_id}~m", wlim, mleft, base=ok1)
+            mixed = list(mixed) + m2
+            if capped and not mixed:
+                block = f" · 환승 2회 혼합은 환승 상한 {lim}회({which})라 만들지 않았다"
             left_all = mleft
             n_skip = sum(1 for e in mleft if e["code"] in BY_MODE_LIMIT_CODES)
             code, reason = first_left(lambda e: e["code"] not in BY_MODE_LIMIT_CODES,
