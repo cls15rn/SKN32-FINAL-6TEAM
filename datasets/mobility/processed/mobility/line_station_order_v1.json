@@ -1,6 +1,6 @@
 {
  "schema": "line_station_order_v1",
- "built_at": "2026-10-01T10:49:35+09:00",
+ "built_at": "2026-10-02T16:04:59+09:00",
  "source": {
   "official": {
    "file": "서울교통공사 역간거리 및 소요시간_240810.csv",
@@ -29,6 +29,8 @@
   "추정:단방향관측": "한쪽 방향만 확인",
   "추정:방향라벨충돌": "양방향이 같은 부호 — 종착역 dir 표기 문제일 수 있다",
   "추정:구조만": "FR_CODE 로만 인접, 관측이 기준 미달",
+  "추정:소수편관측": "하루 편수가 적은 구간(5~19편) — A 의 편이 전부 B 의 서로 다른 편에 일대일로 짝지어지고 시차 폭 60초 안(양방향). observed 에 matched·unmatched·spread_sec",
+  "추정:건너관측": "시간표 없는 역의 양옆 간선 — 양옆 역끼리 같은 편이 양방향으로 이어짐. 지나가는 것만 말한다 · 소요는 두 간선 합만 뜻이 있다",
   "_travel_min": "travel_min_grade / travel_min_source 를 같이 본다. observed 는 정차시간 포함, official 은 주행시간만",
   "_dir": "dir_a_to_b / dir_b_to_a 는 그 방향으로 달리는 열차의 dir 라벨. 지선은 본선과 반대일 수 있어 노선 단위 direction 보다 이쪽이 정확하다",
   "근거없음": "시간표 표본이 없어 확인 불가"
@@ -92,10 +94,7 @@
   "경의선: FR 번호가 벌어져 지평(K138)–공덕(K312) 는 잇지 않았다",
   "경의선: FR 번호가 벌어져 임진강(K337)–효창공원앞(K826) 는 잇지 않았다",
   "경의선: 운천–임진강 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
-  "경춘선: 광운대–청량리 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
-  "경춘선: 청량리–회기 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
-  "경춘선: 회기–중랑 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
-  "경춘선: 중랑–상봉 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
+  "경춘선: 광운대–청량리 는 FR 번호상 인접이지만 선로가 아니라 끊었다 — 광운대 편은 상봉 다음이 광운대다. 시간표에서 상봉 08:27 광운대행 뒤 중랑·회기·청량리에 광운대행 출발…",
   "수인분당선: 청량리–왕십리 인접 확인 실패 (양쪽 다 시간표 있음, fr_seq)",
   "신림선: dir(U/D) 라벨이 방향을 못 가른다 — 같은 dir 에 양 끝 행선지가 섞여 있다. 이 노선은 방향을 dest_nm 으로 정해야 한다 (충돌 간선 10/10)",
   "인천2호선: dir(U/D) 라벨이 방향을 못 가른다 — 같은 dir 에 양 끝 행선지가 섞여 있다. 이 노선은 방향을 dest_nm 으로 정해야 한다 (충돌 간선 19/26)"
@@ -115,13 +114,13 @@
      "fr_order": "desc",
      "grade": "확정",
      "edges_forward": 2,
-     "edges_backward": 94
+     "edges_backward": 95
     },
     "D": {
      "fr_order": "asc",
      "grade": "확정",
      "edges_forward": 93,
-     "edges_backward": 0
+     "edges_backward": 1
     }
    },
    "stations": [
@@ -4350,9 +4349,9 @@
      "a": "전곡",
      "b": "연천",
      "source": "fr_sub",
-     "grade": "추정:구조만",
+     "grade": "추정:단방향관측",
      "dir_a_to_b": null,
-     "dir_b_to_a": null,
+     "dir_b_to_a": "D",
      "travel_min": 8.0,
      "travel_min_source": "observed",
      "travel_min_grade": "추정",
@@ -4360,15 +4359,19 @@
       "D": {
        "delta_min": -8,
        "delta_sec": -480,
-       "frac": 1.0,
-       "sep": 1.0,
-       "trains": 21,
-       "basis": "dir",
-       "day_type": "weekday",
-       "dest_nm": null
+       "frac": null,
+       "sep": null,
+       "trains": 15,
+       "basis": "dest",
+       "day_type": "holiday",
+       "dest_nm": "인천",
+       "sparse": true,
+       "matched": 15,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 0
       }
-     },
-     "note": "양쪽 다 시간표가 있는데 두 역을 잇는 열차를 못 찾았다 — 직결 운행이 없을 수 있다"
+     }
     },
     {
      "a": "금천구청",
@@ -4397,9 +4400,9 @@
      "a": "병점",
      "b": "서동탄",
      "source": "fr_sub",
-     "grade": "추정:구조만",
+     "grade": "추정:단방향관측",
      "dir_a_to_b": null,
-     "dir_b_to_a": null,
+     "dir_b_to_a": "U",
      "travel_min": 7.0,
      "travel_min_source": "observed",
      "travel_min_grade": "추정",
@@ -4407,15 +4410,19 @@
       "U": {
        "delta_min": -7,
        "delta_sec": -420,
-       "frac": 0.417,
-       "sep": 6.0,
-       "trains": 72,
+       "frac": null,
+       "sep": null,
+       "trains": 7,
        "basis": "dest",
        "day_type": "holiday",
-       "dest_nm": "광운대"
+       "dest_nm": "도원",
+       "sparse": true,
+       "matched": 7,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 60
       }
-     },
-     "note": "양쪽 다 시간표가 있는데 두 역을 잇는 열차를 못 찾았다 — 직결 운행이 없을 수 있다"
+     }
     },
     {
      "a": "구로",
@@ -9239,8 +9246,8 @@
        "delta_min": 3,
        "delta_sec": 180,
        "frac": 1.0,
-       "sep": 5.03,
-       "trains": 73,
+       "sep": 5.1,
+       "trains": 74,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "사당"
@@ -9272,8 +9279,8 @@
        "delta_min": 7,
        "delta_sec": 420,
        "frac": 1.0,
-       "sep": 4.87,
-       "trains": 73,
+       "sep": 4.62,
+       "trains": 74,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "사당"
@@ -9305,8 +9312,8 @@
        "delta_min": 5,
        "delta_sec": 330,
        "frac": 1.0,
-       "sep": 3.24,
-       "trains": 73,
+       "sep": 3.22,
+       "trains": 74,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "사당"
@@ -9329,11 +9336,11 @@
       "U": {
        "delta_min": -3,
        "delta_sec": -180,
-       "frac": 0.983,
-       "sep": 6.56,
-       "trains": 60,
+       "frac": 0.986,
+       "sep": 6.08,
+       "trains": 74,
        "basis": "dest",
-       "day_type": "holiday",
+       "day_type": "weekday",
        "dest_nm": "진접"
       },
       "D": {
@@ -9445,8 +9452,8 @@
        "delta_min": 2,
        "delta_sec": 150,
        "frac": 1.0,
-       "sep": 3.76,
-       "trains": 94,
+       "sep": 3.47,
+       "trains": 104,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "오이도"
@@ -10146,7 +10153,7 @@
        "delta_sec": 120,
        "frac": 1.0,
        "sep": 3.28,
-       "trains": 95,
+       "trains": 105,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "오이도"
@@ -10764,10 +10771,10 @@
        "delta_min": -3,
        "delta_sec": -150,
        "frac": 1.0,
-       "sep": 3.68,
-       "trains": 103,
+       "sep": 2.9,
+       "trains": 119,
        "basis": "dest",
-       "day_type": "holiday",
+       "day_type": "weekday",
        "dest_nm": "불암산"
       },
       "D": {
@@ -10797,8 +10804,8 @@
        "delta_min": -3,
        "delta_sec": -150,
        "frac": 1.0,
-       "sep": 3.14,
-       "trains": 116,
+       "sep": 2.98,
+       "trains": 119,
        "basis": "dest",
        "day_type": "weekday",
        "dest_nm": "불암산"
@@ -10829,12 +10836,12 @@
       "U": {
        "delta_min": -4,
        "delta_sec": -210,
-       "frac": 0.87,
-       "sep": 4.48,
-       "trains": 108,
-       "basis": "dir",
+       "frac": 0.864,
+       "sep": 4.45,
+       "trains": 103,
+       "basis": "dest",
        "day_type": "holiday",
-       "dest_nm": null
+       "dest_nm": "불암산"
       },
       "D": {
        "delta_min": 3,
@@ -10842,9 +10849,9 @@
        "frac": 1.0,
        "sep": 3.79,
        "trains": 91,
-       "basis": "dir",
+       "basis": "dest",
        "day_type": "holiday",
-       "dest_nm": null
+       "dest_nm": "오이도"
       }
      }
     },
@@ -10863,11 +10870,11 @@
        "delta_min": -3,
        "delta_sec": -180,
        "frac": 1.0,
-       "sep": 3.55,
-       "trains": 103,
-       "basis": "dir",
+       "sep": 3.5,
+       "trains": 98,
+       "basis": "dest",
        "day_type": "weekday",
-       "dest_nm": null
+       "dest_nm": "불암산"
       },
       "D": {
        "delta_min": 3,
@@ -10875,9 +10882,9 @@
        "frac": 1.0,
        "sep": 3.66,
        "trains": 106,
-       "basis": "dir",
+       "basis": "dest",
        "day_type": "weekday",
-       "dest_nm": null
+       "dest_nm": "오이도"
       }
      }
     },
@@ -10896,11 +10903,11 @@
        "delta_min": -3,
        "delta_sec": -180,
        "frac": 1.0,
-       "sep": 3.45,
-       "trains": 107,
-       "basis": "dir",
+       "sep": 3.52,
+       "trains": 102,
+       "basis": "dest",
        "day_type": "weekday",
-       "dest_nm": null
+       "dest_nm": "불암산"
       }
      }
     }
@@ -23315,12 +23322,12 @@
      "fr_order": "desc",
      "grade": "확정",
      "edges_forward": 0,
-     "edges_backward": 19
+     "edges_backward": 21
     },
     "D": {
      "fr_order": "asc",
      "grade": "확정",
-     "edges_forward": 19,
+     "edges_forward": 22,
      "edges_backward": 0
     }
    },
@@ -23578,36 +23585,118 @@
    ],
    "edges": [
     {
-     "a": "광운대",
-     "b": "청량리",
-     "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
-    },
-    {
      "a": "청량리",
      "b": "회기",
      "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
+     "grade": "추정:단방향관측",
+     "dir_a_to_b": "D",
+     "dir_b_to_a": null,
+     "travel_min": 3.5,
+     "travel_min_source": "observed",
+     "travel_min_grade": "추정",
+     "observed": {
+      "D": {
+       "delta_min": 3,
+       "delta_sec": 210,
+       "frac": null,
+       "sep": null,
+       "trains": 12,
+       "basis": "dest",
+       "day_type": "weekday",
+       "dest_nm": "춘천",
+       "sparse": true,
+       "matched": 12,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 0
+      }
+     }
     },
     {
      "a": "회기",
      "b": "중랑",
      "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
+     "grade": "추정:소수편관측",
+     "dir_a_to_b": "D",
+     "dir_b_to_a": "U",
+     "travel_min": 3.0,
+     "travel_min_source": "observed",
+     "travel_min_grade": "추정",
+     "observed": {
+      "U": {
+       "delta_min": -3,
+       "delta_sec": -180,
+       "frac": null,
+       "sep": null,
+       "trains": 12,
+       "basis": "dest",
+       "day_type": "weekday",
+       "dest_nm": "청량리",
+       "sparse": true,
+       "matched": 12,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 0
+      },
+      "D": {
+       "delta_min": 3,
+       "delta_sec": 180,
+       "frac": null,
+       "sep": null,
+       "trains": 12,
+       "basis": "dest",
+       "day_type": "weekday",
+       "dest_nm": "춘천",
+       "sparse": true,
+       "matched": 12,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 30
+      }
+     }
     },
     {
      "a": "중랑",
      "b": "상봉",
      "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
+     "grade": "추정:소수편관측",
+     "dir_a_to_b": "D",
+     "dir_b_to_a": "U",
+     "travel_min": 2.5,
+     "travel_min_source": "observed",
+     "travel_min_grade": "추정",
+     "observed": {
+      "U": {
+       "delta_min": -3,
+       "delta_sec": -150,
+       "frac": null,
+       "sep": null,
+       "trains": 10,
+       "basis": "dest",
+       "day_type": "holiday",
+       "dest_nm": "청량리",
+       "sparse": true,
+       "matched": 10,
+       "unmatched_a": 0,
+       "unmatched_b": 0,
+       "spread_sec": 0
+      },
+      "D": {
+       "delta_min": 2,
+       "delta_sec": 150,
+       "frac": null,
+       "sep": null,
+       "trains": 12,
+       "basis": "dest",
+       "day_type": "weekday",
+       "dest_nm": "춘천",
+       "sparse": true,
+       "matched": 12,
+       "unmatched_a": 0,
+       "unmatched_b": 38,
+       "spread_sec": 0
+      }
+     }
     },
     {
      "a": "상봉",
@@ -24248,6 +24337,27 @@
        "dest_nm": "상봉"
       }
      }
+    },
+    {
+     "a": "상봉",
+     "b": "광운대",
+     "source": "manual:본선(P120) ↔ 광운대 갈래(P116) 분기 — 광운대 편의 다음 정차역이 상봉이다(CUT_EDGES 주석 참고)",
+     "grade": "추정:구조만",
+     "dir_a_to_b": null,
+     "dir_b_to_a": null,
+     "observed": {
+      "D": {
+       "delta_min": -9,
+       "delta_sec": -510,
+       "frac": 0.04,
+       "sep": 1.0,
+       "trains": 50,
+       "basis": "dest",
+       "day_type": "weekday",
+       "dest_nm": "춘천"
+      }
+     },
+     "note": "양쪽 다 시간표가 있는데 두 역을 잇는 열차를 못 찾았다 — 직결 운행이 없을 수 있다"
     }
    ]
   },
@@ -28254,17 +28364,85 @@
      "a": "안산",
      "b": "신길온천",
      "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
+     "grade": "추정:건너관측",
+     "dir_a_to_b": "D",
+     "dir_b_to_a": "U",
+     "travel_min": 3.0,
+     "travel_min_source": "observed_across",
+     "travel_min_grade": "추정",
+     "observed_across": {
+      "mid": "신길온천",
+      "between": [
+       "안산",
+       "정왕"
+      ],
+      "total_min": 6.0,
+      "obs": {
+       "U": {
+        "delta_min": -6,
+        "delta_sec": -360,
+        "frac": 1.0,
+        "sep": 6.29,
+        "trains": 44,
+        "basis": "dest",
+        "day_type": "weekday",
+        "dest_nm": "왕십리"
+       },
+       "D": {
+        "delta_min": 6,
+        "delta_sec": 360,
+        "frac": 1.0,
+        "sep": 5.78,
+        "trains": 52,
+        "basis": "dest",
+        "day_type": "weekday",
+        "dest_nm": "인천"
+       }
+      }
+     },
+     "note": "신길온천 은 시간표가 없다 — 안산↔정왕 을 같은 편이 양방향으로 잇는 것만 확인했다. 소요는 두 간선을 함께 지날 때의 합(6.0분)만 뜻이 있다"
     },
     {
      "a": "신길온천",
      "b": "정왕",
      "source": "fr_seq",
-     "grade": "근거없음",
-     "dir_a_to_b": null,
-     "dir_b_to_a": null
+     "grade": "추정:건너관측",
+     "dir_a_to_b": "D",
+     "dir_b_to_a": "U",
+     "travel_min": 3.0,
+     "travel_min_source": "observed_across",
+     "travel_min_grade": "추정",
+     "observed_across": {
+      "mid": "신길온천",
+      "between": [
+       "안산",
+       "정왕"
+      ],
+      "total_min": 6.0,
+      "obs": {
+       "U": {
+        "delta_min": -6,
+        "delta_sec": -360,
+        "frac": 1.0,
+        "sep": 6.29,
+        "trains": 44,
+        "basis": "dest",
+        "day_type": "weekday",
+        "dest_nm": "왕십리"
+       },
+       "D": {
+        "delta_min": 6,
+        "delta_sec": 360,
+        "frac": 1.0,
+        "sep": 5.78,
+        "trains": 52,
+        "basis": "dest",
+        "day_type": "weekday",
+        "dest_nm": "인천"
+       }
+      }
+     },
+     "note": "신길온천 은 시간표가 없다 — 안산↔정왕 을 같은 편이 양방향으로 잇는 것만 확인했다. 소요는 두 간선을 함께 지날 때의 합(6.0분)만 뜻이 있다"
     },
     {
      "a": "정왕",

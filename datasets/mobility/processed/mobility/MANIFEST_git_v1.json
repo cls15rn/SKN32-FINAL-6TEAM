@@ -1,6 +1,6 @@
 {
  "manifest_version": "git_v1",
- "generated_at": "2026-10-02T14:17:08+09:00",
+ "generated_at": "2026-10-02T16:05:10+09:00",
  "room": 75,
  "src_dir": "C:\\final_project\\data\\travel\\processed\\mobility",
  "dst_dir": "C:\\final_project\\SKN32-FINAL-6TEAM\\datasets\\mobility\\processed\\mobility",
@@ -15,8 +15,8 @@
   "gz_policy": "files still > 50 MB after column reduction are replaced by .gz (--gz); loader reads .gz first"
  },
  "totals": {
-  "src_bytes": 293828676,
-  "dst_bytes": 93332138
+  "src_bytes": 293833629,
+  "dst_bytes": 93337091
  },
  "files": [
   {
@@ -117,15 +117,15 @@
    "source_raw": "국가철도공단 표준데이터 FR_CODE + 시간표 관측 + 서울교통공사 역간거리 CSV(54)",
    "regen_script": "datasets/mobility/scripts/build_line_station_order_v1.py",
    "read_by": "engine/line_order.py · candidates.py",
-   "src_bytes": 800665,
-   "src_sha256": "693c616fa1a538d564b84c12cae1f8c744140da87f91574cfbb795394448d3e8",
-   "checked_at": "2026-10-02T14:17:08+09:00",
-   "text_bytes": 800665,
-   "text_sha256": "693c616fa1a538d564b84c12cae1f8c744140da87f91574cfbb795394448d3e8",
+   "src_bytes": 805618,
+   "src_sha256": "d5ffb52f53859d58fee2dcd5f9b3cf7164e87a8296623861b4b714597907f8b2",
+   "checked_at": "2026-10-02T16:05:10+09:00",
+   "text_bytes": 805618,
+   "text_sha256": "d5ffb52f53859d58fee2dcd5f9b3cf7164e87a8296623861b4b714597907f8b2",
    "gz": null,
-   "bytes": 800665,
-   "sha256": "693c616fa1a538d564b84c12cae1f8c744140da87f91574cfbb795394448d3e8",
-   "md5": "293bd294c52f23bbfa20ec4dfab0bb3a"
+   "bytes": 805618,
+   "sha256": "d5ffb52f53859d58fee2dcd5f9b3cf7164e87a8296623861b4b714597907f8b2",
+   "md5": "8c640ab9d5c92d7bfcd58c373c9565db"
   },
   {
    "path": "transfer_walk_v1.json",
@@ -447,8 +447,8 @@
   },
   {
    "path": "line_station_order_v1_report.md",
-   "bytes": 4525,
-   "sha256": "1f21be4772caade29df1566697870037263096908bdbba18128653f273a92045"
+   "bytes": 4462,
+   "sha256": "aeb21fcf50743b9e2730866abd685aea7373c9d79d8d9ae5ab69965cd48a31c3"
   },
   {
    "path": "transfer_walk_v1_report.md",

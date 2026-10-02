@@ -41,13 +41,16 @@ class LineOrder:
         self._g = {}
         self._grade = {}
         self._main = {}
+        self._across = {}      # 80: 건너 관측 간선 → 그 사이 역(시간표 없는 역). 소요는 양옆 두 간선을 함께 지날 때만 쓴다
         for ln, v in doc["lines"].items():
             g = {s["station_nm"]: set() for s in v["stations"]}
-            gr = {}
+            gr, ac = {}, {}
             for e in v["edges"]:
                 g[e["a"]].add(e["b"]); g[e["b"]].add(e["a"])
                 gr[frozenset((e["a"], e["b"]))] = e["grade"]
-            self._g[ln], self._grade[ln] = g, gr
+                if e.get("travel_min_source") == "observed_across":
+                    ac[frozenset((e["a"], e["b"]))] = (e.get("observed_across") or {}).get("mid")
+            self._g[ln], self._grade[ln], self._across[ln] = g, gr, ac
 
     @classmethod
     def load(cls, path=None):
@@ -244,6 +247,22 @@ class LineOrder:
         d = self.resolve_dest(line, dest_nm)
         return d is not None and d == station
 
+    def _across_partial(self, line, seg):
+        """seg(역명 목록) 가 건너 관측 간선을 **한쪽만** 쓰는가.
+
+        ☆`[2026-10-02 80번 방]` 시간표 없는 역(수인분당선 신길온천)의 양옆 간선 소요는 양옆 역 사이 전체 값을 반씩 적은 것이다.
+        두 간선을 함께 지나면 합이 관측값이지만, 한쪽만 쓰면(그 역에서 타거나 내림) 근거 없는 반값이 된다 — 그때는 소요를 내지 않는다.
+        (그 역은 시간표가 없어 판정기가 먼저 no_data 를 내지만, 시간표만 바뀌고 이 표가 옛 판일 때를 이 표 스스로 막는다.)"""
+        ac = self._across.get(line) or {}
+        if not ac:
+            return False
+        used = collections.Counter()
+        for i in range(len(seg) - 1):
+            k = frozenset((seg[i], seg[i + 1]))
+            if k in ac:
+                used[ac[k]] += 1
+        return any(n != 2 for n in used.values())
+
     def travel_min_on_path(self, line, path, target):
         """**그 열차가 실제로 도는 경로** 위에서 origin→target 소요(분).
 
@@ -266,7 +285,7 @@ class LineOrder:
                 return None
             tot += v
             if path[i + 1] == target:
-                return tot
+                return None if self._across_partial(line, path[:i + 2]) else tot
         return None
 
     def travel_min(self, line, a, b):
@@ -284,4 +303,4 @@ class LineOrder:
             if v is None:
                 return None
             tot += v
-        return tot
+        return None if self._across_partial(line, p) else tot

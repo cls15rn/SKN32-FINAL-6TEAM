@@ -73,7 +73,7 @@ GATE = json.loads((HERE / "regression_gate_v1.json").read_text(encoding="utf-8")
 GATE_KEYS = {(g["file"], g["id"]) for g in GATE}
 ALL = [(file, c["id"]) for file in (b["file"] for b in BUNDLES.values()) for c in _read_cases(file)]
 FULL = [k for k in ALL if k not in GATE_KEYS]
-N_ALL, N_GATE = 186, 21          # 정본 숫자(87 기준 회귀 186 = 78 의 177 + 87 MIX-AB-01~09 · 게이트 21) — 케이스를 더하면 여기도 올린다. 검사는 test_gate_list_is_consistent 에서
+N_ALL, N_GATE = 191, 21          # 정본 숫자(80 기준 회귀 191 = 87 의 186 + 80 R-BRANCH-01~05 · 게이트 21) — 케이스를 더하면 여기도 올린다. 검사는 test_gate_list_is_consistent 에서
 
 
 # ── 판정기: 적재 조건(시간표·라우터·자전거 픽스처·버스 프로파일)이 같은 케이스는 한 판정기를 나눠 쓴다 ────────

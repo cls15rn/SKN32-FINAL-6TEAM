@@ -712,6 +712,106 @@
     10
    ],
    "expect_last_depart": "24:55"
+  },
+  {
+   "id": "R-BRANCH-01",
+   "note": "★80 — 경의선 원덕→양평 평일 낮. 10:46 문산행을 쓴다(문산은 용산·공덕 너머 갈래 끝). 55 때는 행선지 너머 근거없음 간선 때문에 문산행을 전부 버려 「10:00 다음 15:37」 공백으로 나왔다",
+   "date": "2026-09-11",
+   "depart_at": "10:30",
+   "legs": [
+    {
+     "line": "경의선",
+     "from": "원덕",
+     "to": "양평"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "22:46",
+   "expect_arrive": "10:52"
+  },
+  {
+   "id": "R-BRANCH-02",
+   "note": "★80 — 경춘선 상봉→중랑. 08:27 광운대행은 상봉에서 갈라져 중랑을 안 지난다 → 09:17 청량리행(하루 12편 · 소수 편 관측)을 쓴다. 광운대–청량리를 한 줄로 이으면 08:27 편을 타 08:3x 도착이 된다",
+   "date": "2026-09-11",
+   "depart_at": "08:20",
+   "legs": [
+    {
+     "line": "경춘선",
+     "from": "상봉",
+     "to": "중랑"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:25",
+   "expect_arrive": "09:20"
+  },
+  {
+   "id": "R-BRANCH-03",
+   "note": "★80 — 경춘선 청량리→상봉. 청량리 시발 춘천행(하루 12편). 앞 판은 청량리–회기–중랑–상봉이 근거없음(최소편수 20 미달)이라 no_data",
+   "date": "2026-09-11",
+   "depart_at": "09:30",
+   "legs": [
+    {
+     "line": "경춘선",
+     "from": "청량리",
+     "to": "상봉"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "23:45",
+   "expect_arrive": "09:52"
+  },
+  {
+   "id": "R-BRANCH-04",
+   "note": "★80 — 수인분당선 한대앞→오이도. 신길온천(이 노선 시간표 0행)을 지나가는 편 — 안산↔정왕 건너 관측으로 양옆 간선이 추정. 앞 판은 no_data",
+   "date": "2026-09-11",
+   "depart_at": "14:00",
+   "legs": [
+    {
+     "line": "수인분당선",
+     "from": "한대앞",
+     "to": "오이도"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:06",
+   "expect_arrive": "14:32"
+  },
+  {
+   "id": "R-BRANCH-05",
+   "note": "★80 — 수인분당선 서울숲→청량리. 왕십리–청량리는 원천에서 편이 안 이어져 근거없음으로 남는다 — 청량리행 9편이 있으므로 「열차가 없다(확정)」가 아니라 「모른다」여야 한다",
+   "date": "2026-09-11",
+   "depart_at": "09:20",
+   "legs": [
+    {
+     "line": "수인분당선",
+     "from": "서울숲",
+     "to": "청량리"
+    }
+   ],
+   "expect": "infeasible",
+   "expect_internal": "unknown",
+   "expect_reason": "no_data"
   }
  ],
  "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."

@@ -541,7 +541,12 @@ class Verifier:
         # 1) 방향 = 행선지(+순환선은 dir). 목적지를 지나는 열차만 남긴다
         cands, drop, is_origin = self.candidates(line, a, b, day_type)
         if not cands:
-            if drop.get("이슈_구간차단"):
+            # ☆`[2026-10-02 80번 방]` 「목적지까지 가는지 배제하지 못한 편」 = 행선지_해석불가(역 순서 표의 근거없음 간선이 목적지 앞에 낌)
+            #   + 행선지없음(원천 빈칸). 이런 편이 한 편이라도 있으면 「열차가 없다(확정)」·「이슈로 전부 끊겼다(더 일찍·늦게도 같다)」고
+            #   말하지 않는다 — 모른다고 한다. 앞 판은 가장 많이 버린 이유만 봐서, 상봉→회기처럼 춘천행(단축운행 63편)이 다수이고
+            #   청량리행 12편이 해석불가인 자리를 no_service·확정으로 냈다(그 12편은 실제로 간다). GPT 대조 5·6.
+            unresolved = drop.get("행선지_해석불가", 0) + drop.get("행선지없음", 0)
+            if drop.get("이슈_구간차단") and not unresolved:
                 # ★ 이슈로 길이 끊긴 것과 원래 열차가 없는 것을 섞어 말하면 안 된다.
                 #   완화 조건이 다르다 — 이쪽은 더 일찍 출발해도 안 된다.
                 # ★ 끊긴 간선을 **전부** 말한다. 하나만 말하면 순환선에서
@@ -559,9 +564,11 @@ class Verifier:
                     relief="다른 노선 또는 수단으로 우회. 더 일찍·늦게 출발해도 같다",
                     evidence=[self._ev_disr(x, f"{line} {x['between'][0]}–{x['between'][1]} 운행중단")
                               for x in dds])
-            if drop and drop.most_common(1)[0][0] in ("행선지없음", "행선지_해석불가"):
+            if unresolved:
+                blocked = (f" (이슈로 끊긴 구간을 지나는 편 {drop['이슈_구간차단']}편은 못 쓴다)"
+                           if drop.get("이슈_구간차단") else "")
                 return LegResult(idx, label, "unknown",
-                                 f"{a} 출발 열차의 행선지를 확인할 수 없어 {b} 까지 간다고 말할 수 없다",
+                                 f"{a} 출발 열차의 행선지를 확인할 수 없어 {b} 까지 간다고 말할 수 없다{blocked}",
                                  grade="근거없음", dropped=dict(drop), code="no_data")
             # ★ 반대 방향은 있는데 이쪽만 0편이면 운행이 없는 게 아니라 **수집이 빠진 것**이다.
             #   도림천→신도림 110편 / 신도림→도림천 0편 이 실제로 그랬다(지선 편성 누락).

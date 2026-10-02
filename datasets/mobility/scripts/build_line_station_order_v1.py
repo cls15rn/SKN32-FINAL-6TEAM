@@ -62,6 +62,7 @@ EXTRA_EDGES = [
     ("경의선", "용산",   "효창공원앞",     "경원(K110) ↔ 경의(K826) 접합"),
     ("경의선", "효창공원앞", "공덕",       "경의(K826) ↔ 문산방면(K312) 접합"),
     ("경의선", "가좌",   "신촌",           "본선(K315) ↔ 서울역지선(P312) 분기"),
+    ("경춘선", "상봉",   "광운대",         "본선(P120) ↔ 광운대 갈래(P116) 분기 — 광운대 편의 다음 정차역이 상봉이다(CUT_EDGES 주석 참고)"),
 ]
 # FR_CODE 로 만들어지지만 실제 선로가 아닌 간선. 근거를 적고 끊는다.
 CUT_EDGES = [
@@ -69,6 +70,13 @@ CUT_EDGES = [
      "응암순환은 구산 다음이 응암이다. 공식 역간거리표가 구산→응암 2:00/1.5km · 응암→새절 1:20/0.9km 로 주고, "
      "시간표에서도 한 열차가 구산 05:47:30 → 응암 05:50:00 → 새절 05:51:40 으로 이어진다. "
      "FR 번호(615 구산 · 616 새절)만 보면 인접해 보이지만 그 사이에 응암(610)이 들어간다."),
+    # 80(2026-10-02): FR 번호(P116 광운대 · P117 청량리)가 이어져 한 줄로 묶였지만 갈래다.
+    #   ★ 이 표의 간선은 「물리적 선로」가 아니라 **이 노선 편이 연달아 서는 두 역**이다(판정기가 「이 편이 그 역에 서는가」를 묻는다).
+    #   근거는 시간표뿐이다(추정) — 그래서 상봉–광운대는 관측 없는 `추정:구조만` · 소요 없음으로 둔다(도착 시각은 못 낸다).
+    ("경춘선", "광운대", "청량리",
+     "광운대 편은 상봉 다음이 광운대다. 시간표에서 상봉 08:27 광운대행 뒤 중랑·회기·청량리에 광운대행 출발이 없고"
+     "(그 세 역의 상행은 전부 청량리행), 광운대 08:53 춘천행도 청량리·회기·중랑에 같은 편이 없다. "
+     "한 줄로 두면 상봉→광운대 경로가 청량리를 지나는 것으로 나온다."),
 ]
 
 # 공항철도 FR_CODE 는 A01..A11 사이에 A042(마곡나루)·A071(청라국제도시)·A072(영종)가 끼어 있다.
@@ -89,6 +97,15 @@ WIN_S = 15 * 60   # 시차 탐색 폭(초). 인접 역 사이는 1~8분이다.
 BIN_S = 60        # 히스토그램 칸(초). ±1칸을 한 봉우리로 본다.
 MAX_DELTA = 15    # 인접으로 인정할 시차 상한(분)
 MIN_TRAINS = 20   # A 역 편수가 이보다 적으면 관측으로 안 친다
+# 80(2026-10-02): 하루 편수가 적은 갈래 끝(경춘선 청량리~상봉 12편)은 MIN_TRAINS 에 걸려 「시간표가 있는데도」 근거없음으로 남았고,
+#   판정기가 그 편을 전부 못 썼다. **촘촘한 관측이 어느 방향에도 없는 간선에 한해** 소수 편 관측을 본다(sparse_link).
+#   히스토그램 비율(frac)은 B 의 한 편이 A 의 여러 편에 겹쳐 세어져도 1.0 이 되므로(GPT 대조 1·2) 쓰지 않고,
+#   A 의 편 하나하나를 B 의 **서로 다른** 편에 시간 순서대로 짝지어 전부 짝이 맞고 시차 폭이 SPARSE_SPREAD_S 안일 때만 인정한다.
+#   등급은 확정으로 올리지 않는다(추정:소수편관측).
+MIN_TRAINS_SPARSE = 5
+SPARSE_MAX_DELTA = 8      # 분 — 인접 역 시차 범위
+SPARSE_TOL_S = 90         # 짝 찾기 허용 폭(초) — 대표 시차 ± 이 값
+SPARSE_SPREAD_S = 60      # 짝지은 시차의 최대−최소 상한(초)
 MIN_FRAC = 0.85   # A 를 떠난 열차 중 δ 뒤에 B 를 떠난 것의 비율
 MIN_SEP_DIR = 1.25  # 행선지로 못 가르고 방향 전체로 볼 때만 요구하는 배경 분리
 FR_GAP_MAX = 3    # 같은 접두어라도 번호가 이보다 벌어지면 다른 계통으로 본다
@@ -298,8 +315,32 @@ def offset(ta, tb):
     return round(best * BIN_S / 60), sm[best] / len(ta), sm[best] / max(med, 1), sec
 
 
+def sparse_link(ta, tb):
+    """소수 편 일대일 대응 — A 의 각 편을 B 의 서로 다른 편에 시간 순서대로 짝짓는다.
+
+    반환 None(대표 시차를 못 잡음) 또는 dict(delta_min · delta_sec · matched · unmatched_a · unmatched_b · spread_sec).
+    중복 시각은 한 편으로 본다. 대표 시차는 offset() 의 봉우리 중앙값을 쓰고, 짝은 그 ±SPARSE_TOL_S 안에서 가장 이른 미사용 B 편이다."""
+    ta, tb = sorted(set(ta)), sorted(set(tb))
+    delta, _frac, _sep, sec = offset(ta, tb)
+    if delta is None or sec is None:
+        return None
+    j, diffs = 0, []
+    for a in ta:
+        while j < len(tb) and tb[j] < a + sec - SPARSE_TOL_S:
+            j += 1
+        if j < len(tb) and tb[j] <= a + sec + SPARSE_TOL_S:
+            diffs.append(tb[j] - a)
+            j += 1                          # 한 번 쓴 B 편은 다시 안 쓴다
+    return {"delta_min": delta, "delta_sec": sec, "trains": len(ta), "matched": len(diffs),
+            "unmatched_a": len(ta) - len(diffs), "unmatched_b": len(tb) - len(diffs),
+            "spread_sec": (max(diffs) - min(diffs)) if diffs else None}
+
+
 def ok(c):
     """그 방향에서 '같은 열차가 A 다음 B 를 떠난다'가 관측되었는가"""
+    if c and c.get("sparse"):               # 80: 소수 편 — 전부 일대일로 짝이 맞고 시차 폭이 좁아야 한다
+        return (c["unmatched_a"] == 0 and c["spread_sec"] is not None and c["spread_sec"] <= SPARSE_SPREAD_S
+                and 1 <= abs(c["delta_min"]) <= SPARSE_MAX_DELTA)
     if not c or not (1 <= abs(c["delta_min"]) <= MAX_DELTA) or c["frac"] < MIN_FRAC:
         return False
     return c["basis"] == "dest" or c["sep"] >= MIN_SEP_DIR
@@ -335,10 +376,32 @@ def observe(dest_keys, dir_keys, BY_DEST, BY_DIR, line, a, b):
     return out
 
 
+def observe_sparse(dest_keys, BY_DEST, line, a, b):
+    """80: 소수 편 관측(방향별 가장 편수 많은 행선지 하나). observe() 가 어느 방향에서도 ok 를 못 낸 간선에만 부른다."""
+    out = {}
+    for d in ("U", "D"):
+        best = None
+        for key in dest_keys.get((line, d), ()):
+            stmap = BY_DEST[key]
+            if a not in stmap or b not in stmap or not (MIN_TRAINS_SPARSE <= len(set(stmap[a])) < MIN_TRAINS):
+                continue
+            c = sparse_link(stmap[a], stmap[b])
+            if c is None:
+                continue
+            c.update({"basis": "dest", "day_type": key[2], "dest_nm": key[3], "sparse": True, "frac": None, "sep": None})
+            if ok(c) and (best is None or c["trains"] > best["trains"]):
+                best = c
+        if best:
+            out[d] = best
+    return out
+
+
 def grade_edge(obs):
     u, dn = obs.get("U"), obs.get("D")
     if ok(u) and ok(dn):
-        return "확정" if u["delta_min"] * dn["delta_min"] < 0 else "추정:방향라벨충돌"
+        if u["delta_min"] * dn["delta_min"] >= 0:
+            return "추정:방향라벨충돌"
+        return "추정:소수편관측" if (u.get("sparse") or dn.get("sparse")) else "확정"
     if ok(u) or ok(dn):
         return "추정:단방향관측"
     if u or dn:
@@ -418,6 +481,9 @@ def main():
         dir_mixed = collections.Counter()
         for a, b, src in edges:
             obs = {} if args.no_validate else observe(dest_keys, dir_keys, BY_DEST, BY_DIR, ln, a, b)
+            if obs is not None and not args.no_validate and not any(ok(c) for c in obs.values()):
+                # 80: 촘촘한 관측이 어느 방향에도 없을 때만 — 이미 관측이 잡힌 간선의 등급·소요는 그대로다(GPT 대조 3).
+                obs = {**obs, **observe_sparse(dest_keys, BY_DEST, ln, a, b)}
             g = grade_edge(obs)
             good = {d: c for d, c in obs.items() if ok(c)}
             e = {"a": a, "b": b, "source": src, "grade": g}
@@ -459,6 +525,8 @@ def main():
             if obs:
                 e["observed"] = {d: {kk: c[kk] for kk in
                                      ("delta_min", "delta_sec", "frac", "sep", "trains", "basis", "day_type", "dest_nm")}
+                                    | ({kk: c[kk] for kk in ("sparse", "matched", "unmatched_a", "unmatched_b", "spread_sec")}
+                                       if c.get("sparse") else {})
                                  for d, c in obs.items()}
             if g in ("근거없음", "추정:구조만") and has_tt.get(a) and has_tt.get(b) and obs:
                 e["note"] = "양쪽 다 시간표가 있는데 두 역을 잇는 열차를 못 찾았다 — 직결 운행이 없을 수 있다"
@@ -472,6 +540,44 @@ def main():
                         (asc if c["delta_min"] > 0 else desc)[d] += 1
             if g == "근거없음" and has_tt.get(a) and has_tt.get(b):
                 warn.append(f"{ln}: {a}–{b} 인접 확인 실패 (양쪽 다 시간표 있음, {src})")
+
+        # 80(2026-10-02): 시간표가 없는 역(수인분당선 신길온천 — 원천에 그 역 행이 0)은 양옆 간선이 둘 다 근거없음이라
+        #   그 역을 **지나가기만 하는** 편(안산→정왕)까지 판정기가 못 썼다. 양옆 역끼리 같은 편이 양방향으로(촘촘한 관측 · 확정 기준)
+        #   이어지면 두 간선을 추정으로 올린다 — 「지나간다」만 말한다.
+        #   ★ 소요는 양옆 역 사이 **전체** 값만 안다. 두 간선에 반씩 적되 `travel_min_source: observed_across` 로 표시하고,
+        #     읽는 쪽(line_order)은 두 간선을 **함께** 지날 때만 그 값을 쓴다 — 한쪽만 쓰는 소요(그 역에서 타고 내림)는 못 낸다(GPT 대조 4).
+        if not args.no_validate:
+            by_st = collections.defaultdict(list)
+            for e in edge_out:
+                by_st[e["a"]].append(e)
+                by_st[e["b"]].append(e)
+            for mid in names:
+                es = by_st[mid]
+                if has_tt[mid] or len(es) != 2 or any(e["grade"] != "근거없음" for e in es):
+                    continue
+                ends = [e["b"] if e["a"] == mid else e["a"] for e in es]
+                if not all(has_tt.get(x) for x in ends):
+                    continue
+                obs = observe(dest_keys, dir_keys, BY_DEST, BY_DIR, ln, ends[0], ends[1])
+                if grade_edge(obs) != "확정":
+                    continue
+                total = round(sum(abs(c["delta_sec"]) for c in obs.values()) / len(obs) / 60, 1)
+                fwd = [d for d, c in obs.items() if c["delta_min"] > 0]      # ends[0] → ends[1] 로 달리는 dir
+                bwd = [d for d, c in obs.items() if c["delta_min"] < 0]
+                for e, end in zip(es, ends):
+                    toward_mid = fwd if end == ends[0] else bwd              # end → mid 로 달리는 dir
+                    from_mid = bwd if end == ends[0] else fwd
+                    e_fwd, e_bwd = (toward_mid, from_mid) if e["a"] == end else (from_mid, toward_mid)
+                    e.update({"grade": "추정:건너관측",
+                              "dir_a_to_b": e_fwd[0] if len(e_fwd) == 1 else None,
+                              "dir_b_to_a": e_bwd[0] if len(e_bwd) == 1 else None,
+                              "travel_min": round(total / 2, 1), "travel_min_source": "observed_across",
+                              "travel_min_grade": "추정",
+                              "observed_across": {"mid": mid, "between": ends, "total_min": total, "obs": {
+                                  d: {kk: c[kk] for kk in ("delta_min", "delta_sec", "frac", "sep", "trains", "basis", "day_type", "dest_nm")}
+                                  for d, c in obs.items()}},
+                              "note": f"{mid} 은 시간표가 없다 — {ends[0]}↔{ends[1]} 을 같은 편이 양방향으로 잇는 것만 확인했다. "
+                                      f"소요는 두 간선을 함께 지날 때의 합({total}분)만 뜻이 있다"})
 
         direction = {}
         for d in ("U", "D"):
@@ -525,6 +631,9 @@ def main():
         "grades": {"확정": "구조 + 양방향 관측 일치", "추정:단방향관측": "한쪽 방향만 확인",
                    "추정:방향라벨충돌": "양방향이 같은 부호 — 종착역 dir 표기 문제일 수 있다",
                    "추정:구조만": "FR_CODE 로만 인접, 관측이 기준 미달",
+                   "추정:소수편관측": (f"하루 편수가 적은 구간({MIN_TRAINS_SPARSE}~{MIN_TRAINS - 1}편) — A 의 편이 전부 B 의 서로 다른 편에 "
+                                 f"일대일로 짝지어지고 시차 폭 {SPARSE_SPREAD_S}초 안(양방향). observed 에 matched·unmatched·spread_sec"),
+                   "추정:건너관측": "시간표 없는 역의 양옆 간선 — 양옆 역끼리 같은 편이 양방향으로 이어짐. 지나가는 것만 말한다 · 소요는 두 간선 합만 뜻이 있다",
                    "_travel_min": "travel_min_grade / travel_min_source 를 같이 본다. observed 는 정차시간 포함, official 은 주행시간만",
                    "_dir": "dir_a_to_b / dir_b_to_a 는 그 방향으로 달리는 열차의 dir 라벨. 지선은 본선과 반대일 수 있어 노선 단위 direction 보다 이쪽이 정확하다",
                    "근거없음": "시간표 표본이 없어 확인 불가"},
