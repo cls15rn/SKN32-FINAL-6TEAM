@@ -324,6 +324,27 @@ class Planner:
                 dead.add(d["line"])
         return dead >= lines
 
+    def _stop_skip_pred(self, lo, hi):
+        """☆84 — 버스 정류장 무정차(stop_skip) 사고가 있으면 「그 노선이 그 정류장에 [lo, hi] 사이 서지 않나」 판별 함수.
+        없으면 None(앞 판과 같은 정류장 짝). 탐색 폭(도착 목표 3시간 전 ~ 도착 목표)과 시간대가 걸치는 것만 — 이 함수는
+        **다른 정류장 짝을 더 찾는 데**만 쓴다(기본 짝을 빼지 않는다 · _bus_direct). 걸리는지는 판정기가 실제 승하차 시각으로 본다."""
+        from .timeutil import to_service_min
+        sk = []
+        for d in self.disruptions:
+            if d.get("kind") != "stop_skip":
+                continue
+            w = d.get("window")
+            if w and (to_service_min(w[1]) < lo or to_service_min(w[0]) > hi):
+                continue
+            sk.append((self.v.ars_norm(d.get("ars")), d.get("route") or None))
+        if not sk:
+            return None
+
+        def pred(row):
+            a = self.v.ars_norm(row.get("ars_id"))
+            return a is not None and any(a == s and r in (None, row.get("route_nm")) for s, r in sk)
+        return pred
+
     def _near_stations(self, place, limit_m, k=None):
         """장소 → 도보 상한 안 역 **역 좌표 기준 가까운 순 최대 k 개**(E1 · 문제목록 #38). 사고로 막힌 역(_blocked_station)은 뺀다.
         순서·상한은 역 좌표 직선 거리로 정하고(앞 판 near[0] 과 같은 기준), 돌려주는 거리 값은 그 역에서 장소에 가장
@@ -371,11 +392,24 @@ class Planner:
         radius = v.rv("alternatives", "정류장_반경_m")
         excluded = v.rv("bus", "route_type_제외") or []
         found = []
-        for i, (r, x, y, _span, da, db) in enumerate(v.bus.routes_between(
-                a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"], radius)):
+        pairs = list(enumerate(v.bus.routes_between(
+            a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"], radius)))
+        # ☆84 · GPT #6 — 정류장 무정차 사고가 있으면 **기본 짝은 그대로 두고**(실제 승하차가 사건 시간대 밖이면 유효하다 —
+        #   미리 빼면 그 경로가 사라진다) 무정차 정류장을 뺀 다른 짝을 **더한다**. 어느 쪽이 성립하는지는 판정기가 실제
+        #   시각으로 본다. 그때는 구간에 정류장 순번(from_seq·to_seq)을 실어 판정기가 **같은 행**을 쓰게 한다(같은 이름의
+        #   정류장이 한 노선에 여러 번 있으면 이름만으로는 빼 둔 행을 다시 집는다). 사고가 없으면 앞 판과 같은 입력.
+        pred = self._stop_skip_pred(arrive_by - 180, arrive_by)
+        if pred is not None:
+            seen = {(r.route_nm, x["seq"], y["seq"]) for _i, (r, x, y, *_r) in pairs}
+            alt = [t for t in v.bus.routes_between(a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"],
+                                                   radius, skip=pred)
+                   if (t[0].route_nm, t[1]["seq"], t[2]["seq"]) not in seen]
+            pairs += [(50 + k, t) for k, t in enumerate(alt)]
+        for i, (r, x, y, _span, da, db) in pairs:
             if r.route_type_nm in excluded or max(da, db) > wlim:
                 continue
-            legs = [{"mode": "bus", "route": r.route_nm, "from": x["station_nm"], "to": y["station_nm"]}]
+            legs = [{"mode": "bus", "route": r.route_nm, "from": x["station_nm"], "to": y["station_nm"],
+                     **({"from_seq": x["seq"], "to_seq": y["seq"]} if pred is not None else {})}]
             wi, wo = self._walk(da), self._walk(db)
             st_date, by_stop = service_day(arrive_dt - timedelta(minutes=wo))
             off = (st_date - sdate).days * MIN_DAY

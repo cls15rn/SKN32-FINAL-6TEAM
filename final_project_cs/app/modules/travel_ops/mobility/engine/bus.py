@@ -131,14 +131,19 @@ class BusRoutes:
         out.sort(key=lambda x: x[0])
         return out
 
-    def routes_between(self, a_lat, a_lng, b_lat, b_lng, within_m):
+    def routes_between(self, a_lat, a_lng, b_lat, b_lng, within_m, skip=None):
         """두 좌표를 **한 노선으로** 잇는 후보. (route, 타는 정류장, 내리는 정류장, 정거장 수, 도보 m).
 
         ★ seq 증가만 보면 안 된다 — 목적지에 가지 않는 노선이 잡힌다(시연 v0.1 의 성동10).
           여기서는 **양쪽 정류장이 목적지 반경 안에 있어야** 하므로 그 사례가 구조적으로 걸러진다.
+        ☆84 — skip(정류장 행) → True 인 정류장(사고로 그 노선이 서지 않는 곳)은 타고 내리는 자리로 안 쓴다 — 같은 노선의
+          반경 안 다른 정류장 짝을 고른다. 없으면 기본(None) — 앞 판과 같은 결과.
         """
         A = self.stops_near(a_lat, a_lng, within_m)
         B = self.stops_near(b_lat, b_lng, within_m)
+        if skip is not None:
+            A = [t for t in A if not skip(t[1])]
+            B = [t for t in B if not skip(t[1])]
         bybus = {}
         for da, x in A:
             for db, y in B:

@@ -298,8 +298,8 @@ class TravelSources:
     air: Any | None = None
     #: 기상청 지진정보 — 최근 지진(규모·진앙). 공공데이터포털 공통 키(실측 2026-09-14).
     earthquake: Any | None = None
-    #: 경로에 걸린 운행·통제 사건(무정차·도로 통제). 지금은 재생 입력만 있다 —
-    #:  실시간 지하철 운행·UTIC 통제가 붙으면 같은 `affecting()` 모양으로 끼운다.
+    #: 경로에 걸린 운행·통제 사건(무정차·도로 통제) — 도로 UTIC · 지하철 알림 · 버스 TOPIS 를 합친 것
+    #:  (`route_events_chain.CombinedRouteEvents`). 재생 모드는 같은 `affecting()` 모양의 재생 입력을 끼운다.
     route_events: Any | None = None
     transit: Any | None = None
     route: Any | None = None
@@ -505,6 +505,29 @@ def build_travel_sources(settings: Any) -> TravelSources:
         sources.unavailable["traffic_utic"] = (
             f"ACOP_UTIC_API_KEY_{2 if proxied else 1} 가 비어 있다 — "
             f"{'서버 경유' if proxied else '바로 부르는'} 길의 IP 에 등록된 키가 필요하다.")
+    # ── 경로 사건: 도로(UTIC) + 지하철(서울교통공사 알림) + 버스(TOPIS 예고 공지)를 **합친다** ─────────────
+    #   ☆`[2026-10-01 · 이동 문제목록 #36·#39]` 전에는 UTIC(도로) 하나만 꽂혀 지하철·버스는 전부 「확인 못 한 대상」이었다.
+    #   대상 머리로 나눠 맡긴다(`route_events_chain.py`). 맡을 소스가 없는 대상은 여전히 「확인 못 한 대상」이다.
+    #   ★지하철 알림 키는 공공데이터포털 공통 키 하나(`ACOP_DATA_GO_KR_KEY`) — 새 키 이름을 만들지 않는다.
+    from .route_events_chain import CombinedRouteEvents, MobilityTables
+    from .seoulmetro_alert import SeoulMetroAlerts
+    from .topis_notice import TopisNotices
+
+    # ★서비스별 키 칸을 만들지 않는다 — 공통 키(ACOP_DATA_GO_KR_KEY) 그대로(무장애 여행 정보와 같은 방식 ·
+    #   `.env.apikeys.example` 주석). 그 키의 계정이 15144070 을 활용신청해야 열린다(안 했으면 본문 오류 → None).
+    metro_key = _public_data_key(settings, "data_go_kr_key")
+    tables = MobilityTables(getattr(settings, "mobility_data_dir", "") or "")
+    subway_alerts = (SeoulMetroAlerts(service_key=metro_key, stations=tables.station_table, limiter=limiter,
+                                      cache=cache)
+                     if metro_key else None)
+    if subway_alerts is None:
+        sources.unavailable["route_events_subway"] = (
+            "ACOP_DATA_GO_KR_KEY 가 비어 있다 — 서울교통공사 지하철알림정보(공공데이터포털 15144070) 키. "
+            "지하철 대상은 「확인 못 한 대상」으로 남는다.")
+    # ★TOPIS 는 키가 없다(누리집 공지판 · 공식 API 아님) — 운행일마다 한 번 읽는다(`topis_notice.py`)
+    bus_notices = TopisNotices(stops=tables.stop_table, limiter=limiter, cache=cache)
+    sources.route_events = CombinedRouteEvents(road=sources.route_events, subway=subway_alerts, bus=bus_notices)
+
     if not traffic_sources:
         sources.unavailable["traffic"] = "교통 돌발 — ITS·UTIC 키가 모두 없다"
     elif len(traffic_sources) == 1:

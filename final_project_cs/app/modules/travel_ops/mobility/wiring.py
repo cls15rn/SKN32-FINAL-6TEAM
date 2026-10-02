@@ -103,26 +103,94 @@ def disruptions_from_events(events: dict[str, dict[str, Any]]) -> tuple[list[dic
 
     뜻이 같은 것만 옮긴다 — 이름만 바꾸지 않는다.
       N호선:역 + skip_station  → station_skip{line, station}   (그 역에 안 선다 — 양쪽 같은 뜻)
+      N호선:역 + skip_station + suspended(운행 중단 · 지하철 알림) → 구간 차단 edge_closed{line, between} 들
+                               (section [A, B] 사이 간선 전부 · 역 하나면 그 역에 닿는 간선 전부 + 그 역 무정차 ·
+                                section 이 없거나 노선 순서를 모르면 line_closed{line})
       N호선:*  + line_closed   → line_closed{line}
-      버스:노선 + 운행 중단      → route_closed{route}
+      ☆`[2026-10-01 · 84]` 버스는 셋으로 나눈다(앞 판은 전부 노선 전체 중단 route_closed 라 과잉 탈락):
+      버스:노선 + skip_station + stops[ARS] → stop_skip{route, ars, window?}  (그 정류장에서 타고 내리는 경로만 불가 ·
+                               지나가는 경로는 유지 · window = 사건 시간대가 하루 안이면 그 시각)
+      버스:노선 + road_control (+detour) → route_detour{route}  (우회 — 소요 모름 · 판단불가)
+      버스:노선 + skip_station(정류장 모름) · route_closed · line_closed → route_closed{route}  (어느 정류장인지 모르면 종전대로)
       도로:…   + road_control  → 못 옮김 — 우리 쪽은 「느려진다」, 계산기에는 대중교통이 지나는 도로 정보가 없다
     못 옮긴 대상은 부르는 쪽이 드러낸다(조용히 버리지 않는다).
     """
     out, unmapped = [], []
     for target, ev in (events or {}).items():
+        ev = ev or {}
         head, _, rest = str(target).partition(":")
-        effect = (ev or {}).get("effect")
-        meta = {"note": (ev or {}).get("summary"), "source": (ev or {}).get("source_id") or "trip_watch",
-                "grade": (ev or {}).get("grade", "추정"), "observed_at": (ev or {}).get("observed_at")}
-        if head == "버스" and effect in ("route_closed", "line_closed", "skip_station"):
+        effect = ev.get("effect")
+        meta = {"note": ev.get("summary"), "source": ev.get("source_id") or "trip_watch",
+                "grade": ev.get("grade", "추정"), "observed_at": ev.get("observed_at")}
+        if head == "버스" and effect == "skip_station" and (ev.get("stop_windows") or ev.get("stops")):
+            # ☆GPT 84 #3 — 정류장마다 제 시간대로(공지 여럿이 한 노선에 걸리면 시간대가 다르다). 옛 모양(stops + 한 시간대)도 받는다
+            rows = ev.get("stop_windows") or [{"ars": a, "start": ev.get("window_start"), "end": ev.get("window_end")}
+                                              for a in ev["stops"]]
+            for row in rows:
+                window = _window_hm(row.get("start"), row.get("end"))
+                out.append({"kind": "stop_skip", "route": rest, "ars": str(row["ars"]),
+                            **({"window": window} if window else {}), **meta})
+        elif head == "버스" and effect == "road_control":
+            window = _window_hm(ev.get("window_start"), ev.get("window_end"))
+            out.append({"kind": "route_detour", "route": rest, **({"window": window} if window else {}), **meta})
+        elif head == "버스" and effect in ("route_closed", "line_closed", "skip_station"):
             out.append({"kind": "route_closed", "route": rest, **meta})
+        elif head not in ("버스", "도로") and effect == "skip_station" and ev.get("suspended"):
+            for section in (ev.get("sections") or [ev.get("section")]):
+                out += _section_closed(engine_line(head), section, meta)
+            if ev.get("station_skipped") and rest:          # 같은 역에 무정차도 걸려 있다(GPT 84 #3)
+                out.append({"kind": "station_skip", "line": engine_line(head), "station": rest, **meta})
         elif head not in ("버스", "도로") and effect == "skip_station" and rest:
             out.append({"kind": "station_skip", "line": engine_line(head), "station": rest, **meta})
         elif head not in ("버스", "도로") and effect == "line_closed":
             out.append({"kind": "line_closed", "line": engine_line(head), **meta})
         else:
             unmapped.append(str(target))
-    return out, unmapped
+    # 같은 조건이 대상마다 겹쳐 나오면(운행 중단 구간을 그 노선 대상마다 알림) 하나로
+    seen, uniq = set(), []
+    for d in out:
+        key = (d["kind"], d.get("line"), d.get("station"), d.get("route"), d.get("ars"),
+               tuple(d.get("between") or ()), tuple(d.get("window") or ()))
+        if key not in seen:
+            seen.add(key)
+            uniq.append(d)
+    return uniq, unmapped
+
+
+def _window_hm(start: Any, end: Any) -> list[str] | None:
+    """사건 시간대(ISO 둘) → 계산기 stop_skip window ["HH:MM", "HH:MM"]. 같은 날 안일 때만 — 날을 넘기면 None(늘 무정차로
+    본다 · 보수적). 운행일 경계(04:00) 전 시각도 None 으로 둔다(계산기 시각 축은 운행일 표기)."""
+    from datetime import datetime
+    try:
+        a, b = datetime.fromisoformat(str(start)), datetime.fromisoformat(str(end))
+    except (TypeError, ValueError):
+        return None
+    if a.date() != b.date() or a.hour < 4:
+        return None
+    return [a.strftime("%H:%M"), b.strftime("%H:%M")]
+
+
+def _section_closed(line: str, section: Any, meta: dict[str, Any]) -> list[dict[str, Any]]:
+    """운행 중단 구간 [A, B] → A~B 사이 간선마다 edge_closed. 노선 순서를 모르거나 구간이 없으면 노선 전체 line_closed.
+
+    ☆GPT 84 #7 — 역 하나만 적힌 운행 중단([A, A])을 무정차(station_skip)로 옮기지 않는다. 무정차는 「지나가기는 한다」인데
+      운행 중단은 그 역을 **지나가지도 못한다**(차량 고장으로 선 열차 등 — 원천이 뜻을 밝히지 않는다 · 보수적으로). 그 역에
+      닿는 간선을 모두 끊고(지나갈 수 없다) 그 역도 서지 않는 것으로 둔다."""
+    whole = [{"kind": "line_closed", "line": line, **meta}]
+    if not section or len(section) != 2 or _STATE["mode"] != "enabled":
+        return whole
+    lo = engine_runtime.get_verifier(**_STATE["kw"])._v.lo
+    if section[0] == section[1]:
+        near = sorted((getattr(lo, "_g", {}).get(line) or {}).get(section[0]) or [])
+        if not near:
+            return whole
+        return ([{"kind": "edge_closed", "line": line, "between": [section[0], n], **meta} for n in near]
+                + [{"kind": "station_skip", "line": line, "station": section[0], **meta}])
+    path = lo.path(line, section[0], section[1])
+    if not path or len(path) < 2:
+        return whole
+    return [{"kind": "edge_closed", "line": line, "between": [path[i], path[i + 1]], **meta}
+            for i in range(len(path) - 1)]
 
 
 def leg_planner(party_size: int | None, constraints: dict[str, Any] | None, *, disruptions=None):

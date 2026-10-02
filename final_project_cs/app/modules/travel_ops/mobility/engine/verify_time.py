@@ -336,7 +336,37 @@ class Verifier:
     #   시간표 불가는 "더 일찍/늦게 출발", 이슈 불가는 "우회 또는 복구 대기"다.
     # ★ 대안 열거는 self.disr 을 그대로 물려받는다 — 대안으로 낸 노선이 같은 이슈에 걸리면 안 된다.
     #   alternatives() 가 verify_leg 을 다시 부르므로 인스턴스에 두면 저절로 상속된다.
-    DISR_KINDS = ("line_closed", "station_skip", "edge_closed", "route_closed")
+    DISR_KINDS = ("line_closed", "station_skip", "edge_closed", "route_closed", "stop_skip", "route_detour")
+    # ☆`[2026-10-01 · 84 · 문제목록 #39]` 버스 사건을 노선 전체 중단(route_closed) 하나로만 받던 것을 나눈다.
+    #   stop_skip    {ars, route?, window?} — 그 정류장(ARS 5자리)에 서지 않는다. 그 정류장에서 **타거나 내리는** 버스
+    #                구간만 불가, 지나가기만 하는 구간은 그대로(지하철 station_skip 과 같은 뜻). route 가 없으면 그 정류장의
+    #                모든 노선. window ["HH:MM","HH:MM"](운행일 시각)이 있으면 그 시간에 걸칠 때만 — 없으면 늘.
+    #   route_detour {route} — 그 노선이 우회 운행 중. 지나는 길·소요를 모른다 → 그 노선 버스 구간은 **판단불가**
+    #                (no_data · 근거없음) — 불가가 아니다(못 간다는 근거가 없다). 다른 후보가 있으면 그쪽이 계획이 된다.
+
+    @staticmethod
+    def ars_norm(x):
+        """ARS 표기 → 5자리 문자열. 옛 표기 `01-126` → `01126`. 숫자 다섯이 아니면 None."""
+        t = str(x or "").replace("-", "").strip()
+        return t if len(t) == 5 and t.isdigit() else None
+
+    def _stop_skip_at(self, route_nm, stop, t0, t1):
+        """그 노선이 그 정류장 행(stop)에 [t0, t1] 사이 서지 않는 사건. 없으면 None. t1=None 은 끝 모름(그 뒤 전부)."""
+        ars = self.ars_norm(stop.get("ars_id"))
+        if ars is None:
+            return None
+        for d in self.disr:
+            if d.get("kind") != "stop_skip" or self.ars_norm(d.get("ars")) != ars:
+                continue
+            if d.get("route") not in (None, "", route_nm):
+                continue
+            w = d.get("window")
+            if w:
+                ws, we = to_service_min(w[0]), to_service_min(w[1])
+                if (t1 is not None and t1 < ws) or t0 > we:
+                    continue
+            return d
+        return None
 
     def _disr(self, kind, **eq):
         for d in self.disr:
@@ -367,7 +397,8 @@ class Verifier:
     def _disr_label(self, d):
         return d.get("note") or {"line_closed": "노선 운행중단", "station_skip": "무정차 통과",
                                  "edge_closed": "구간 운행중단",
-                                 "route_closed": "노선 운행중단"}[d["kind"]]
+                                 "route_closed": "노선 운행중단", "stop_skip": "정류장 무정차 통과",
+                                 "route_detour": "노선 우회 운행"}[d["kind"]]
 
     def _passes(self, line, origin, dest, target, dir=None, origin_terminal=False,
                 full_circuit=False):
@@ -700,6 +731,27 @@ class Verifier:
         return v, lvl, row, act
 
 
+    def _bus_seg(self, r, leg):
+        """버스 구간의 (타는 행, 내리는 행, 정거장 수). ☆GPT 84 #6 — 구간에 `from_seq`·`to_seq` 가 있으면 **그 행**을 쓴다.
+        이름만으로 찾으면(segment) 같은 노선에 같은 이름이 여러 번 있을 때 일정 짜기가 고른 행과 다른 행(사고로 빼 둔
+        정류장)을 다시 집을 수 있다. 순번이 이름과 안 맞으면 순번을 믿지 않고 이름으로 찾는다."""
+        fs, ts = leg.get("from_seq"), leg.get("to_seq")
+        if fs is not None and ts is not None and fs < ts:
+            rows = {x["seq"]: x for x in self.bus.stops.get(r.route_id, [])}
+            a, b = rows.get(fs), rows.get(ts)
+            if a and b and a["station_nm"] == leg["from"] and b["station_nm"] == leg["to"]:
+                return a, b, ts - fs
+        return self.bus.segment(r.route_id, leg["from"], leg["to"])
+
+    def _stop_skip_fail(self, idx, label, nm, stop, wh, d):
+        st = stop["station_nm"]
+        return LegResult(idx, label, "infeasible",
+                         f"버스 {nm} 이 {st}({stop.get('ars_id')}) 에 서지 않는다 ({self._disr_label(d)}) — "
+                         f"{wh} 정류장으로 쓸 수 없다. 지나가기는 한다",
+                         grade=d.get("grade", "추정"), code="disruption",
+                         relief=f"{st} 대신 앞뒤 정류장에서 타거나 내려 걷는다. 또는 다른 노선·수단",
+                         evidence=[self._ev_disr(d, f"버스 {nm} {st}({stop.get('ars_id')}) 무정차")])
+
     # ── 버스 — 지하철과 판정 구조가 다르다 ──
     def verify_leg_bus(self, idx, leg, now_min, day_type, worst=False):
         """버스는 노선 단위 소스다. '운행 구간 안인가 + 배차만큼 기다리는가' 로 본다.
@@ -716,6 +768,19 @@ class Verifier:
                              grade=d.get("grade", "추정"), code="disruption",
                              relief="다른 노선 또는 수단으로 우회. 복구 시각은 우리가 모른다",
                              evidence=[self._ev_disr(d, f"버스 {nm} 운행중단")])
+        d = self._disr("route_detour", route=nm)
+        if d and d.get("window"):
+            # 시간대가 있는 우회 — 구간 시작부터 3시간(이 구간이 끝날 만한 폭) 안에 걸칠 때만. 없으면 늘
+            ws, we = to_service_min(d["window"][0]), to_service_min(d["window"][1])
+            if we < now_min or ws > now_min + 180:
+                d = None
+        if d:
+            # ☆84 — 우회는 「못 간다」가 아니라 「얼마나 걸릴지 모른다」. 소요를 지어내지 않는다(판단불가)
+            return LegResult(idx, label, "unknown",
+                             f"버스 {nm} 이 우회 운행 중이다 ({self._disr_label(d)}) — 지나는 길·소요를 모른다",
+                             grade="근거없음", code="no_data",
+                             relief="다른 노선 또는 수단. 우회가 풀린 뒤 다시 판정",
+                             evidence=[self._ev_disr(d, f"버스 {nm} 우회 운행")])
         if self.bus is None:
             return LegResult(idx, label, "unknown", "버스 노선 데이터를 읽지 못했다", grade="근거없음", code="no_data")
         r = self.bus.route(nm)
@@ -731,7 +796,7 @@ class Verifier:
                                                      route=nm, route_type=r.route_type_nm)],
                              evidence=[self._ev_rule("bus.route_type_제외", "확정")])
 
-        seg = self.bus.segment(r.route_id, a_nm, b_nm)
+        seg = self._bus_seg(r, leg)
         if seg is None:
             back = self.bus.segment(r.route_id, b_nm, a_nm)
             if back:
@@ -744,6 +809,10 @@ class Verifier:
                              f"{nm} 정류장 목록에 {', '.join(miss) or '해당 구간'} 이 없다",
                              grade="근거없음", code="no_data")
         a, b, span = seg
+        # ☆84 — 탈 정류장 무정차. 승차 시각은 요청 시각부터 배차 한 번 기다리는 사이로 본다(최악 대기 · 보수적)
+        d = self._stop_skip_at(nm, a, now_min, now_min + (r.term_min or 0))
+        if d:
+            return self._stop_skip_fail(idx, label, nm, a, "타는", d)
         warn, ev = [], []
         if day_type != "weekday":
             warn.append(self.warn_msg("MOB_W_BUS_NO_DAYTYPE", route=nm, day_type=day_type))
@@ -876,6 +945,7 @@ class Verifier:
             return dist_m / 1000 / speed * 60 if speed else None
 
         wk, src = None, None
+        wb = dep_b = None                    # 84 — 최악값 통과의 예정 도착 추정(내릴 정류장 무정차 구간 검사)에 쓴다
         if self.bus_prof is not None:
             q = "p90" if worst else "p50"
             wk = self.bus_prof.walk(r.route_id, stops, a["seq"], b["seq"], dep, dayf, q, min_days, old_min)
@@ -941,6 +1011,26 @@ class Verifier:
         # 공항버스 요금 경고는 승차 소요 모델과 무관하다 — 종전엔 bus_speed(공항 대용) 안에서만 붙었다
         if r.route_type_nm == "공항" and not any(w["code"] == "MOB_W_AIRPORT_FARE" for w in warn):
             warn.append(self.warn_msg("MOB_W_AIRPORT_FARE"))
+        # ☆GPT 84 #5 — 타는 정류장을 실제 승차 추정 시각까지로 한 번 더 본다(막차 통과 추정·시각표로 승차가 요청+배차
+        #   밖으로 나가는 경우). 위(구간 찾은 직후)의 검사는 근거없음으로 빠지기 전에 무정차를 먼저 말하려는 것이다.
+        d = self._stop_skip_at(nm, a, now_min, max(dep, now_min + (r.term_min or 0)))
+        if d:
+            return self._stop_skip_fail(idx, label, nm, a, "타는", d)
+        # ☆84 — 내릴 정류장 무정차. 도착 시각을 모르면(승차 소요 근거없음) 승차 뒤 전부를 본다(보수적).
+        # ☆GPT 84 #5 — 도착은 한 시점이 아니라 **예정~최악 사이**다. 최악값 통과에서는 [예정 도착 추정, 최악 도착] 전체를
+        #   본다 — 예정 10:00 · 최악 10:20 사이에 10:05~10:15 무정차가 끼면 양 끝만 보면 통과한다. 예정 도착 추정 =
+        #   best 승차 프로파일(wb)이 있으면 그것, 없으면 최악 도착에서 대기 차(배차 전부 − 절반)만 뺀 값.
+        lo = arrive if arrive is not None else dep
+        if worst and arrive is not None:
+            best = None
+            if wb is not None and dep_b is not None and wb.minutes is not None:
+                best = dep_b + math.ceil(wb.minutes)
+            if best is None:
+                best = arrive - max(0, (r.term_min or 0) - math.ceil((r.term_min or 0) / 2))
+            lo = min(lo, best)
+        d = self._stop_skip_at(nm, b, lo, arrive)
+        if d:
+            return self._stop_skip_fail(idx, label, nm, b, "내리는", d)
         return LegResult(idx, label, "feasible",
                          f"{fmt_min(dep)} 승차 예상 (대기 {wait}분 — {model})"
                          + ("" if ride is not None else " · 승차 소요 근거없음")
@@ -1627,7 +1717,7 @@ class Verifier:
         r = self.bus.route(str(leg["route"]))
         if r is None:
             return None
-        seg = self.bus.segment(r.route_id, leg["from"], leg["to"])
+        seg = self._bus_seg(r, leg)
         if seg is None:
             return None
         return seg[0] if which == "from" else seg[1]
@@ -2470,6 +2560,15 @@ class Verifier:
                                  f"(쓸 수 있는 것: {', '.join(self.DISR_KINDS)})")
             if x["kind"] == "edge_closed" and len(x.get("between") or []) != 2:
                 raise CaseInputError(f"[{case.get('id')}] edge_closed 는 between 에 두 역이 필요하다")
+            if x["kind"] == "stop_skip":
+                if self.ars_norm(x.get("ars")) is None:
+                    raise CaseInputError(f"[{case.get('id')}] stop_skip 은 ars 에 정류장 번호 5자리가 필요하다: {x.get('ars')!r}")
+                w = x.get("window")
+                if w is not None and (len(w) != 2 or to_service_min(w[0]) is None or to_service_min(w[1]) is None
+                                      or to_service_min(w[0]) > to_service_min(w[1])):
+                    raise CaseInputError(f"[{case.get('id')}] stop_skip window 는 [\"HH:MM\", \"HH:MM\"](앞 ≤ 뒤)이다: {w!r}")
+            if x["kind"] in ("route_closed", "route_detour") and not x.get("route"):
+                raise CaseInputError(f"[{case.get('id')}] {x['kind']} 는 route(노선 번호)가 필요하다")
 
         now = to_service_min(case.get("depart_at"), ceil_seconds=True)   # #12 초는 올린다
         if now is None:
@@ -2639,6 +2738,8 @@ def show(case, res, verbose=False):
           + (f" · {case['arrive_by']} 도착 필요" if case.get("arrive_by") else ""))
     for d in case.get("disruptions") or []:
         w = {"line_closed": d.get("line"), "route_closed": f"버스 {d.get('route')}",
+             "route_detour": f"버스 {d.get('route')} 우회",
+             "stop_skip": f"버스 {d.get('route') or '전 노선'} 정류장 {d.get('ars')}",
              "station_skip": f"{d.get('line')} {d.get('station')}",
              "edge_closed": f"{d.get('line')} {'–'.join(d.get('between') or [])}"}.get(d.get("kind"))
         print(f"  ◆ 이슈 {w} — {d.get('note') or d.get('kind')} "
