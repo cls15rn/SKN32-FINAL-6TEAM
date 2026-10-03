@@ -2,7 +2,7 @@
 
 이 폴더(`tests/unit/travel/mobility/`)의 회귀 시험 설명이다. 케이스 파일 `*_legs_v1.json` 과 `test_regression_cases.py` 를 읽는 법 · 깨졌을 때 읽는 순서.
 
-> **지금 숫자(2026-10-01 · 87)**: 회귀 케이스 **186** · 팀원 게이트 `pytest tests/unit/travel/mobility -q` **287** · 전체층 `-m "mobility_full and not live"` **214**(85 · 사고 대안 역 `test_station_fallback_v1.py` 게이트 20 + 전체층 4 · 86 · 가장 이른 도착·답 문장 등급 `test_earliest_v1.py` 게이트 33 + 전체층 12 · 89 · 시간표 오래됨 기준 `test_review_fixes_runtime.py` +4 · 87 · 지하철+버스 혼합 후보 `test_mixed_v1.py` 게이트 19 + 전체층 4 · 회귀 `multi_legs_v1.json` MIX-AB-01~09(`multi.mixed: true` · 새 기대 칸 `expect_mixed_min`·`expect_mixed_max`·`expect_dropped_why`)). 아래 본문은 9/28 판(회귀 171) 기준으로 적었고 구조는 같다 — 늘어난 15건은 같은 묶음에 더해진 케이스다.
+> **지금 숫자(2026-10-03 · 묶음 PR 직전 전체 판 · develop `2449fa9` 병합 뒤)**: 회귀 케이스 **199** · 팀원 게이트 `pytest tests/unit/travel/mobility -q` **430** · 전체층 `-m "mobility_full and not live"` **265** · 데이터 없이 돌리면 **363 + 67 skip**. 10/1(회귀 186 · 게이트 287 · 전체층 214) 뒤에 더해진 것: 사고 출처·버스 정류장 무정차 `test_bus_stop_skip_v1.py`(게이트 59 + 전체층 18) · 역 순서 표 `test_line_order_v1.py` + 회귀 `real_legs_v1.json` R-BRANCH-01~05 · 급행 무정차역 `test_express_stop_v1.py`(게이트 16) + 회귀 R-EXPRESS-01~08 · 수단별 후보(환승 2회까지) `test_by_mode_v1.py` · 서버 없는 택시 소요 `test_road_router_v1.py` · 03:59 다음 운행일 첫차 `test_0359_next_day_first_v1.py`. 그 앞(85~87): 사고 대안 역 `test_station_fallback_v1.py` · 가장 이른 도착 `test_earliest_v1.py` · 시간표 오래됨 기준 `test_review_fixes_runtime.py` · 지하철+버스 혼합 후보 `test_mixed_v1.py` + 회귀 `multi_legs_v1.json` MIX-AB-01~09(`multi.mixed: true` · 기대 칸 `expect_mixed_min`·`expect_mixed_max`·`expect_dropped_why`). 아래 본문은 9/28 판(회귀 171) 기준으로 적었고 구조는 같다 — 늘어난 28건은 같은 묶음에 더해진 케이스다.
 
 (원래 제목: 이동 모듈 회귀 171 — 무엇을 넣고, 무엇을 기대하고, 무엇을 비교하나 (v1 · 2026-09-28 · 71번 방 · §8 은 9/29))
 

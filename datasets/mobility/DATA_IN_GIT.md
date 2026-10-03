@@ -63,7 +63,7 @@
 ### A `timetable_v1_meta.json` · 8.7 KB
 시간표 판 메타(`built_at 2026-10-01T10:38:34+09:00` · `tago_fetched_at`·`seoul_fetched_at` 2026-10-01 · 원 행수 · 중복 제거 수 · 소스별 행수 · `cross_source_conflicts_kept` 30 · `gaps` 24노선 중 빈 곳 남은 2 · `dest_fill`). `runtime.py` 가 `built_at` 을 판정 이력 `timetable_built_at` 에 남기고, **오래됨은 수집일(두 원천 중 오래된 것)로 잰다**(89 · 앞 판은 `built_at` — 옛 원자료를 다시 빌드만 해도 신선해 보였다). 생성 `build_timetable_v1.py`. 등급 —.
 
-### A `line_station_order_v1.json` · 786.1 KB(10/1 새 시간표로 재생성 · 10/2 80: 경춘선 광운대를 상봉 갈래로 · 소수 편 관측 · 시간표 없는 역 건너 관측)
+### A `line_station_order_v1.json` · 786.7 KB(10/1 새 시간표로 재생성 · 10/2 80: 경춘선 광운대를 상봉 갈래로 · 소수 편 관측 · 시간표 없는 역 건너 관측)
 `lines`(24노선) → `stations[]`(`station_nm` `station_key` `station_cd` `fr_code` `fr_order` `is_spur` `has_timetable`) · `edges[]`(`a` `b` `travel_min` `travel_min_source` `travel_min_grade` `distance_m` `grade`) · `dir_label.reliable` · `is_loop` · `direction` · `dest_alias`. 777간선 · 793역 · 간선 등급 확정 665 / 추정 110 / 근거없음 2(10/2 · 남은 근거없음 = 경의선 운천–임진강 · 수인분당선 청량리–왕십리) · 추정 세부 `추정:소수편관측`(하루 5~19편 구간 · 편이 전부 일대일로 짝지어지고 시차 폭 60초 안) · `추정:건너관측`(시간표 없는 역 양옆 — 지나가는 것만 말한다 · 소요는 두 간선을 함께 지날 때만). 원자료 국가철도공단 FR_CODE + 시간표 관측 + 서울교통공사 역간거리 CSV(270간선 `distance_m`). 생성 `build_line_station_order_v1.py`. 한 항목: `{"a":"소요산","b":"청산","travel_min":3,"grade":"확정",…}`.
 
 ### A `transfer_walk_v1.json` · 58.0 KB
@@ -143,7 +143,7 @@
 | `transfer_car_v1.json` | A | 988.8 KB | 〃 | |
 | `station_exits_v1.json` | A | 804.8 KB | 〃 | |
 | `bike_stations_v1.jsonl` | A | 800.4 KB | 〃 | 2,734 |
-| `line_station_order_v1.json` | A | 761.6 KB | 〃 | |
+| `line_station_order_v1.json` | A | 786.7 KB | 〃 | |
 | `station_coords.json` | A | 528.2 KB | 〃 | |
 | `bus_route_v1.jsonl` | A | 470.0 KB | 〃 | 717 |
 | `road_graph_v1/region_v1.geojson` | A | 88.6 KB | 〃 | |
