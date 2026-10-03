@@ -41,10 +41,18 @@ CLASS_MAP = {"motorway": "도시고속도로", "motorway_link": "도시고속도
              "tertiary": "기타도로", "tertiary_link": "기타도로"}
 SOURCE_ID = "topis_link_profile_v1@2025-09~2026-05"
 GRAPH_SOURCE_ID = "osm_road_graph@2026-09-18"
+ROAD_SOURCE_ID = "road_graph_v1@2026-09-18"      # 77 파이썬 라우터(76 그래프 파일 · 같은 pbf) — road_router 와 같은 값
 
 
 class RouterDown(Exception):
-    """라우터에 닿지 못했다 — 소요·요금을 지어내지 않고 근거없음으로 낸다."""
+    """라우터에 닿지 못했다 — 소요·요금을 지어내지 않고 근거없음으로 낸다.
+
+    code(77-2): 왜 못 냈는지의 갈래 — `router_down`(기본 · 서버 없음·응답 없음) · `out_of_area`(도로 그래프 범위 밖) ·
+      `no_snap`(가까운 차도 없음) · `no_path`(이을 길 없음). 수단별 후보의 택시 칸이 이유를 가르는 데 쓴다."""
+
+    def __init__(self, msg="", code="router_down"):
+        super().__init__(msg)
+        self.code = code
 
 
 def hav(a, b):
@@ -71,6 +79,7 @@ class CarGraph:
         self.dir = Path(graph_dir)
         self.holidays = set(holidays or ())
         self.prof = {}
+        self.p10 = {}                         # 77-2: 느린 쪽 10% 속도(km/h) — 택시 칸 최악 소요(worst)에만 쓴다
         pf = self.dir / "topis_link_profile_v1.jsonl"
         pf = pf if pf.exists() else self.dir / "topis_link_profile_v1.jsonl.gz"
         op = gzip.open if str(pf).endswith(".gz") else open
@@ -78,6 +87,8 @@ class CarGraph:
             for line in f:
                 r = json.loads(line)
                 self.prof[(r["link_id"], r["daytype"], r["hour"])] = r["mean_kmh"]
+                if r.get("p10"):
+                    self.p10[(r["link_id"], r["daytype"], r["hour"])] = r["p10"]
         cf = json.loads((self.dir / "topis_class_factor_v1.json").read_text(encoding="utf-8"))
         self.cf = cf["classes"]
         self.profile_source = cf.get("source")
@@ -86,10 +97,13 @@ class CarGraph:
             for r in csv.DictReader(f):
                 self.seg[int(r["osm_way_id"])][(int(r["seg_idx"]), r["dir"])] = r["link_id"]
         self.wayinfo = {}                     # way → (highway, pts)
+        self.wayname = {}                     # way → OSM 도로명(77-2 · 택시 칸 uses `도로:<이름>` · 간선 way 만 있다)
         with open(self.dir / "osm_way_geom_v1.csv", encoding="utf-8") as f:
             for r in csv.DictReader(f):
                 self.wayinfo[int(r["osm_way_id"])] = (
                     r["highway"], [tuple(map(float, p.split(","))) for p in r["pts"].split(" ")])
+                if (r.get("name") or "").strip():
+                    self.wayname[int(r["osm_way_id"])] = r["name"].strip()
         # 요일형 달력(학습 기간) — config holidays 가 없는 날짜의 보조. 둘 다 있으면 config 가 이긴다.
         self.cal_hol = set()
         cal = self.dir / "daytype_calendar_v1.csv"
@@ -108,6 +122,34 @@ class CarGraph:
         if not (p / "topis_class_factor_v1.json").exists():
             return None
         return cls(p, holidays)
+
+    def static_kmh(self, way, seg_idx, d, hw):
+        """경로 **선택**용 정적 속도(km/h) — GH maxspeed 주입 v2(18번 · build_topis_pbf.py)와 같은 잣대.
+        TOPIS 링크 = 평일 07~20시 평균 · 링크 없는 간선급 = 도로급 평일 07~20시 평균 · 골목 = DEFAULT_KMH.
+        77 파이썬 라우터의 시간 가중에 쓴다. 소요(compute)는 여전히 그 시각의 프로파일로 따로 낸다."""
+        segtab = self.seg.get(way)
+        link = None
+        if segtab:
+            for k in (0, 1, -1, 2, -2, 3, -3):          # compute 와 같은 이웃 보간
+                link = segtab.get((seg_idx + k, d))
+                if link:
+                    break
+        cache = self.__dict__.setdefault("_static_cache", {})
+        if link:
+            v = cache.get(link)
+            if v is None:
+                vals = [self.prof[(link, "평일", h)] for h in range(7, 21) if (link, "평일", h) in self.prof]
+                v = cache[link] = (sum(vals) / len(vals)) if vals else 0.0
+            if v:
+                return v
+        if hw in CLASS_MAP:
+            key = ("class", CLASS_MAP[hw])
+            v = cache.get(key)
+            if v is None:
+                arr = self.cf[CLASS_MAP[hw]]["mean_kmh"]["평일"]
+                v = cache[key] = sum(arr[h] for h in range(7, 21)) / 14
+            return v
+        return DEFAULT_KMH.get(hw, 20)
 
     def daytype(self, t):
         return daytype_kr(t.date(), self.holidays | self.cal_hol)
@@ -135,8 +177,10 @@ class CarGraph:
         adv = sum(ps[i + 1][2] - ps[i][2] for i in range(len(ps) - 1))
         return hw, adv >= 0, [q[1] for q in ps]
 
-    def compute(self, route, depart, slow_threshold_kmh=None):
-        """GraphHopper /route 응답 → 시각별 소요. 반환값에 좌표·edge 목록은 없다."""
+    def prepare(self, route):
+        """GH 모양 응답 → 세그먼트 열(길이 m · TOPIS 링크 · 도로급) + 도로명별 길이. 출발 시각과 무관한 부분만.
+        77-2: 도착 목표에 맞춘 출발 탐색(arrive_by)이 같은 경로를 여러 시각으로 다시 셈하므로 형상 맞추기를 한 번만 한다.
+        ★좌표는 여기서 길이·링크로 바뀌고 버려진다 — 돌려주는 값에 좌표·way 열은 없다."""
         path = route["paths"][0]
         pts = path["points"]["coordinates"]
         det = path["details"]["osm_way_id"]
@@ -144,11 +188,8 @@ class CarGraph:
         for a, b, c in path["details"].get("road_class", []):
             for i in range(a, b):
                 rc_at[i] = c
-        t = depart
-        cover = {"topis": 0.0, "class": 0.0, "default": 0.0}
-        links = defaultdict(float)
-        slow_s = slow_m = 0.0
-        n_edges = 0
+        segs = []
+        roads = defaultdict(float)
         for a, b, way in det:
             sub = pts[a:b + 1]
             if len(sub) < 2:
@@ -161,44 +202,93 @@ class CarGraph:
             segtab = self.seg.get(way, {})
             for i in range(len(sub) - 1):
                 L = hav(sub[i], sub[i + 1])
-                dtp, h = self.daytype(t), t.hour
-                hw_i = rc_at[a + i] or hw
                 link = None
                 if segidx[i] is not None:
                     for k in (0, 1, -1, 2, -2, 3, -3):        # 10 m 표본에 안 걸린 짧은 세그먼트는 이웃으로 보간
                         link = segtab.get((segidx[i] + k, d))
                         if link:
                             break
-                v = self.prof.get((link, dtp, h)) if link else None
-                if v:
-                    grade = "topis"
-                    links[link] += L
-                elif hw_i in CLASS_MAP:
-                    v = self.cf[CLASS_MAP[hw_i]]["mean_kmh"][dtp][h]
-                    grade = "class"
-                else:
-                    v = DEFAULT_KMH.get(hw_i, 20)
-                    grade = "default"
-                sec = L / max(v, 3.0) * 3.6
-                if slow_threshold_kmh is not None and v < slow_threshold_kmh:
-                    slow_s += sec                       # 병산 — 이 edge 는 시간요금(거리요금 대신)
-                    slow_m += L
-                t = t + dt.timedelta(seconds=sec)
-                cover[grade] += L
-                n_edges += 1
+                segs.append((L, link, rc_at[a + i] or hw))
+            nm = getattr(self, "wayname", {}).get(way)
+            if nm:
+                roads[nm] += sum(hav(sub[i], sub[i + 1]) for i in range(len(sub) - 1))
+        return {"segs": segs, "gh_distance_m": path.get("distance"),
+                "gh_time_s": round(path["time"] / 1000) if path.get("time") else None,
+                "roads": [{"name": k, "m": round(m, 1)} for k, m in sorted(roads.items(), key=lambda kv: -kv[1])[:8]]}
+
+    def compute(self, route, depart, slow_threshold_kmh=None, worst=False):
+        """GraphHopper /route 응답 → 시각별 소요. 반환값에 좌표·edge 목록은 없다. (= prepare + run)"""
+        return self.run(self.prepare(route), depart, slow_threshold_kmh=slow_threshold_kmh, worst=worst)
+
+    def run(self, prep, depart, slow_threshold_kmh=None, worst=False):
+        """prepare() 결과 + 출발 시각 → 시각별 소요. 진행하면서 시각을 넘긴다(시간대 칸이 바뀐다).
+
+        worst(77-2): True 면 TOPIS 링크 속도를 평균 대신 **느린 쪽 10%(p10)** 로 셈한다 — 「느린 쪽 추정」이지 보장된
+          상한이 아니다(링크마다의 p10 을 한꺼번에 적용한 합 · 경로 전체의 분위수가 아니다). p10 이 없는 링크와 링크 없는
+          간선급·골목은 평균·고정값 그대로다(더 느린 값의 근거가 없다) — 적용된 길이 비율을 `p10_pct` 로 같이 낸다.
+          판정 경로(leg)는 쓰지 않는다."""
+        t = depart
+        cover = {"topis": 0.0, "class": 0.0, "default": 0.0}
+        links = defaultdict(float)
+        prof = getattr(self, "p10", None) if worst else None
+        slow_s = slow_m = p10_m = 0.0
+        n_edges = 0
+        for L, link, hw_i in prep["segs"]:
+            dtp, h = self.daytype(t), t.hour
+            v = self.prof.get((link, dtp, h)) if link else None
+            if v:
+                grade = "topis"
+                links[link] += L
+                if prof:
+                    v10 = prof.get((link, dtp, h))
+                    if v10:
+                        v = v10
+                        p10_m += L
+            elif hw_i in CLASS_MAP:
+                v = self.cf[CLASS_MAP[hw_i]]["mean_kmh"][dtp][h]
+                grade = "class"
+            else:
+                v = DEFAULT_KMH.get(hw_i, 20)
+                grade = "default"
+            sec = L / max(v, 3.0) * 3.6
+            if slow_threshold_kmh is not None and v < slow_threshold_kmh:
+                slow_s += sec                       # 병산 — 이 edge 는 시간요금(거리요금 대신)
+                slow_m += L
+            t = t + dt.timedelta(seconds=sec)
+            cover[grade] += L
+            n_edges += 1
         tot = sum(cover.values())
         top = sorted(links.items(), key=lambda kv: -kv[1])[:20]
         return {"depart": depart.isoformat(timespec="minutes"), "day_type": self.daytype(depart),
                 "hour_start": depart.hour,
-                "distance_m": round(tot, 1), "gh_distance_m": path.get("distance"),
-                "gh_time_s": round(path["time"] / 1000) if path.get("time") else None,
+                "distance_m": round(tot, 1), "gh_distance_m": prep["gh_distance_m"],
+                "gh_time_s": prep["gh_time_s"],
                 "topis_time_s": round((t - depart).total_seconds()),
                 "arrive": t.isoformat(timespec="minutes"),
                 "slow_s": round(slow_s), "slow_m": round(slow_m, 1), "n_edges": n_edges,
                 "coverage_m": {k: round(v, 1) for k, v in cover.items()},
                 "coverage_pct": {k: round(v / max(tot, 1) * 100, 1) for k, v in cover.items()},
                 "links": [{"link_id": k, "m": round(m, 1)} for k, m in top],
-                "n_links": len(links)}
+                "n_links": len(links),
+                "p10_pct": round(p10_m / max(tot, 1) * 100, 1) if worst else None,
+                "roads": prep["roads"]}
+
+    def floor_s(self, prep, day_types):
+        """이 경로가 그 요일형들에서 **어느 시각에 떠나도 이보다 빨리는 못 가는** 초 — 세그먼트마다 run() 이 쓸 수 있는
+        속도(24시간 × 요일형의 링크 평균 · 도로급 평균 · 골목 고정값) 중 가장 빠른 것으로 셈한다.
+        arrive_by 가 탐색을 시작할 가장 늦은 출발을 정한다 — 이보다 늦게 떠나면 어떤 시간대 조합으로도 못 닿는다."""
+        tot = 0.0
+        for L, link, hw_i in prep["segs"]:
+            cands = []
+            for dtp in day_types:
+                if link:
+                    cands += [v for h in range(24) if (v := self.prof.get((link, dtp, h)))]
+                if hw_i in CLASS_MAP:
+                    cands += list(self.cf[CLASS_MAP[hw_i]]["mean_kmh"][dtp])
+            if hw_i not in CLASS_MAP:
+                cands.append(DEFAULT_KMH.get(hw_i, 20))
+            tot += L / max(max(cands), 3.0) * 3.6
+        return tot
 
 
 # ── 라우터 ─────────────────────────────────────────────────────────────────
@@ -314,12 +404,36 @@ def taxi_fare(fare, kind, dist_m, slow_s, hhmm, out_of_city=False):
 
 # ── 구간 판정 서비스 ───────────────────────────────────────────────────────
 class CarService:
-    """그래프 + 라우터 + 규칙. Verifier 가 자동차/택시 구간과 택시 대안에 쓴다."""
+    """그래프 + 라우터 + 규칙. Verifier 가 자동차/택시 구간과 택시 대안에 쓴다.
 
-    def __init__(self, graph, router, rules):
+    ☆77(2026-09-30) 경로를 묻는 순서 = **파이썬 도로 라우터(`road` · road_router.RoadRouter) → (있으면) `router`(GH) →
+      둘 다 못 내면 RouterDown(근거없음)**. 두 라우터 모두 GH `/route` 모양 응답을 주고, 소요는 같은 `CarGraph.compute`
+      가 낸다 — 판정·요금·등급 규칙은 그대로다. 파이썬 라우터는 회전 제약이 없어 등급은 추정을 넘지 않는다(원래 이
+      구간 등급은 추정/근거없음 둘뿐). 어느 라우터였는지는 `source_id` 둘째 칸(도로 그래프 판)으로 남긴다.
+    """
+
+    def __init__(self, graph, router, rules, road=None):
         self.g, self.router, self.R = graph, router, rules
+        self.road = road
         self.C = rules["car"]
         self.F = rules["taxi"]["fare"]
+
+    def _route(self, s, e):
+        """(응답, 그래프 출처 id). 파이썬 라우터 → GH. 둘 다 실패하면 두 이유를 이어 RouterDown."""
+        why, road_code = [], None
+        if self.road is not None:
+            try:
+                return self.road.route(s, e), getattr(self.road, "source_id", None) or ROAD_SOURCE_ID
+            except RouterDown as ex:
+                why.append(f"도로 그래프: {ex}")
+                road_code = ex.code
+        try:
+            return self.router.route(s, e), GRAPH_SOURCE_ID
+        except RouterDown as ex:
+            if not why:
+                raise
+            why.append(f"GH: {ex}")
+            raise RouterDown(" · ".join(why), code=road_code or ex.code) from ex   # 갈래는 앞 라우터(도로 그래프)의 것
 
     def in_airport_box(self, pt):
         b = self.C["공항_상자"]["value"]
@@ -327,10 +441,55 @@ class CarService:
 
     def leg(self, s, e, depart, taxi=False, kind="중형"):
         """s, e = (lng, lat) · depart = datetime. 반환: dict(경로 없음). 라우터가 없으면 RouterDown."""
-        thr = self.F[kind]["time_speed_threshold_kmh"]["value"] if taxi else None
-        route = self.router.route(s, e)
-        r = self.g.compute(route, depart, slow_threshold_kmh=thr)
+        route, graph_src = self._route(s, e)
+        prep = self.g.prepare(route)
         del route                                   # 경로는 여기서 끝난다
+        out, _r = self._summary(prep, graph_src, s, e, depart, taxi, kind)
+        return out
+
+    SCAN_MAX_MIN = 240          # arrive_by 가 뒤로 훑는 분 수 상한 — 넘으면 「출발 시각 미확인」(경로 없음이 아니다)
+
+    def arrive_by(self, s, e, arrive, taxi=True, kind="중형"):
+        """(77-2 · 수단별 후보의 택시 칸) `arrive`(datetime)까지 닿는 **가장 늦은 출발**을 분 단위로 찾는다.
+
+        경로는 한 번만 묻고(정적 선택) 형상 맞추기도 한 번(prepare) — 출발 시각만 바꿔 소요를 다시 셈한다(run).
+        성립 = 출발 + 느린 쪽 소요(분 올림) ≤ arrive. 느린 쪽 소요 = max(p10 속도로 셈한 값, 평균으로 셈한 값) + 차도까지 걷는 시간.
+        탐색: 어떤 시각에도 그보다 빨리 못 가는 하한(floor_s)으로 「가장 늦을 수 있는 출발」을 잡고, 거기서 **1분씩 앞으로 당기며
+          처음 성립하는 분**을 고른다 → 시간대 경계에서 소요가 뛰어도 그 뒤의 성립 구간을 놓치지 않는다(GPT 77-2 #1).
+          SCAN_MAX_MIN 분 안에 못 찾으면 RouterDown(code="depart_unconfirmed") — 경로는 있는데 출발을 못 정한 것(#2).
+        차도까지 걷는 시간: 장소 좌표 ↔ 스냅점 이격(양끝 합) × 우회계수 ÷ 보행속도(정류장↔역 환승과 같은 규칙 값) — 택시가 문 앞에
+          서지 못하는 만큼을 소요에 넣는다(#3). GH 응답에는 이격이 없어 0.
+        호출·승차 대기는 넣지 않는다(근거 없음 — rules car.택시_대기).
+        반환 = leg() 와 같은 dict + depart_dt · worst_time_s(걷기 포함) · access_m · access_s · p10_pct · roads."""
+        route, graph_src = self._route(s, e)
+        prep = self.g.prepare(route)
+        snap = route["paths"][0].get("snap_m") or []
+        del route                                   # 경로(좌표)는 여기서 끝난다
+        access_m = float(snap[0] + snap[-1]) if len(snap) >= 2 else 0.0
+        access_s = (access_m * self.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
+                    / self.R["measured_baseline"]["kakao_walk_speed_mps"]["value"]) if access_m else 0.0
+        day_types = {self.g.daytype(arrive), self.g.daytype(arrive - dt.timedelta(days=1))}
+        floor = self.g.floor_s(prep, day_types) + access_s
+        dep = (arrive - dt.timedelta(minutes=math.ceil(floor / 60))).replace(second=0, microsecond=0)
+        for _ in range(self.SCAN_MAX_MIN + 1):
+            w = self.g.run(prep, dep, worst=True)
+            m = self.g.run(prep, dep)
+            need = max(w["topis_time_s"], m["topis_time_s"]) + access_s
+            if dep + dt.timedelta(minutes=math.ceil(need / 60)) <= arrive:
+                break
+            dep -= dt.timedelta(minutes=1)
+        else:
+            raise RouterDown(f"도착 목표에 맞는 출발 시각을 {self.SCAN_MAX_MIN}분 안에서 찾지 못했다(경로는 있다)",
+                             code="depart_unconfirmed")
+        out, _r = self._summary(prep, graph_src, s, e, dep, taxi, kind)
+        out.update({"depart_dt": dep, "worst_time_s": int(math.ceil(need)), "access_m": round(access_m, 1),
+                    "access_s": int(math.ceil(access_s)), "p10_pct": w["p10_pct"], "roads": prep["roads"]})
+        return out
+
+    def _summary(self, prep, graph_src, s, e, depart, taxi, kind):
+        """prepare() 결과 + 출발 시각 → 구간 요약(등급·경고·요금). leg()·arrive_by() 가 같이 쓴다 — 규칙은 한 곳."""
+        thr = self.F[kind]["time_speed_threshold_kmh"]["value"] if taxi else None
+        r = self.g.run(prep, depart, slow_threshold_kmh=thr)
         cov = r["coverage_pct"]
         warn = []
         if cov["class"] >= self.C["coverage"]["warn_class_pct"]["value"]:
@@ -345,7 +504,7 @@ class CarService:
                "hour_start": r["hour_start"],
                "coverage_m": r["coverage_m"], "coverage_pct": cov, "n_edges": r["n_edges"],
                "links": r["links"], "n_links": r["n_links"],
-               "source_id": [SOURCE_ID, GRAPH_SOURCE_ID], "warn": warn}
+               "source_id": [SOURCE_ID, graph_src], "warn": warn}
         if taxi:
             hhmm = f"{depart.hour:02d}:{depart.minute:02d}"
             toll = 0
@@ -359,4 +518,4 @@ class CarService:
                         "toll_basis": toll_basis, "slow_s": r["slow_s"], "slow_m": r["slow_m"],
                         "night_rate": taxi_rate(self.F, kind, hhmm), "out_of_city": None,
                         "fare_basis": "호출료·정차·시계외 미포함 하한"})
-        return out
+        return out, r

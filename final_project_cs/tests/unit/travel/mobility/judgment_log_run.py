@@ -78,8 +78,10 @@ def main(argv=None):
         entry, prog = sc.main, "selfcheck_mobility.py"
 
     code = 0
+    started = False
     try:
         with install(vt.Verifier, lg):               # 기기 표식에 막히면 패치 전에 여기서 DeviceMismatch
+            started = True
             old = sys.argv
             sys.argv = [prog] + targs
             try:
@@ -92,6 +94,15 @@ def main(argv=None):
                 sys.argv = old
     except DeviceMismatch as e:
         print(f"판정 로그를 안 켰다(판정도 안 돌렸다) — {e}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        # ☆77(78 GPT 기록) — 로그 자리를 못 열면(명시한 --log-dir 이 파일 · 권한 없음 · 드라이브 없음) 패치 전에
+        #   install() 의 open() 에서 멈춘다. 앞 판은 이 예외를 안 잡아 추적 출력과 종료코드 1(판정 실패처럼 보임)이었다.
+        #   기기 표식과 같은 「안 켰다 · 안 돌렸다」 = 2. 판정 도중의 한 줄 쓰기 실패는 종전대로 세고(로거 실패 N) 판정은 잇는다.
+        if started:
+            raise                                    # 연 뒤의 OSError 는 대상(판정·자기점검) 쪽 — 삼키지 않는다
+        print(f"판정 로그를 안 켰다(판정도 안 돌렸다) — 로그 자리 {lg.dir} 를 열 수 없다: {type(e).__name__}: {e}",
+              file=sys.stderr)
         return 2
     return code
 

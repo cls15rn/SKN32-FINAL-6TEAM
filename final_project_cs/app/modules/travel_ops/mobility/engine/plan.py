@@ -1218,12 +1218,77 @@ class Planner:
                 reason = (f"판정 상한({MIX_VERIFY_MAX}개)·추정 기반 생략으로 판정하지 않은 혼합 후보가 남아 있다 — "
                           f"성립 후보가 없다고 확인한 것은 아니다{tried}")
             put("subway_bus", mixed, code, reason, limited=bool(n_skip))
-        # ④ 택시 — 자리와 이유만(서비스 경로에 택시 소요를 내는 도로 경로 계산이 연결돼 있지 않다)
-        modes["taxi"] = {"status": "none", "code": "no_data",
-                         "reason": "택시 소요 근거가 없다 — 도로 경로 계산이 서비스 경로에 연결돼 있지 않다"}
+        # ④ 택시 — (77-2) 차도 그래프 파일로 낸 도로 소요. 계획 수단·options[] 에는 넣지 않는다(이 칸에서만)
+        modes["taxi"] = self._taxi_slot(a_place, b_place, sdate, arrive_by, rf)
         out = {"range_from": None if range_from_dt is None else iso_of(sdate, rf), "range_to": iso_of(sdate, arrive_by),
                "range_min": None if rf is None else int(arrive_by - rf),
                "modes": {k: modes[k] for k in BY_MODE_KEYS}}
+        return out
+
+    TAXI_NONE = {   # 택시 칸 「없음」 — code: (이유 문장). 숫자를 지어내지 않는다(없으면 없다고 낸다)
+        "router_off": "택시 소요 계산이 꺼져 있다 — 도로 경로 계산(차도 그래프 라우터)을 쓰지 않는 실행이다",
+        "no_graph": "택시 소요 근거가 없다 — 차도 그래프 파일(road_graph_v1)이 자료 폴더에 없다",
+        "no_profile": "택시 소요 근거가 없다 — 도로 속도 프로파일(TOPIS 링크·도로급 계수)이 자료 폴더에 없다",
+        "out_of_area": "택시 소요 근거가 없다 — 출발지 또는 도착지가 차도 그래프 범위(서울·인접 8개 시·영종·공항고속도로) 밖이다",
+        "no_snap": "택시 소요 근거가 없다 — 출발지 또는 도착지에서 200 m 안에 차가 다니는 길이 없다",
+        "no_path": "택시 소요 근거가 없다 — 두 지점을 잇는 차도 경로를 찾지 못했다",
+        "depart_unconfirmed": "택시 경로는 있지만 다음 일정 시작에 맞는 출발 시각을 정하지 못했다 — 없다고 확인한 것은 아니다",
+        "router_down": "택시 소요 근거가 없다 — 도로 경로 계산에 닿지 못했다",
+        "low_coverage": "택시 소요 근거가 없다 — 경로의 절반 넘게가 속도 자료 없는 골목이다",
+        "no_data": "택시 소요 근거가 없다 — 장소 좌표가 없다",
+    }
+
+    def _taxi_slot(self, a_place, b_place, sdate, arrive_by, rf):
+        """수단별 후보의 택시 칸(77-2). 다음 일정 시작(arrive_by)에 맞춰 **느린 쪽 소요로도 닿는 가장 늦은 출발**을 낸다.
+
+        소요 = 차도 그래프 경로(정적 시간 가중 · 회전 제약 없음) 위 TOPIS 시간대별 속도 + 장소에서 차도까지 걷는 시간(스냅 이격 ×
+        우회계수 ÷ 보행속도). `eta_min` 은 평균 속도, `worst_min` 은 링크별 느린 쪽 10%(p10) 속도로 셈한 **추정**이다 — 보장된
+        상한이 아니고(GPT 77-2 #9), p10 자료가 적용된 길이 비율을 `slow_speed_pct` 로 같이 낸다(낮으면 worst 가 예정과 거의 같다).
+        호출·승차 대기는 들어 있지 않다(근거 없음). 요금은 호출료·정차·시계외 할증을 뺀 하한. 등급은 추정 — 근거없음
+        (골목 절반 초과)이면 숫자를 내지 않는다. 못 내면 {status: none, code, reason} — code 는 TAXI_NONE 의 키.
+        ★승하차 지점은 「가까운 차도 위 점」이다 — 반대 차로·고가·지하차도를 가리지 못한다(층·분리대 자료 없음 · #4)."""
+        def none(code, extra=""):
+            return {"status": "none", "code": code, "reason": self.TAXI_NONE.get(code, self.TAXI_NONE["router_down"]) + extra}
+        car = getattr(self.v, "car", None)
+        if car is None:
+            return none(getattr(self.v, "car_why", None) or "router_off")
+        try:
+            s = (float(a_place["lon"]), float(a_place["lat"]))
+            e = (float(b_place["lon"]), float(b_place["lat"]))
+        except (KeyError, TypeError, ValueError):
+            return none("no_data")
+        from .car import RouterDown
+        arrive = datetime.combine(sdate, time(0, 0)) + timedelta(minutes=int(arrive_by))
+        try:
+            c = car.arrive_by(s, e, arrive, taxi=True)
+        except RouterDown as ex:
+            return none(getattr(ex, "code", None) or "router_down")
+        if c["grade"] != "추정":
+            return none("low_coverage", f"(골목 {c['coverage_pct']['default']:g}%)")
+        start = int(round((c["depart_dt"] - datetime.combine(sdate, time(0, 0))).total_seconds() / 60))
+        eta = int(math.ceil((c["topis_time_s"] + (c.get("access_s") or 0)) / 60))
+        worst = max(eta, int(math.ceil(c["worst_time_s"] / 60)))
+        uses = []
+        for rd in c.get("roads") or []:          # 지나는 큰길(500 m 이상 · 길이 순 · 최대 4) — options[] 와 같은 `도로:<이름>` 표기
+            u = f"도로:{rd['name']}"
+            if rd["m"] >= 500 and not O.uses_problems([u]) and u not in uses:
+                uses.append(u)
+            if len(uses) >= 4:
+                break
+        an, bn = a_place.get("name"), b_place.get("name")
+        out = {"status": "found",
+               "label": f"택시 {an}→{bn} · {c['distance_m'] / 1000:.1f} km · 호출·승차 대기 제외 · 요금은 호출료·정차·시계외 할증을 뺀 하한"
+                        + (f" · 차도까지 걷는 약 {int(round(c['access_m']))} m 포함" if (c.get("access_m") or 0) >= 30 else ""),
+               "legs": [{"mode": "taxi", "from": an, "to": bn}], "uses": uses,
+               "depart_at": iso_of(sdate, start), "arrive_at": iso_of(sdate, start + eta),
+               "eta_min": eta, "worst_min": worst, "transfers": 0}
+        if c.get("access_m") is not None:
+            out["walk_m"] = int(round(c["access_m"]))         # 장소 ↔ 차도 위 승하차 점(양끝 합 · 직선)
+        if c.get("fare_won") is not None:
+            out["fare_krw"] = int(c["fare_won"])
+        if c.get("p10_pct") is not None:
+            out["slow_speed_pct"] = int(round(c["p10_pct"]))  # worst_min 에 느린 쪽(p10) 속도가 적용된 길이 비율(%)
+        out["within_range"] = None if rf is None else bool(start > rf)
         return out
 
     @staticmethod

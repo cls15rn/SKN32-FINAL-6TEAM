@@ -179,9 +179,90 @@ def test_representative_never_exceeds_transfer_limit():
 
 
 # ── 없는 수단 ─────────────────────────────────────────────────────────────
-def test_taxi_slot_is_placeholder_only():
-    t = _run(_stub(), [])["modes"]["taxi"]
-    assert t["status"] == "none" and t["code"] == "no_data" and "택시" in t["reason"]
+# ── 택시 칸(77-2) — 차도 그래프 라우터의 도로 소요. 못 내면 이유를 가른다 ─────────────────
+class _Car:
+    """CarService 자리 — arrive_by 만. 값 또는 RouterDown."""
+
+    def __init__(self, ret=None, exc=None):
+        self.ret, self.exc, self.calls = ret, exc, []
+
+    def arrive_by(self, s, e, arrive, taxi=True, kind="중형"):
+        self.calls.append((s, e, arrive, taxi))
+        if self.exc is not None:
+            raise self.exc
+        return dict(self.ret)
+
+
+def _car_ret(dep_h=10, dep_m=35, eta_s=1200, worst_s=1500, grade="추정", default_pct=3.0, fare=11100, roads=None,
+             access_m=0.0, access_s=0, p10_pct=88.4):
+    return {"grade": grade, "distance_m": 9400.0, "topis_time_s": eta_s, "worst_time_s": worst_s,
+            "access_m": access_m, "access_s": access_s, "p10_pct": p10_pct,
+            "depart_dt": datetime(SDATE.year, SDATE.month, SDATE.day, dep_h, dep_m), "fare_won": fare,
+            "coverage_pct": {"topis": 90.0, "class": 7.0, "default": default_pct},
+            "roads": roads if roads is not None else [{"name": "세종대로", "m": 2100.0}, {"name": "대로", "m": 900.0},
+                                                      {"name": "퇴계로", "m": 480.0}, {"name": "을지로", "m": 800.0}]}
+
+
+def test_taxi_slot_found_shape():
+    pl = _stub()
+    pl.v.car = _Car(_car_ret())
+    t = _run(pl, [])["modes"]["taxi"]
+    assert t["status"] == "found" and t["transfers"] == 0
+    assert t["legs"] == [{"mode": "taxi", "from": "가", "to": "나"}]
+    assert t["depart_at"].startswith(f"{SDATE.isoformat()}T10:35") and t["arrive_at"].startswith(f"{SDATE.isoformat()}T10:55")
+    assert (t["eta_min"], t["worst_min"]) == (20, 25) and t["fare_krw"] == 11100
+    assert t["uses"] == ["도로:세종대로", "도로:을지로"]          # 500 m 이상 · 표기 검사 통과만(「대로」는 너무 일반 · 480 m 는 짧다)
+    assert t["within_range"] is True and "택시" in t["label"] and "하한" in t["label"] and "걷는" not in t["label"]
+    assert t["walk_m"] == 0 and t["slow_speed_pct"] == 88                # 걷는 몫 · 느린 쪽 속도가 적용된 길이 비율
+    (s, e, arrive, taxi), = pl.v.car.calls
+    assert taxi is True and (arrive.hour, arrive.minute) == (11, 0)   # 다음 일정 시작(660분)에 맞춘다
+    # 범위 밖(앞 일정 시작 전에 떠나야 함)이어도 시각은 낸다
+    pl.v.car = _Car(_car_ret(dep_h=9, dep_m=40, eta_s=4000, worst_s=4800))
+    t = _run(pl, [])["modes"]["taxi"]
+    assert t["status"] == "found" and t["within_range"] is False
+    # 요금을 모르면 키가 없다 · 최악은 예정보다 작지 않다
+    pl.v.car = _Car(_car_ret(fare=None, worst_s=1000))
+    t = _run(pl, [])["modes"]["taxi"]
+    assert "fare_krw" not in t and t["worst_min"] == t["eta_min"] == 20
+    # (GPT 77-2 #3) 장소가 차도에서 멀면 걷는 시간이 예정·느린 쪽 소요에 다 들고 label 에 적힌다
+    pl.v.car = _Car(_car_ret(access_m=190.0, access_s=256, worst_s=1756))
+    t = _run(pl, [])["modes"]["taxi"]
+    assert (t["eta_min"], t["worst_min"], t["walk_m"]) == (25, 30, 190) and "걷는 약 190 m" in t["label"]
+    assert t["arrive_at"].startswith(f"{SDATE.isoformat()}T11:00")           # 10:35 + 25분
+
+
+def test_taxi_slot_none_reasons_are_distinct():
+    from app.modules.travel_ops.mobility.engine.car import RouterDown
+    pl = _stub()
+    t = _run(pl, [])["modes"]["taxi"]                                   # CarService 없음(이유 모름) = 꺼짐
+    assert t == {"status": "none", "code": "router_off", "reason": P.Planner.TAXI_NONE["router_off"]}
+    seen = set()
+    for why in ("no_graph", "no_profile"):                              # 적재가 남긴 이유
+        pl.v.car_why = why
+        t = _run(pl, [])["modes"]["taxi"]
+        assert t["status"] == "none" and t["code"] == why and "택시" in t["reason"]
+        seen.add(t["reason"])
+    for code in ("out_of_area", "no_snap", "no_path", "router_down", "depart_unconfirmed"):   # 라우터가 못 낸 갈래
+        pl.v.car = _Car(exc=RouterDown("x", code=code))
+        t = _run(pl, [])["modes"]["taxi"]
+        assert t["status"] == "none" and t["code"] == code
+        seen.add(t["reason"])
+    assert len(seen) == 7                                               # 이유 문장이 서로 다르다
+    assert "확인한 것은 아니다" in P.Planner.TAXI_NONE["depart_unconfirmed"]   # (GPT 77-2 #2) 경로 없음과 다르다
+    pl.v.car = _Car(_car_ret(grade="근거없음", default_pct=62.0))        # 골목 절반 초과 — 숫자를 내지 않는다
+    t = _run(pl, [])["modes"]["taxi"]
+    assert t["status"] == "none" and t["code"] == "low_coverage" and "62" in t["reason"]
+    assert "depart_at" not in t and "eta_min" not in t
+
+
+def test_taxi_slot_does_not_touch_other_slots_or_options():
+    """택시는 이 칸에서만 — 다른 세 칸과 후보 목록(opts)은 그대로다."""
+    a = _opt(SUB1, 620, 20, 0, ("rail", 0, 1))
+    off, on = _stub(), _stub()
+    on.v.car = _Car(_car_ret())
+    x, y = _run(off, [a]), _run(on, [a])
+    assert {k: v for k, v in x["modes"].items() if k != "taxi"} == {k: v for k, v in y["modes"].items() if k != "taxi"}
+    assert y["modes"]["taxi"]["status"] == "found" and x["modes"]["taxi"]["status"] == "none"
 
 
 def test_bus_none_reasons():
@@ -594,7 +675,12 @@ def test_full_range_inside_and_outside():
         if e["status"] != "found":
             continue
         assert _min(e["depart_at"]) + e["worst_min"] <= 600 and _min(e["arrive_at"]) - _min(e["depart_at"]) == e["eta_min"]
-    assert got["in"]["modes"]["taxi"] == {"status": "none", "code": "no_data", "reason": got["in"]["modes"]["taxi"]["reason"]}
+    # 77-2 — 택시 칸: 차도 그래프 라우터가 있으면 채워지고(다른 칸과 같은 시각 규칙 — 위 반복문이 본다), 없으면 이유만
+    tx = got["in"]["modes"]["taxi"]
+    if tx["status"] == "found":
+        assert tx["legs"] == [{"mode": "taxi", "from": tx["legs"][0]["from"], "to": tx["legs"][0]["to"]}] and tx["transfers"] == 0
+    else:
+        assert tx["code"] in P.Planner.TAXI_NONE and tx["reason"]
 
 
 @pytest.mark.mobility_full
@@ -609,7 +695,7 @@ def test_full_representative_transfers_within_limit():
                 if e["status"] == "found":
                     assert e["transfers"] <= lim, (party, a["name"], b["name"], k, e)
                     assert e["transfers"] == max(0, len(e["legs"]) - 1), e
-                    assert {x["mode"] for x in e["legs"]} == {"subway": {"subway"}, "bus": {"bus"},
+                    assert {x["mode"] for x in e["legs"]} == {"subway": {"subway"}, "bus": {"bus"}, "taxi": {"taxi"},
                                                                "subway_bus": {"subway", "bus"}}[k], e
 
 

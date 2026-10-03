@@ -3054,6 +3054,14 @@ def load_cases(path, only=None):
     return cases
 
 
+def road_graph_default(check_expect, gh_spec, environ):
+    """`--road-graph` 를 안 줬을 때의 값(77-2). 환경변수 MOBILITY_ROAD_GRAPH → 회귀 대조(--check-expect)거나 **최종** GH 설정
+    (명령줄 · 환경변수 · 규칙을 다 본 값)이 픽스처면 "none"(회귀는 라우터를 끈다 · 픽스처 앞을 가로채지 않는다 — GPT 77-2 #6)
+    → 그 밖은 "auto"."""
+    return environ.get("MOBILITY_ROAD_GRAPH") or (
+        "none" if (check_expect or str(gh_spec or "").startswith("fixture:")) else "auto")
+
+
 def build_verifier_for_cases(args, cases):
     """CLI 인자(argparse Namespace 또는 같은 속성을 가진 객체) + 케이스 목록 → (Verifier, ctx).
 
@@ -3169,10 +3177,19 @@ def build_verifier_for_cases(args, cases):
         print("  ! 도로망 그래프 자료(graph/topis_class_factor_v1.json 등)를 못 찾았다 — 택시·자동차는 근거없음으로 낸다")
     else:
         router = make_router(gh_spec)
-        car = CarService(cg, router, rules)
+        # 77 — 파이썬 도로 라우터가 GH 앞. 속성이 없는 호출(회귀 pytest 의 인자 묶음)은 끈다(재현성 · 픽스처 그대로).
+        from .road_router import resolve as _road_resolve
+        road_spec = getattr(args, "road_graph", "none")
+        if road_spec is None:
+            road_spec = road_graph_default(getattr(args, "check_expect", False), gh_spec, os.environ)
+        road = _road_resolve(road_spec, speed=cg.static_kmh)           # 정적 시간 가중(GH 와 같은 잣대)
+        car = CarService(cg, router, rules, road=road)
         info = router.info()
-        print(f"도로망 {len(cg.prof):,}셀 · 링크표 way {len(cg.seg):,} · 라우터 {gh_spec} → "
-              + (f"응답(version {info.get('version')})" if info else "**응답 없음** — 택시·자동차는 근거없음"))
+        print(f"도로망 {len(cg.prof):,}셀 · 링크표 way {len(cg.seg):,} · 파이썬 라우터 "
+              + (f"{road.dir}(회전 제약 없음 · 추정)" if road else f"없음({road_spec})")
+              + f" · GH {gh_spec} → "
+              + (f"응답(version {info.get('version')})" if info else
+                 ("응답 없음" + (" — 택시·자동차는 근거없음" if road is None else ""))))
     # 자전거 라우터(22번) — 21번의 라우터 객체를 **그대로** 쓴다(profile=bike/foot). 응답이 있을 때만 붙이고,
     #   아니면 자전거 픽스처(--bike-fixture / --bike-record)만. 자동차 합성 픽스처(fixture:)는 자전거 키가 없어 소요 근거없음이 된다.
     live_router = router if (cg is not None and info) else None
@@ -3480,6 +3497,10 @@ def main():
     ap.add_argument("--holidays", default=str(RULES_DIR / "holidays_2026_2027.json"))
     ap.add_argument("--case", help="이 id 만 돌린다")
     ap.add_argument("--graph-dir", help="도로망 그래프 자료 폴더(기본 processed/mobility/graph)")
+    ap.add_argument("--road-graph",
+                    help="77 파이썬 도로 라우터(서버 없음 · GH 앞): auto(processed/mobility/road_graph_v1 이 있으면) · none · "
+                         "<폴더>. 안 주면 환경변수 MOBILITY_ROAD_GRAPH → 회귀 대조(--check-expect)·자동차 픽스처(--gh-url "
+                         "fixture:)면 none(회귀는 라우터를 끈다 · 픽스처 앞을 가로채지 않게) · 그 밖은 auto")
     ap.add_argument("--gh-url", help="GraphHopper 주소 · 'none' · 'fixture:<합성경로 파일>' "
                                      "(기본: 환경변수 MOBILITY_GH_URL → rules car.graphhopper.url)")
     ap.add_argument("--allow-router-down", action="store_true",

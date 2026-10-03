@@ -97,13 +97,17 @@ class Runtime:
 
 
 def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, gh_url=None, seoul_key=None,
-                   guardrails_path=None):
+                   guardrails_path=None, road_graph=None):
     """전부 올려 Runtime 을 만든다. 약 33초.
 
     paths  : 경로 일부만 바꿔 끼울 수 있다(시험용)
     wanted : None 이면 전부. 배치에서만 집합을 준다
     ☆`[2026-09-29 문제목록 #48]` 서버는 설정 값을 넘긴다 — data_dir(자료 폴더) · gh_url(자전거 라우터, "" 이면 끔) ·
       seoul_key(따릉이 실시간, "" 이면 끔) · guardrails_path(정책 수치 파일). None 이면 명령줄 관례(환경변수·.env)를 쓴다.
+    ☆77-2(2026-10-03) road_graph — 택시·자동차 소요의 **서버 없는 파이썬 도로 라우터**. None 이면 환경변수
+      MOBILITY_ROAD_GRAPH → "auto"(자료 폴더 mobility/road_graph_v1 이 있으면 켬) · "none"/"" 끔 · 폴더 경로.
+      앞 판은 이 적재 경로에서 CarService 를 만들지 않아 택시 대안이 늘 근거없음이었다. 순서는 파이썬 라우터 →
+      (gh_url 이 http 고 응답하면) GH → 근거없음. 도로 그래프 적재는 첫 택시 질의 때 한 번(약 13초 · +0.4 GB).
     """
     from . import paths as _paths
     if data_dir:
@@ -153,18 +157,37 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, gh_ur
     # 라우터는 21번 car.py 의 make_router 로 — 23 이 CarService 를 끼울 때 같은 객체를 나눠 쓴다.
     gh = (gh_url if gh_url is not None else os.environ.get("MOBILITY_GH_URL"))         or (None if gh_url == "" else ((rules.get("car") or {}).get("graphhopper") or {}).get("url", {}).get("value"))
     bike_router = None
+    gh_live = None                       # 77-2 — 응답하는 GH 만 택시·자동차 뒤 라우터로도 쓴다(자전거와 같은 객체)
     if gh and str(gh).startswith("http"):
         from .car import make_router
         rt = make_router(gh)
         if rt.info():
+            gh_live = rt
             bike_router = vt.BikeRouter(rt, {}, (rules.get("bike") or {}).get("pbf_date") or "2026-09-18")
+    # 77-2 — 택시·자동차: 파이썬 도로 라우터 → (있으면) GH → 근거없음. 소요 자료(TOPIS 프로파일)가 없으면 CarService 없음(종전).
+    car, car_why = None, "router_off"     # car_why: CarService 가 없는 이유(수단별 후보의 택시 칸이 이유를 가른다)
+    road_spec = road_graph if road_graph is not None else (os.environ.get("MOBILITY_ROAD_GRAPH") or "auto")
+    from .car import CarGraph, CarService, NoRouter
+    from .road_router import resolve as _road_resolve
+    if road_spec not in ("", "none") and _road_resolve(road_spec) is None:
+        car_why = "no_graph"             # 켜라고 했는데 차도 그래프 파일(또는 scipy)이 없다
+    if _road_resolve(road_spec) is not None or gh_live is not None:     # 폴더 확인만(적재는 첫 택시 질의 때)
+        cgraph = CarGraph.load(None, holidays)          # 약 2초 — 라우터가 하나라도 있을 때만
+        if cgraph is None:
+            car_why = "no_profile"       # 도로 소요 자료(TOPIS 프로파일 · 도로급 계수)가 없다
+        else:
+            road = _road_resolve(road_spec, speed=cgraph.static_kmh)    # 정적 시간 가중(GH 와 같은 잣대 · 본인 10/3)
+            if road is not None or gh_live is not None:
+                car = CarService(cgraph, gh_live or NoRouter(), rules, road=road)
+                car_why = None
     # 혼잡도(v0.8 · 39번 방 · @ 부품) — 파일이 없으면 가산 없음(근거없음). 판정기 CLI 와 같은 두 파일.
     cg_dir = Path(P["timetable"]).parent
     cg_data = vt.Congestion.load([cg_dir / "congestion_v1.jsonl", cg_dir / "congestion_line9_v1.jsonl"], wanted)
     # 버스 구간 통행시간 프로파일(v0.9 · 41번 방) — 파일이 없으면 종전 모델(거리 ÷ 표정속도)
     bus_prof = vt.BusSegProfile.load(P["bus_profile"])
-    verifier = vt.Verifier(tt, lo, rules, holidays, tw, bus, sc, ex, bk=bk, bike_live=bike_live, bike_router=bike_router,
+    verifier = vt.Verifier(tt, lo, rules, holidays, tw, bus, sc, ex, car=car, bk=bk, bike_live=bike_live, bike_router=bike_router,
                            cg_data=cg_data, bus_prof=bus_prof)
+    verifier.car_why = car_why
 
     # ── 시간표 '판'. meta 의 built_at 이 있으면 그것, 없으면 행의 수집일.
     #    둘은 다른 값이다 — 어느 쪽인지 접두어로 남긴다. 판정 이력이 "어느 판으로 냈는지"를 잃으면 안 된다.
@@ -210,6 +233,8 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, gh_ur
              "station_exits": sum(len(x) for x in ex.exits.values()) if ex else 0,
              "bike_stations": len(bk.rows) if bk else 0,
              "bike_live": bool(bike_live), "bike_router": bool(bike_router),
+             "car_router": (("road_graph_v1" if car.road else "") + ("+gh" if not isinstance(car.router, NoRouter) else "")
+                            if car else None),
              "timetable_age_days": age_days, "timetable_age_basis": age_basis, "timetable_stale": stale, "data_dir_source": _paths.SOURCE}
     if not quiet:
         # ★ 출발없음을 같이 찍는다(2026-09-14). 수집 행 수(463,326)와 올라간 행 수가 달라서,
@@ -233,7 +258,8 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, gh_ur
     return Runtime(verifier, timetable_built_at=built_at,
                    rules_version=rules["rules_version"], stats=stats, source_mtimes=mtimes,
                    build_kw={"paths": paths, "wanted": wanted, "quiet": True, "data_dir": data_dir,
-                             "gh_url": gh_url, "seoul_key": seoul_key, "guardrails_path": guardrails_path})
+                             "gh_url": gh_url, "seoul_key": seoul_key, "guardrails_path": guardrails_path,
+                             "road_graph": road_graph})
 
 
 def get_verifier(**kw):

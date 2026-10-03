@@ -368,3 +368,16 @@ def test_log_run_entry_sets_data_dir_first(monkeypatch, capsys):
     code = R.main(["--", "verify_time", "--cases", "x.json"])
     assert code == 2
     assert "자료 폴더를 정하지 못했다" in capsys.readouterr().err
+
+
+def test_log_run_explicit_dir_unwritable_is_2(monkeypatch, capsys, tmp_path):
+    """77(78 GPT 기록) — 명시한 --log-dir 을 열 수 없으면(여기선 같은 이름의 파일) 판정을 돌리지 않고 2.
+    앞 판은 OSError 가 새어 추적 출력 + 종료코드 1 이었다. 판정기 메서드는 패치되지 않은 채 남는다."""
+    import judgment_log_run as R
+    blocker = tmp_path / "logs"
+    blocker.write_text("파일이라 폴더를 만들 수 없다", encoding="utf-8")
+    before = R.vt.Verifier.verify_case
+    code = R.main(["--log-dir", str(blocker / "sub"), "--", "verify_time", "--cases", "x.json"])
+    assert code == 2
+    assert "로그 자리" in capsys.readouterr().err
+    assert R.vt.Verifier.verify_case is before
