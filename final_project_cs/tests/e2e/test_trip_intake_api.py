@@ -172,6 +172,17 @@ def test_unknown_files_are_refused_at_the_door_and_photos_need_a_reader(api):
     assert view["status"] == "fatal" and view["fatal"]["code"] == "unsupported_format", view
 
 
+def test_confirming_an_intake_that_could_not_be_read_is_a_409_not_a_server_error(api):
+    """★「읽지 못했어요」 접수에 「등록하고 관리 시작」을 눌러도 서버 오류(500)가 나지 않는다 — 409 와 현재 상태를 돌려준다.
+    오류 함수가 상세의 `status` 를 위치 인자 `status` 와 겹쳐 받아 `TypeError` 가 났다(그래서 위치 전용으로 바꿨다)."""
+    client = _client()                                        # 받아쓰기 모델이 없어 사진은 읽지 못함(fatal)
+    headers = _key(client)
+    view = _send(client, headers, files=[("plan.png", PHOTO.read_bytes())])
+    assert view["status"] == "fatal", view
+    body = _confirm(client, headers, view["intake_id"], view["revision"], status=409)
+    assert body["error"]["code"] == "intake_not_ready" and body["error"]["status"] == "fatal", body
+
+
 def test_an_intake_is_yours_only(api):
     client = _client()
     mine = _key(client)
@@ -231,7 +242,7 @@ class Kakao:
     def __init__(self):
         self.asked = []
 
-    def search(self, query, size=5):
+    def search(self, query, size=5, near=None, **kw):     # ★운영 쪽 래퍼(`_KakaoNearHint`)가 `near` 를 넘긴다
         self.asked.append(query)
         return [{"id": "1", "name": "토속촌삼계탕", "category": "음식점 > 한식", "category_group": "FD6",
                  "address": "서울 종로구 자하문로5길 5", "latitude": 37.5778, "longitude": 126.9716}] \
@@ -255,10 +266,11 @@ def test_unread_lines_are_pointed_at_by_the_model_and_places_are_looked_up(api):
     assert items[1]["fields"]["kind"]["value"] == "dining"                   # 「점심」 → 끼니
     # 날짜 — 본문에 적힌 날짜가 모델이 가리킨 줄까지 이어진다
     assert [i["date"] for i in items] == ["2026-10-15"] * 3
-    # 장소 — 관광공사(서울 필터) 정확 일치 · 카카오로 이름을 찾아 관광공사에서 다시 확인
+    # 장소 — 활동 CSV(관광공사 값) 정확 일치 · 활동이 아닌 곳(식당 「토속촌삼계탕」)은 카카오로 이름을 찾은 근거 그대로 둔다
+    #   (`[2026-09-30]` 접수의 장소 확인이 활동 CSV 전용으로 바뀌어 식당을 관광공사로 다시 확인하지 않는다)
     places = [i["fields"]["place"] for i in items]
     assert [(p["value"]["name"], p["evidence"]["source"]) for p in places] == [
-        ("경복궁", "tour_api"), ("토속촌삼계탕", "tour_api"), ("광장시장", "tour_api")]
+        ("경복궁", "tour_api"), ("토속촌삼계탕", "kakao"), ("광장시장", "tour_api")]
     assert places[1]["needs_review"] and not places[0]["needs_review"]      # 이름이 원문과 다르다 → 확인
     assert places[1]["value"]["kind"] == "dining"
     assert all(area == "1" for _, area in tour.asked)                        # ★서울 밖으로 새지 않는다

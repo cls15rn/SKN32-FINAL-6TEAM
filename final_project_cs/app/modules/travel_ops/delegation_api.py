@@ -53,7 +53,9 @@ class DelegationChange(BaseModel):
     note: str = Field(min_length=1)
 
 
-def _error(status: int, code: str, message: str, **extra: Any) -> HTTPException:
+# ★`status` 를 **위치 전용**(`/`)으로 받는다 — `**extra` 에 상세로 `status` 가 들어오면(예: 아직 등록할 수 없는 접수의 현재 상태
+#   `IntakeConflict(..., status=...)`) 같은 이름이 둘이라 `TypeError: got multiple values for argument 'status'` 로 409 가 서버 오류(500)가 됐다.
+def _error(status: int, code: str, message: str, /, **extra: Any) -> HTTPException:
     return HTTPException(status, {"error": {"code": code, "message": message, **extra}})
 
 
