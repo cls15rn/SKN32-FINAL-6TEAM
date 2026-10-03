@@ -2,6 +2,7 @@
 # 70: import 는 값만 정한다(부작용 없음). 폴더는 쓰는 스크립트가 쓰기 직전에 ensure_dirs() 로 만든다 —
 #     읽기만 하는 곳(점검)은 부르지 않는다. DATA_DIR 미설정 기본값은 저장소 루트 기준 data/ (→ data/travel) ·
 #     절대경로 /data 금지(.env 없는 CI 에서 import 시점 mkdir 이 PermissionError 로 수집을 죽였다).
+# 91: API 키는 팀 양식 이름(ACOP_*)으로 final_project_cs/.env·.env.apikeys 에서 읽는다 — api_key(). 맨 위 .env 는 DATA_DIR 만.
 # 82: 자리가 datasets/mobility/scripts/ 로 바뀌었다. 저장소 루트는 parents[n] 으로 세지 않고 final_project_cs/app 이 있는
 #     조상을 위로 찾는다. 산출은 여전히 **정본** DATA_DIR/travel/processed/mobility/ — git 에 올리는 줄인 판
 #     (datasets/mobility/processed/mobility/)은 reduce_75.py 가 정본에서 만든다(README 「갱신 순서」).
@@ -24,6 +25,38 @@ TRAVEL = DATA_DIR / "travel"
 RAW_MOBILITY = TRAVEL / "raw" / "mobility"
 RAW_BLOG = TRAVEL / "raw" / "blog"
 PROCESSED = TRAVEL / "processed"
+
+# 91: 키 이름은 팀 양식(final_project_cs/.env.apikeys.example) 그대로. 앱 설정(app.core.settings)과 같은 순서로 읽는다 —
+#     환경변수 → final_project_cs/.env → final_project_cs/.env.apikeys(뒤 파일이 이긴다). 옛 이름(DATA_GO_KR_KEY 등)은 안 본다.
+CS_ROOT = REPO_ROOT / "final_project_cs"
+#     공공데이터포털은 양식 규칙대로 「서비스별 칸 → 비면 공통 키」(앱 Settings.data_go_kr_key(override) 와 같음).
+DATA_GO_KR = "ACOP_DATA_GO_KR_KEY"                      # 공공데이터포털 공통 키 — 서비스마다 활용신청
+KEY_NAMES = {"data_go_kr": (DATA_GO_KR,),
+             "subway_alert": ("ACOP_SUBWAY_ALERT_API_KEY", DATA_GO_KR),  # 서울교통공사 지하철알림정보 15144070
+             "seoul_bus": ("ACOP_SEOUL_BUS_API_KEY", DATA_GO_KR),        # 서울특별시 노선정보조회 15000193
+             "tago": ("ACOP_TAGO_API_KEY", DATA_GO_KR),  # TAGO 지하철정보 15098554
+             "holiday": ("ACOP_HOLIDAY_API_KEY", DATA_GO_KR),  # 천문연 특일 15012690
+             "seoul": ("ACOP_SEOUL_OPENAPI_KEY",)}       # 서울 열린데이터광장 일반 인증키
+
+
+def api_key(kind: str) -> str:
+    """수집 스크립트용 키 — 없으면 이유를 말하고 멈춘다(호출 전). 공공데이터포털 키는 앱과 같이 unquote 한다."""
+    from urllib.parse import unquote
+
+    from dotenv import dotenv_values
+    names = KEY_NAMES[kind]
+    merged: dict = {}
+    for f in (CS_ROOT / ".env", CS_ROOT / ".env.apikeys"):
+        if f.exists():
+            merged.update(dotenv_values(f))
+    v = ""
+    for name in names:
+        v = (os.environ.get(name) or merged.get(name) or "").strip()
+        if v:
+            break
+    if not v:
+        raise SystemExit(f"{' / '.join(names)} 이 비어 있다 — final_project_cs/.env.apikeys 에 채운다(양식 .env.apikeys.example)")
+    return unquote(v) if kind != "seoul" else v
 
 
 def ensure_dirs() -> None:

@@ -2,12 +2,12 @@
 # 실행: 저장소 루트에서  python datasets/mobility/scripts/tago_retry_empty.py
 # 배경: v1 수집 스크립트는 HTTP 실패·형식 이상도 done 에 넣었다. 2호선 평일 건대입구·잠실나루가 0건인 것은 실패 쪽이 의심된다.
 # 호출 ≈ 빈 조합 수(수도권만, 토요일 02 제외 시 약 500). 결과: 행이 오면 jsonl 에 추가, 안 오면 tago_empty_confirmed.json 에 기록.
-import os, json, time, requests
+import json, time, requests
 from datetime import datetime, timezone, timedelta
-from _paths import RAW_MOBILITY, ensure_dirs
+from _paths import RAW_MOBILITY, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
-KEY = os.environ["DATA_GO_KR_KEY"]
+KEY = api_key("tago")                          # 91: 팀 양식 ACOP_TAGO_API_KEY → 비면 ACOP_DATA_GO_KR_KEY
 BASE = "https://apis.data.go.kr/1613000/SubwayInfo"
 COMMON = {"serviceKey": KEY, "_type": "json", "numOfRows": 1000, "pageNo": 1}
 KST = timezone(timedelta(hours=9))

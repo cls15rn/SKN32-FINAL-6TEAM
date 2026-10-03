@@ -17,16 +17,16 @@
 #
 # 이 스크립트는 processed/ 를 건드리지 않는다. 찾은 노선번호를 기존
 # seoul_bus_collect.py --routes 에 넣어 정식 수집하는 것이 최종 단계다.
-import argparse, json, math, os, re, sys, time
+import argparse, json, math, re, sys, time
 from datetime import timezone, timedelta
 
 import requests
-from _paths import RAW_MOBILITY, PROCESSED, ensure_dirs
+from _paths import RAW_MOBILITY, PROCESSED, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
 KST = timezone(timedelta(hours=9))
 BASE = "http://ws.bus.go.kr/api/rest/busRouteInfo"
-KEY = os.environ.get("DATA_GO_KR_KEY")
+KEY = None                                     # 91: 호출하는 단계에서만 api_key("seoul_bus") — 아래
 
 NON_SEOUL_TYPES = {"7", "8"}          # 인천·경기 면허
 SEOUL_ID_RANGE = range(100, 125)      # busRouteId 앞 3자리 = 지역 코드
@@ -119,8 +119,8 @@ ap.add_argument("--radius", type=int, default=500, help="지점에서 정류장�
 ap.add_argument("--include-tour", action="store_true", help="관광버스(routeType 10)도 후보에 넣는다")
 args = ap.parse_args()
 
-if (args.enumerate or args.fetch_stops) and not KEY:
-    raise SystemExit(".env 의 DATA_GO_KR_KEY 가 없다")
+if args.enumerate or args.fetch_stops:
+    KEY = api_key("seoul_bus")                 # 91: 팀 양식 ACOP_SEOUL_BUS_API_KEY → 비면 ACOP_DATA_GO_KR_KEY · 없으면 여기서 멈춤
 
 # ── 1) 노선 전수 목록 ────────────────────────────────────────
 if args.enumerate:

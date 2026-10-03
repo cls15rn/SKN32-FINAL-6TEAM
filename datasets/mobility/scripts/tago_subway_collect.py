@@ -1,11 +1,11 @@
 # datasets/mobility/scripts/tago_subway_collect.py — TAGO 지하철정보: 전 노선 역별 시간표 수집 (체크포인트·이어받기)
 # 실행: 저장소 루트에서  python datasets/mobility/scripts/tago_subway_collect.py
 # 호출량: 역명 검색 ≈ 650 + 역ID × 요일3 × 방향2 ≈ 5,000  → 일 10,000 안. 중간에 끊기면 다시 실행하면 이어감.
-import os, json, time, requests
-from _paths import RAW_MOBILITY, ensure_dirs
+import json, time, requests
+from _paths import RAW_MOBILITY, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
-KEY = os.environ["DATA_GO_KR_KEY"]
+KEY = api_key("tago")                          # 91: 팀 양식 ACOP_TAGO_API_KEY → 비면 ACOP_DATA_GO_KR_KEY
 BASE = "https://apis.data.go.kr/1613000/SubwayInfo"
 COMMON = {"serviceKey": KEY, "_type": "json", "numOfRows": 1000, "pageNo": 1}
 

@@ -1,11 +1,11 @@
 # datasets/mobility/scripts/seoul_metro_collect.py — 서울 열린데이터광장 정적 데이터 (역 목록 + 2~9호선 첫차·막차)
 # 실행: 저장소 루트에서  python datasets/mobility/scripts/seoul_metro_collect.py   (호출 ≈ 43회 / 일 1,000)
-import json, os, time, requests
+import json, time, requests
 from urllib.parse import quote
-from _paths import RAW_MOBILITY, ensure_dirs
+from _paths import RAW_MOBILITY, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
-KEY = os.environ["SEOUL_OPENAPI_KEY"]
+KEY = api_key("seoul")                         # 91: 팀 양식 ACOP_SEOUL_OPENAPI_KEY
 BASE = f"http://openapi.seoul.go.kr:8088/{KEY}/json"
 
 

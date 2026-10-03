@@ -1,6 +1,6 @@
 # datasets/mobility/scripts/holiday_collect.py — 공휴일(특일 정보) 수집 → 시간표 요일 판정용
 # 실행: 저장소 루트에서  python datasets/mobility/scripts/holiday_collect.py --years 2026 2027
-# 선행: 공공데이터포털 "한국천문연구원_특일 정보"(15012690) 활용신청 — 무료·자동승인. DATA_GO_KR_KEY 사용.
+# 선행: 공공데이터포털 "한국천문연구원_특일 정보"(15012690) 활용신청 — 무료·자동승인. ACOP_HOLIDAY_API_KEY → 비면 ACOP_DATA_GO_KR_KEY(91 · 팀 양식).
 #
 # ★왜 필수인가: 시간표를 평일(weekday)/휴일(holiday)로 나눠 저장했는데, **특정 날짜가 공휴일인지 아는 수단이
 #   없으면 어느 시간표를 봐야 할지 모른다**. 2026-10-03(개천절)에 평일 시간표로 막차를 판정하면 그냥 틀린다.
@@ -13,15 +13,14 @@
 #     서울교통공사 공식 시간표도 평일 / 토·공휴일 2종이라 이 규칙과 맞는다.
 # 출력: final_project_cs/app/modules/travel_ops/mobility/engine/rules/holidays_<시작>_<끝>.json — git 에 둔다(연 단위로만 바뀌고 팀원도 쓴다).
 #   ★ 31번 방(2026-09-21) — 판정기가 읽는 자리로 옮겼다. 옛 config/mobility 에 쓰면 판정기는 **조용히 옛 달력을 쓴다.**
-import os, json, argparse, time
+import json, argparse, time
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 import requests
+from _paths import api_key
 
 REPO = next(p for p in Path(__file__).resolve().parents if (p / "final_project_cs" / "app").is_dir())   # 82: 저장소 루트를 위로 찾는다(자리 datasets/mobility/scripts/)
-load_dotenv(REPO / ".env")
-KEY = os.environ["DATA_GO_KR_KEY"]
+KEY = api_key("holiday")                       # 91: 팀 양식 ACOP_HOLIDAY_API_KEY → 비면 ACOP_DATA_GO_KR_KEY
 BASE = "http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService"
 SOURCE = "kasi_spcde"                       # 한국천문연구원 특일 정보
 KST = timezone(timedelta(hours=9))

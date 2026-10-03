@@ -29,12 +29,12 @@
 #      가진 행을 남긴다.** 방향과 무관하게 지선 열차를 정확히 집는다.
 #
 # 호출: gaps 는 빈 역 × 방향 2 × 요일. 지선은 접속역 × 방향 2 × 요일 2 (지금 기준 5접속역 = 20회).
-import argparse, os, json, time, collections, requests
+import argparse, json, time, collections, requests
 from datetime import datetime, timezone, timedelta
-from _paths import RAW_MOBILITY, PROCESSED, ensure_dirs
+from _paths import RAW_MOBILITY, PROCESSED, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
-KEY = os.environ["SEOUL_OPENAPI_KEY"]
+KEY = api_key("seoul")                         # 91: 팀 양식 ACOP_SEOUL_OPENAPI_KEY
 BASE = f"http://openapi.seoul.go.kr:8088/{KEY}/json"
 SVC = "SearchSTNTimeTableByIDService"
 KST = timezone(timedelta(hours=9))

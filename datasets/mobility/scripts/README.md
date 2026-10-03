@@ -9,7 +9,7 @@
   `datasets/` 를 가리키면 쓰는 스크립트는 첫 쓰기 전에 멈춘다(`_paths.ensure_dirs` · `fill_timetable_dest_v1.py` 는 옆에 `.gz` 가 있어도 멈춘다).
   상대경로 `DATA_DIR` 은 저장소 루트 기준으로 푼다.
 - `graph_` 5개는 예외 — 작업 폴더를 cwd 로 두고 돌린다(각 파일 머리말). 최상위에서 바로 읽고 쓰므로 import 하거나 `--help` 로 점검하지 않는다.
-- 키는 `.env` 에만: `DATA_GO_KR_KEY`(공공데이터포털 — TAGO · 서울 버스 · 천문연 특일) · `SEOUL_OPENAPI_KEY`(서울 열린데이터광장).
+- 키는 팀 양식 그대로 `final_project_cs/.env.apikeys` 에(양식 `.env.apikeys.example` · `_paths.api_key()` 가 앱 설정과 같은 순서로 읽는다): 공공데이터포털 — 양식 규칙대로 서비스 칸이 비면 공통 키 `ACOP_DATA_GO_KR_KEY`: `ACOP_TAGO_API_KEY`(TAGO 지하철 15098554) · `ACOP_HOLIDAY_API_KEY`(천문연 특일 15012690) · 서울 버스노선 15000193 은 공통 키(양식의 `ACOP_SEOUL_BUS_API_KEY` 칸은 `settings.py` 필드가 생길 때까지 주석 — 풀리면 그 칸이 먼저) · 각각 활용신청 · `ACOP_SEOUL_OPENAPI_KEY`(서울 열린데이터광장 일반 인증키 — OA-101 · OA-15442 · OA-15492). 맨 위 `.env` 는 `DATA_DIR` 만(91 · 2026-10-01).
 - 패키지: 이동 자료 기기 목록 `final_project_cs/requirements-mobility.txt`(팀 서버 목록과 판이 달라 **따로 만든 가상환경**에 깐다 · 팀장 9/30 정리) — `graph_03b_profile.py` 만 쓰는 `holidays` 는 그때 따로.
 
 ## 파일

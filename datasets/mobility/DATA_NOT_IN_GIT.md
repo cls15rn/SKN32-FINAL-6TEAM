@@ -11,7 +11,7 @@
 
 | 폴더/파일 | 크기 | 출처 URL | 산출(재생성 스크립트) |
 |---|---:|---|---|
-| `tago_timetable.jsonl` + `tago_*.json` | 94 MB | 국토교통부 TAGO 지하철 API (data.go.kr · `DATA_GO_KR_KEY`) | `timetable_v1.jsonl` (`tago_subway_collect.py` → `build_timetable_v1.py`) |
+| `tago_timetable.jsonl` + `tago_*.json` | 94 MB | 국토교통부 TAGO 지하철 API (data.go.kr · `ACOP_DATA_GO_KR_KEY`) | `timetable_v1.jsonl` (`tago_subway_collect.py` → `build_timetable_v1.py`) |
 | `seoul_timetable_fill/holiday_2_7/branch.jsonl` · `first_last_2to9.json` · `stations_all.json` | 18 MB | 서울 열린데이터광장 OA-101 · OA-15442 (data.seoul.go.kr) | `timetable_v1.jsonl` · `station_coords.json` 역명 (`seoul_metro_collect.py` · `seoul_fill_*.py`) |
 | `seoul_bus_all_routes.json` · `seoul_bus_all_stops.json` · `seoul_bus_*.json` | 22 MB | 서울시 버스 정보 API (topis.seoul.go.kr / data.seoul.go.kr) | `bus_route_v1.jsonl` · `bus_stops_v1.jsonl` (`seoul_bus_find_routes.py` → `build_bus_all_v1.py`) |
 | `bus_speed\tpss_route_section_speedh_*.zip` 9 + master csv 2 | 422 MB | 서울 OA-21217 노선별 정류장 구간별 평균 운행시간 (data.seoul.go.kr/dataList/OA-21217) · 원행 8,743,191 | `bus_seg_profile_v1.jsonl.gz` (`build_bus_seg_profile_v1.py`) |

@@ -4,11 +4,11 @@
 # 원인: TAGO 역명은 병기 괄호가 붙는다("경복궁(정부서울청사)", "잠실(송파구청)") — v1의 정확 일치(==)에 걸러졌다.
 #       "서울"은 TAGO "서울역", "하남검단산"은 "하남검단산역". 보정 규칙: 정확 → 정규화 → 괄호 앞 → 괄호 안 → 별칭 → 역 접미사.
 #       검색어가 0건이면(4·19민주묘지 등) 문장부호 변형·부분 검색으로 넓힌다. 결과는 tago_name_map.json(보정표)에 남긴다.
-import os, json, re, time, requests
-from _paths import RAW_MOBILITY, ensure_dirs
+import json, re, time, requests
+from _paths import RAW_MOBILITY, api_key, ensure_dirs
 ensure_dirs()                                  # 70: 이 스크립트는 쓴다 — 산출 폴더를 여기서 만든다
 
-KEY = os.environ["DATA_GO_KR_KEY"]
+KEY = api_key("tago")                          # 91: 팀 양식 ACOP_TAGO_API_KEY → 비면 ACOP_DATA_GO_KR_KEY
 BASE = "https://apis.data.go.kr/1613000/SubwayInfo"
 COMMON = {"serviceKey": KEY, "_type": "json", "numOfRows": 200, "pageNo": 1}
 ID_MAP = RAW_MOBILITY / "tago_station_ids.json"
