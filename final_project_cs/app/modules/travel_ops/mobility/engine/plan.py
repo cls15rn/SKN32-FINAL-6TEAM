@@ -16,6 +16,8 @@
                         walk_m·fare_krw 는 팀 route_def 기존 칸 — 모르면 키를 뺀다(요금은 규칙 fare 절 · options.py · 54)
   그 밖에 봉투에 `skipped`(이동 항목을 못 만든 구간과 이유)·`left_out`(싣지 않은 후보와 이유)·`basis` 를 같이 준다 —
   **코어 몸통에는 `items`·`routes` 두 칸만 옮긴다**(CreateTrip 은 extra=forbid).
+  (97) `taxi_fallback=True` 를 줄 때만: 대중교통으로 못 만든 구간이 택시 소요로 메워져 routes 에 `taxi_1` 옵션 하나짜리 경로로
+  실리고(label 「택시 기준 · 추정 · …」), 봉투 `taxi_fallback` 이 그 routes 키를 가리킨다 — 기본 호출에는 없다(아래 plan() 설명).
 
 값의 뜻 (39 인계 §1-2 · 스펙 v1.3 §5)
   starts_at = 도착 목표(다음 항목 starts_at) − (eta_min + margin_min) − slack_min   (slack_min ≥ 0)
@@ -54,7 +56,7 @@ from .timeutil import MIN_DAY, SERVICE_DAY_START_MIN
 from .verify_time import leg_mode
 
 KST = timezone(timedelta(hours=9))
-PLAN_VERSION = "plan-v2.4"   # (93 — 수단별 대표 후보 by_mode 는 켤 때만 · 기본 호출 결과가 같아 판 번호 유지) 87 — 지하철+버스 혼합 후보(환승 1회 · A 버스→지하철 · B 지하철→버스) · 지하철만·버스만 후보는 v2.3 과 같다
+PLAN_VERSION = "plan-v2.4"   # (97 — 못 채운 구간 택시 소요 메우기 taxi_fallback 도 켤 때만 · 판 번호 유지) (93 — 수단별 대표 후보 by_mode 는 켤 때만 · 기본 호출 결과가 같아 판 번호 유지) 87 — 지하철+버스 혼합 후보(환승 1회 · A 버스→지하철 · B 지하철→버스) · 지하철만·버스만 후보는 v2.3 과 같다
 # (v2.3 · 86) 가장 이른 도착 모드(Planner.earliest · earliest_on_late) 추가 · 기본 호출 결과는 v2.2 와 같다
 # (v2.2 · 58) modes 에 bike 를 주면 자전거 후보를 싣는다 · 기본(bike 없음)은 v2.1 과 같다 · 모양 무변경
 # 56 (2026-09-27 · 본인) — modes 를 안 주면 지하철·버스·도보. 자전거는 modes 에 "bike" 를 줄 때만(48 결정 8 · ◆선호 「요청 시만」).
@@ -115,6 +117,19 @@ MIX_N_BASE = 300
 #:   경로」를 막는다). 규칙 candidates.대표_환승_양보_분 **변경안** 값(27 규칙 32) — 규칙에 들어가면 규칙 값이 이긴다. grade 추정:
 #:   무작위 80구간에서 환승이 더 적은 후보와의 차가 1~10분에 몰려 있다(지하철만 5·6 · 혼합 1·5·5·5·5·10 · 그 밖은 23분 이상).
 BY_MODE_YIELD_MIN_PROPOSED = 5
+#: ☆`[2026-10-03 97 · 66건 #27 둘째 겹]` 못 채운 구간을 택시 소요로 메우기(leg/plan(taxi_fallback=True)) — 세 겹: ① 계산기
+#:   대중교통 ② 안 되면 택시 소요(추정 · 「택시 기준」 표시) ③ 그것도 안 되면 근거없음(지금처럼 skipped). **켤 때만** 한다 — 끄면
+#:   (기본) 결과·호출 횟수가 앞 판과 같다. 택시를 대중교통과 나란히 계획 수단 후보에 넣는 것(#47)이 **아니다** — 대중교통(·도보)
+#:   후보로 이동을 못 만든 구간에서만 본다. 어떤 이유의 구간에든(없음·모름 · 시각 때문 — 본인 10/3) 걸되, **택시 출발이 앞 일정
+#:   끝보다 이르면 싣지 않는다**(이유에 모자란 분을 적는다). 값·시각은 수단별 후보의 택시 칸(_taxi_slot)과 같다 — 다음 일정 시작에
+#:   맞춰 느린 쪽 소요로도 닿는 가장 늦은 출발 · 호출·승차 대기 제외 · 요금은 하한 · 등급 추정.
+#: 택시로 메운 이동의 옵션 id(경로 안 하나뿐) · 이유 dict 안 칸 이름
+TAXI_FALLBACK_ID = "taxi_1"
+TAXI_FALLBACK_KEY = "taxi"
+#: 택시 출발이 앞 일정 끝보다 일러 싣지 않을 때의 코드(leg 의 left_out 코드와 같은 낱말 — 뜻이 같다)
+TAXI_FALLBACK_EARLY = "before_prev_end"
+#: 택시 예정 소요가 0분(같은 자리)이라 이동으로 싣지 않을 때의 코드(GPT 97 #5)
+TAXI_FALLBACK_ZERO = "zero_distance"
 #: by_mode 칸 이름(수단 키) — 순서는 표시 순서지 우열이 아니다
 BY_MODE_KEYS = ("subway", "bus", "subway_bus", "taxi")
 #: 수단을 호출 쪽이 뺐을 때(modes)의 이유 코드 — 후보가 없는 것과 구분한다
@@ -1291,6 +1306,54 @@ class Planner:
         out["within_range"] = None if rf is None else bool(start > rf)
         return out
 
+    def _taxi_fallback(self, a_place, b_place, sdate, arrive_by, nb, why):
+        """(97 · #27 둘째 겹) 대중교통으로 못 만든 구간의 택시 소요. 이유 dict(why)를 받아 **`taxi` 칸을 붙인 사본**을 돌려준다.
+
+        · 찾음: why["taxi"] = {status: found, basis: taxi_fallback, id, label(「택시 기준 · 추정 · … 호출·승차 대기 제외 …」), legs, uses,
+          depart_at, arrive_at, eta_min, worst_min, transfers, walk_m?, fare_krw?(하한), slow_speed_pct?, road_control_checked:
+          false(도로 통제·우회 미반영 — 사고 조건이 걸린 호출이면 label 에도 적는다)} — 값은 _taxi_slot 그대로.
+          why 의 code·reason(대중교통이 안 된 이유)은 **건드리지 않는다**.
+        · 못 냄: why["taxi"] = {status: none, code, reason} + why["reason"] 끝에 「택시로도 못 채움 — …」을 덧붙인다(숫자를 지어내지
+          않는다 — 셋째 겹). 택시 출발이 앞 일정 끝(nb)보다 이르면 code before_prev_end · short_min(모자란 분) · eta_min · worst_min.
+          예정 소요가 0분(같은 자리)이면 code zero_distance.
+        · 도로 경로 계산을 끈 실행(car 없음 — router_off · no_graph · no_profile)·대중교통을 고르지 않은 호출(modes 에 subway·bus
+          없음 — 자전거 테마 등)은 **why 를 그대로** 돌려준다(끈 실행은 앞 판과 같은 결과 · 수단을 뺀 것은 호출 쪽 뜻).
+        시각: 다음 일정 시작(arrive_by)에 맞춰 느린 쪽 소요로도 닿는 가장 늦은 출발(77-2 결정 5 · 호출·승차 대기 제외 · 정책 버퍼를
+        따로 더하지 않는다 — 느린 쪽 소요와 예정 소요의 차가 여유 자리다). by_mode 를 같이 켰으면 그 택시 칸 값을 다시 쓴다(호출 1회)."""
+        if getattr(self.v, "car", None) is None or not (self.modes & {"subway", "bus"}):
+            return why
+        bm = self.last_by_mode
+        slot = dict(bm["modes"]["taxi"]) if bm is not None else self._taxi_slot(a_place, b_place, sdate, arrive_by, None)
+        slot.pop("within_range", None)
+        out = dict(why)
+        if slot["status"] == "found":
+            sd, sm = service_day(_parse_dt(slot["depart_at"]))
+            start = sm + (sd - sdate).days * MIN_DAY
+            if slot["eta_min"] < 1:
+                # (GPT 97 #5) 0분짜리 이동(같은 자리 — 거리·걷기 모두 0)은 싣지 않는다 — starts_at == ends_at 인 항목은 일정 검사에 걸린다
+                slot = {"status": "none", "code": TAXI_FALLBACK_ZERO,
+                        "reason": "택시로 갈 거리가 아니다 — 도로 소요가 0분이다(두 장소가 같은 자리)"}
+            elif nb is not None and start < nb:
+                slot = {"status": "none", "code": TAXI_FALLBACK_EARLY, "short_min": int(nb - start),
+                        "eta_min": slot["eta_min"], "worst_min": slot["worst_min"],
+                        "reason": f"택시로도 앞 일정이 끝난 뒤({iso_of(sdate, nb)[11:16]}) 떠나서는 못 맞춘다 — 느린 쪽 소요 "
+                                  f"{slot['worst_min']}분(예정 {slot['eta_min']}분 · 호출·승차 대기 제외)이면 "
+                                  f"{slot['depart_at'][11:16]} 에는 떠나야 한다({int(nb - start)}분 모자람)"}
+            else:
+                slot["basis"] = "taxi_fallback"
+                slot["id"] = TAXI_FALLBACK_ID
+                slot["label"] = "택시 기준 · 추정 · " + slot["label"][len("택시 "):]
+                # (GPT 97 #2) 택시 소요는 사고 조건(disruptions)을 받지 않는다 — 도로 통제·우회를 반영하지 않은 값임을 늘 칸으로
+                #   밝히고, 사고 조건이 걸린 호출이면 사람이 읽는 label 에도 적는다(「추정」은 소요 오차이지 통제 미검증이 아니다).
+                slot["road_control_checked"] = False
+                if self.disruptions:
+                    slot["label"] += " · 도로 통제·우회 미반영"
+                out[TAXI_FALLBACK_KEY] = slot
+                return out
+        out[TAXI_FALLBACK_KEY] = slot
+        out["reason"] = f"{out.get('reason') or ''} · 택시로도 못 채움 — {slot['reason']}"
+        return out
+
     @staticmethod
     def _rank(o):
         """계획 수단 순서 — **가장 늦게 떠나도 되는 후보**(동률은 환승 적은 · 소요 짧은 · 생성 순). 순위가 아니라 「일정대로
@@ -1758,14 +1821,20 @@ class Planner:
         return out
 
     def _earliest_or_reason(self, a_place, b_place, not_before_dt, party, first_visit, case_id, arrive_dt):
-        e, e_why = self.earliest(a_place, b_place, not_before_dt, party, first_visit, case_id)
+        # (GPT 97 #1) earliest() 는 같은 인스턴스의 leg() 를 다시 부른다 — 그 호출이 last_by_mode 를 비우므로 바깥 호출의
+        #   수단별 후보 한 벌을 지켰다가 되돌린다(by_mode + earliest_on_late 를 같이 켠 구간의 by_mode 줄이 사라지던 것).
+        keep = self.last_by_mode
+        try:
+            e, e_why = self.earliest(a_place, b_place, not_before_dt, party, first_visit, case_id)
+        finally:
+            self.last_by_mode = keep
         if e is not None:
             return self.earliest_summary(e, arrive_dt)
         return {"status": "unconfirmed" if e_why["code"] == EARLIEST_UNCONFIRMED else "not_found",
                 "code": e_why["code"], "reason": e_why["reason"], "searched": e_why.get("searched")}
 
     def leg(self, a_place, b_place, arrive_dt, party, first_visit, case_id, not_before_dt=None, earliest_on_late=False,
-            by_mode=False, range_from_dt=None):
+            by_mode=False, range_from_dt=None, taxi_fallback=False):
         """장소 a → 장소 b, 도착 목표 arrive_dt. ((route_def, 시작 분, 끝 분, 운행일, 뺀 후보), None) 또는 (None, 이유 dict).
 
         분은 **도착 목표의 운행일 축**이다. 역 도착 목표가 04:00 을 넘어 앞 운행일로 넘어가면(04:00 목표 − 도보 2분)
@@ -1781,7 +1850,10 @@ class Planner:
         by_mode: (93) True 면 수단별 대표 후보 한 벌을 `self.last_by_mode` 에 둔다(_by_mode · 돌려주는 값의 모양은 그대로 —
         이동을 못 만든 구간에도 남는다). range_from_dt = 앞 일정 **시작**(범위의 앞 끝 · 없으면 범위 판단 없음). 기본 False —
         결과·호출 횟수가 앞 판과 같다. ★last_by_mode 는 **바로 앞 leg() 호출 하나**의 값이다(호출마다 처음에 비운다) — Planner 는
-        요청마다 새로 만들어 순서대로 쓴다(56 ①). 한 인스턴스를 여러 스레드가 같이 쓰면 남의 값을 읽는다(GPT 93 #6)."""
+        요청마다 새로 만들어 순서대로 쓴다(56 ①). 한 인스턴스를 여러 스레드가 같이 쓰면 남의 값을 읽는다(GPT 93 #6).
+        taxi_fallback: (97 · #27 둘째 겹) True 면 **이동을 못 만든 구간**의 이유 dict 에 `taxi`(택시 소요 · _taxi_fallback)를 붙인다 —
+        돌려주는 모양은 그대로 (None, 이유 dict)다(이동으로 싣는 것은 plan() · 코어 몫). 대중교통(·도보)으로 이동을 만든 구간은
+        건드리지 않는다. 기본 False — 결과·호출 횟수가 앞 판과 같다."""
         from .geo import meters
         self.last_by_mode = None
         self._mix_memo = {}                 # 94 — 이 호출 안에서만(혼합 후보 판정 답 재사용)
@@ -1892,6 +1964,8 @@ class Planner:
             if earliest_on_late and not_before_dt is not None and out.get("code") in EARLIEST_ON_CODES:
                 # (GPT 86 Q1·Q7) 시각 때문에 못 맞춘 구간(첫차 전 · 공백 · 막차 뒤) — 기다려 닿는 가장 이른 도착을 붙인다
                 out["earliest"] = self._earliest_or_reason(a_place, b_place, not_before_dt, party, first_visit, case_id, arrive_dt)
+            if taxi_fallback:
+                out = self._taxi_fallback(a_place, b_place, sdate, arrive_by, nb, out)
             return None, out
         if bike_why is not None:      # 58 — 자전거를 요청했는데 못 실은 이유를 봉투 left_out 에(코어로는 안 나감)
             left.append({"_o": {"_legs": []}, "label": "자전거(따릉이)", "code": bike_why["code"], "reason": bike_why["reason"]})
@@ -1917,6 +1991,8 @@ class Planner:
                 # 86 · E2 — 몇 분 밀면 되는지가 아니라 **가장 이른 도착**을 붙인다(코어가 한 번에 정확히 민다)
                 late["earliest"] = self._earliest_or_reason(a_place, b_place, not_before_dt, party, first_visit,
                                                             case_id, arrive_dt)
+            if taxi_fallback:
+                late = self._taxi_fallback(a_place, b_place, sdate, arrive_by, nb, late)
             return None, late
         if revived:
             back = {g["_key"]: g for g in revived}          # 식별은 _key(종류·짝·번호) — _n 은 동률 깨기용(GPT 85 #4)
@@ -2023,7 +2099,7 @@ def _key_time(it):
 
 def plan(places, items, party_size=None, constraints=None, *, runtime=None, stage="planning",
          modes=None, trace=None, routes=None, display=False, disruptions=None, earliest_on_late=False,
-         by_mode=False):
+         by_mode=False, taxi_fallback=False):
     """places·items(·party_size·constraints) → {"items", "routes", "skipped", "basis"}.
 
     items : 입력 항목 중 이동이 아닌 것을 시각 순으로 두고, **장소가 다른 이웃 둘 사이마다** 이동 항목을 끼운다.
@@ -2064,6 +2140,21 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
             후보(가장 이른 도착이 아니다) · within_range = 그 출발이 앞 일정 시작보다 뒤 · **범위 밖이어도 시각은 낸다**(띄울지는 받는 쪽).
             버스만 = 한 노선 직행뿐 · 택시 = 자리와 이유만. 코어 몸통(items·routes)으로는 안 나간다. 기본 False — 칸 자체가
             없고 결과·호출 횟수가 앞 판과 같다.
+    taxi_fallback: (97 · 66건 #27 둘째 겹) True 면 **대중교통(·도보)으로 이동을 못 만든 구간**을 택시 소요로 메운다 — 그 구간에
+            이동 항목(starts_at = 다음 일정 시작에 맞춰 느린 쪽 소요로도 닿는 가장 늦은 출발 · ends_at = 그 출발의 예정 도착)과
+            routes[키] = {from, to, planned: "taxi_1", options: [{id: "taxi_1", label: 「택시 기준 · 추정 · A→B · n km · 호출·승차 대기
+            제외 · 요금은 … 하한」, eta_min, walk_m?, fare_krw?(하한), uses: [`도로:<이름>` …]}]} 를 싣고, 봉투 `taxi_fallback` 에
+            [{from, to, from_place, to_place, route(그 routes 키), replaced_input_moves[{title, route, starts_at}](이 이동으로 바꾼
+              입력 이동 — 대체 이력), code, reason(**대중교통이 안 된 이유 그대로**), left_out?, earliest?,
+              taxi{depart_at, arrive_at, eta_min, worst_min, fare_krw?, walk_m?, slow_speed_pct?, uses, label,
+              road_control_checked: false …}}] 를 남긴다. ★택시 소요는 사고 조건(disruptions)의 도로 통제·우회를 반영하지 않는다.
+            ★택시로 메운 이동은 **셋째 묶음**이다 — 「검증된 이동」(시간표 판정 · routes 에 있고 taxi_fallback 에 없는 것)도
+              「검증 안 된 이동」(kept_unverified)도 아니다. skipped 에는 넣지 않는다(이동을 만들었다). 받는 쪽은 routes 키가
+              taxi_fallback[].route 에 있으면 「택시 기준 추정」으로 다룬다(66건 #40 — 섞이면 안 된다).
+            택시도 못 내면(범위 밖 · 200 m 안 차도 없음 · 경로 없음 · 골목 절반 초과 · 출발 못 정함 · 소요 0분 · **택시 출발이 앞 일정
+            끝보다 이름**) 지금처럼 skipped 에 남고 reason 끝에 「택시로도 못 채움 — …」 · `taxi`{status: none, code, reason} 가 붙는다.
+            도로 경로 계산을 끈 실행·대중교통을 고르지 않은 호출(modes 에 subway·bus 없음)은 끈 것과 같은 결과다(봉투에 빈
+            `taxi_fallback` 칸만 생긴다). 호출·승차 대기는 들어 있지 않다. 기본 False — 칸 자체가 없고 결과·호출 횟수가 앞 판과 같다.
     """
     if runtime is None:
         from .runtime import get_verifier
@@ -2095,6 +2186,7 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
     reserved = set(routes or {}) | {str(it["route"]) for it in its if it.get("route")}
     merged, routes, skipped, left_out, not_linked = [], {}, [], {}, []
     by_mode_out = []
+    taxi_out = []                                 # 97 — 택시 소요로 메운 구간(켰을 때만 봉투에 실린다)
 
     def bm_row(a, b, pa, pb, body):
         """by_mode 한 줄 — 구간 식별은 장소 키(from_place·to_place)와 range_to(다음 항목 시작)로 한다(배열 위치에 기대지 않게 ·
@@ -2176,29 +2268,47 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
                          case_id=f"{a.get('place')}_to_{b.get('place')}",
                          not_before_dt=_parse_dt(a.get("ends_at") or a["starts_at"]),
                          earliest_on_late=earliest_on_late,
-                         by_mode=by_mode, range_from_dt=_parse_dt(a["starts_at"]) if by_mode else None)
+                         by_mode=by_mode, range_from_dt=_parse_dt(a["starts_at"]) if by_mode else None,
+                         taxi_fallback=taxi_fallback)
         bm = P.last_by_mode if by_mode else None
         if bm is not None:
             bm = bm_row(a, b, pa, pb, bm)
             by_mode_out.append(bm)
-        if got is None:
+        tx = (why or {}).get(TAXI_FALLBACK_KEY) if got is None else None
+        if got is None and not (tx and tx.get("status") == "found"):
             skip(a, b, {"from": pa["name"], "to": pb["name"], **why})
             continue
-        route, start, end, sdate, left = got
         key = f"{a.get('place')}_to_{b.get('place')}"
         n = 2
         while key in routes or key in reserved:
             key = f"{a.get('place')}_to_{b.get('place')}_{n}"
             n += 1
-        routes[key] = route
+        if got is None:
+            # 97 · #27 둘째 겹 — 대중교통으로 못 만든 구간을 택시 소요로 메운다(추정 · 「택시 기준」). 셋째 묶음:
+            #   routes 에 싣되 봉투 taxi_fallback 에 그 키와 대중교통이 안 된 이유를 남긴다(skipped·kept_unverified 아님).
+            opt = {k: tx[k] for k in ("id", "label", "eta_min", "walk_m", "fare_krw", "uses") if k in tx}
+            routes[key] = {"from": pa["name"], "to": pb["name"], "planned": tx["id"], "options": [opt]}
+            # (GPT 97 #3) 이 구간에 있던 입력 이동은 택시 이동 하나로 바뀐다 — 무엇을 바꿨는지 대체 이력으로 남긴다(둘 이상이면
+            #   첫 항목의 다른 칸만 새 항목에 남고 나머지는 사라진다 · 만든 구간과 같은 규칙 #45).
+            gone = [{"title": m.get("title"), "route": m.get("route"), "starts_at": m.get("starts_at")}
+                    for m in moves_between(a, b)]
+            taxi_out.append({"from": pa["name"], "to": pb["name"], "from_place": a.get("place"), "to_place": b.get("place"),
+                             "route": key, "replaced_input_moves": gone,
+                             **{k: v for k, v in why.items() if k != TAXI_FALLBACK_KEY},
+                             TAXI_FALLBACK_KEY: {k: v for k, v in tx.items() if k not in ("status", "id")}})
+            start_iso, end_iso = tx["depart_at"], tx["arrive_at"]
+        else:
+            route, start, end, sdate, left = got
+            routes[key] = route
+            if left:
+                left_out[key] = left
+            if trace is not None and trace:
+                trace[-1]["route"] = key
+            start_iso, end_iso = iso_of(sdate, start), iso_of(sdate, end)
         if bm is not None:
             bm["route"] = key
-        if left:
-            left_out[key] = left
-        if trace is not None and trace:
-            trace[-1]["route"] = key
         new = {"seq": 0, "kind": "mobility", "title": f"{pa['name']} → {pb['name']}",
-               "starts_at": iso_of(sdate, start), "ends_at": iso_of(sdate, end), "route": key}
+               "starts_at": start_iso, "ends_at": end_iso, "route": key}
         # ☆`[2026-09-29 문제목록 #45]` 입력 이동 항목을 우리 값으로 바꿀 때 그 항목의 다른 칸(detail·id 등)을 잃지 않는다
         olds = moves_between(a, b)
         if olds:
@@ -2213,15 +2323,17 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
                      "decided_at": datetime.now(KST).strftime("%Y-%m-%dT%H:%M:00+09:00")}}
     if by_mode:
         out["by_mode"] = by_mode_out          # 93 — 켰을 때만 칸이 생긴다(기본 출력 모양 무변경)
+    if taxi_fallback:
+        out["taxi_fallback"] = taxi_out       # 97 — 켰을 때만 칸이 생긴다(택시 소요로 메운 구간 · 셋째 묶음)
     return out
 
 
 def plan_doc(doc, *, runtime, stage="planning", modes=None, trace=None, display=False, earliest_on_late=False,
-             by_mode=False):
+             by_mode=False, taxi_fallback=False):
     """CLI 가 읽는 입력 JSON 한 벌 → plan(). 기존 `routes` 도 넘긴다(그 키를 새 키로 안 쓰게 · GPT 2차 #1)."""
     return plan(doc.get("places") or [], doc.get("items") or [], doc.get("party_size"), doc.get("constraints"),
                 runtime=runtime, stage=stage, modes=modes, trace=trace, routes=doc.get("routes"),
-                display=display, earliest_on_late=earliest_on_late, by_mode=by_mode)
+                display=display, earliest_on_late=earliest_on_late, by_mode=by_mode, taxi_fallback=taxi_fallback)
 
 
 def main(argv=None):
@@ -2239,6 +2351,8 @@ def main(argv=None):
                     help="앞 항목이 끝난 뒤 떠나서는 못 맞추는 구간에 가장 이른 출발·도착(skipped[].earliest)을 붙인다(86)")
     ap.add_argument("--by-mode", action="store_true",
                     help="수단별 대표 후보(지하철만·버스만·지하철+버스·택시 하나씩)를 봉투 by_mode 에 더한다(93)")
+    ap.add_argument("--taxi-fallback", action="store_true",
+                    help="대중교통으로 못 만든 구간을 택시 소요(추정 · 호출·승차 대기 제외)로 메운다 — 봉투 taxi_fallback(97)")
     ap.add_argument("--trace", help="구간마다 내부 값(시작 분·@·slack)을 이 JSON 에 적는다 — 대조용")
     a = ap.parse_args(argv)
     if a.modes is not None:           # 58 — `--modes subway,bus,walk,bike` 도 받는다(띄어쓰기와 같다)
@@ -2248,7 +2362,7 @@ def main(argv=None):
     rt = build_verifier(quiet=True)
     tr = [] if a.trace else None
     res = plan_doc(doc, runtime=rt, stage=a.stage, modes=a.modes, trace=tr, display=a.display,
-                   earliest_on_late=a.earliest_on_late, by_mode=a.by_mode)
+                   earliest_on_late=a.earliest_on_late, by_mode=a.by_mode, taxi_fallback=a.taxi_fallback)
     if a.trace:
         Path(a.trace).write_text(json.dumps(tr, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     if a.no_basis:
@@ -2257,7 +2371,8 @@ def main(argv=None):
     if a.out:
         Path(a.out).write_text(txt + "\n", encoding="utf-8")
         print(f"[plan] 이동 {sum(1 for x in res['items'] if x['kind'] == 'mobility')} · "
-              f"못 만든 구간 {len(res['skipped'])} → {a.out}")
+              f"못 만든 구간 {len(res['skipped'])}"
+              + (f" · 택시 소요로 메운 구간 {len(res['taxi_fallback'])}" if a.taxi_fallback else "") + f" → {a.out}")
     else:
         sys.stdout.reconfigure(encoding="utf-8")
         print(txt)

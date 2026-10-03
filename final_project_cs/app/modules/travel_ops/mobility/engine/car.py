@@ -458,7 +458,8 @@ class CarService:
           처음 성립하는 분**을 고른다 → 시간대 경계에서 소요가 뛰어도 그 뒤의 성립 구간을 놓치지 않는다(GPT 77-2 #1).
           SCAN_MAX_MIN 분 안에 못 찾으면 RouterDown(code="depart_unconfirmed") — 경로는 있는데 출발을 못 정한 것(#2).
         차도까지 걷는 시간: 장소 좌표 ↔ 스냅점 이격(양끝 합) × 우회계수 ÷ 보행속도(정류장↔역 환승과 같은 규칙 값) — 택시가 문 앞에
-          서지 못하는 만큼을 소요에 넣는다(#3). GH 응답에는 이격이 없어 0.
+          서지 못하는 만큼을 소요에 넣는다(#3). GH 응답에는 이격이 없어 0. 도로 소요·요금은 **출발지 쪽 걷는 시간 뒤**의 시각으로
+          셈한다(GPT 97 #4 — 걷는 사이 시간대가 바뀌는 경우).
         호출·승차 대기는 넣지 않는다(근거 없음 — rules car.택시_대기).
         반환 = leg() 와 같은 dict + depart_dt · worst_time_s(걷기 포함) · access_m · access_s · p10_pct · roads."""
         route, graph_src = self._route(s, e)
@@ -466,14 +467,18 @@ class CarService:
         snap = route["paths"][0].get("snap_m") or []
         del route                                   # 경로(좌표)는 여기서 끝난다
         access_m = float(snap[0] + snap[-1]) if len(snap) >= 2 else 0.0
-        access_s = (access_m * self.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
-                    / self.R["measured_baseline"]["kakao_walk_speed_mps"]["value"]) if access_m else 0.0
+        per_m = (self.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
+                 / self.R["measured_baseline"]["kakao_walk_speed_mps"]["value"])
+        access_s = access_m * per_m if access_m else 0.0
+        # (GPT 97 #4) 차는 **장소 출발 + 출발지에서 차도까지 걷는 시간**에 달리기 시작한다 — 도로 소요·요금의 기준 시각을 그만큼
+        #   옮긴다(앞 판은 장소 출발 시각의 속도로 셈해, 걷는 사이 시간대가 바뀌면 느린 시간대를 놓쳤다).
+        lead = dt.timedelta(seconds=math.ceil(float(snap[0]) * per_m)) if len(snap) >= 2 and snap[0] else dt.timedelta(0)
         day_types = {self.g.daytype(arrive), self.g.daytype(arrive - dt.timedelta(days=1))}
         floor = self.g.floor_s(prep, day_types) + access_s
         dep = (arrive - dt.timedelta(minutes=math.ceil(floor / 60))).replace(second=0, microsecond=0)
         for _ in range(self.SCAN_MAX_MIN + 1):
-            w = self.g.run(prep, dep, worst=True)
-            m = self.g.run(prep, dep)
+            w = self.g.run(prep, dep + lead, worst=True)
+            m = self.g.run(prep, dep + lead)
             need = max(w["topis_time_s"], m["topis_time_s"]) + access_s
             if dep + dt.timedelta(minutes=math.ceil(need / 60)) <= arrive:
                 break
@@ -481,7 +486,7 @@ class CarService:
         else:
             raise RouterDown(f"도착 목표에 맞는 출발 시각을 {self.SCAN_MAX_MIN}분 안에서 찾지 못했다(경로는 있다)",
                              code="depart_unconfirmed")
-        out, _r = self._summary(prep, graph_src, s, e, dep, taxi, kind)
+        out, _r = self._summary(prep, graph_src, s, e, dep + lead, taxi, kind)
         out.update({"depart_dt": dep, "worst_time_s": int(math.ceil(need)), "access_m": round(access_m, 1),
                     "access_s": int(math.ceil(access_s)), "p10_pct": w["p10_pct"], "roads": prep["roads"]})
         return out

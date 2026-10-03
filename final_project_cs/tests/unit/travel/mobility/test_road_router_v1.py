@@ -343,6 +343,27 @@ def test_arrive_by_finds_later_window_across_hour_boundary(rr):
     assert ex.value.code == "depart_unconfirmed"
 
 
+def test_arrive_by_drive_starts_after_the_walk_to_the_road(rr):
+    """GPT 97 #4 — 차는 「장소 출발 + 출발지에서 차도까지 걷는 시간」에 달리기 시작한다. 11시대는 빠르고(약 1분) 12시대는
+    느리다(약 11분). 출발지가 길에서 100 m(걷기 약 2분 15초)면 11:59 에 떠나도 차는 12시대에 달린다 — 장소 출발 시각의 속도로
+    셈하면(앞 판) 11시대 속도로 계산해 못 닿는 출발을 성립으로 냈다."""
+    g = _graph_with_link()
+    for h in range(24):
+        g.prof[("L1", "평일", h)] = 30.0 if h == 11 else 3.0
+        g.p10[("L1", "평일", h)] = g.prof[("L1", "평일", h)]
+    svc = CarService(g, NoRouter(), RULES, road=rr)
+    arrive = dt.datetime(2026, 10, 6, 12, 5)
+    on_road = svc.arrive_by(_pt(37.5, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
+    off_road = svc.arrive_by(_pt(37.5009, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
+    assert on_road["depart_dt"] == dt.datetime(2026, 10, 6, 11, 59)
+    walk = dt.timedelta(seconds=off_road["access_s"])
+    assert 125 < off_road["access_s"] < 145
+    # 걷고 나서 차가 달리기 시작하는 시각이 11시대 안이어야 닿는다 → 장소 출발은 11:57 이전
+    assert off_road["depart_dt"] + walk < dt.datetime(2026, 10, 6, 12, 0), off_road["depart_dt"]
+    assert off_road["depart_dt"] == dt.datetime(2026, 10, 6, 11, 57)
+    assert off_road["depart_dt"] + dt.timedelta(seconds=off_road["worst_time_s"]) <= arrive
+
+
 def test_arrive_by_counts_walk_to_the_road(rr):
     """GPT 77-2 #3 — 장소가 차도에서 100 m 떨어져 있으면 그만큼 걷는 시간이 소요에 든다(이격 × 1.4 ÷ 1.04 m/s)."""
     svc = CarService(_graph_with_link(), NoRouter(), RULES, road=rr)
