@@ -33,7 +33,11 @@ class MobilityUnavailable(RuntimeError):
 def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
               guardrails_path: str | Path | None = None, preload: bool = True,
               verify_hash: bool = True) -> dict[str, Any]:
-    """계산기를 켜거나 끈다. 켤 때는 자료를 확인하고(없거나 다르면 MobilityUnavailable) 적재까지 한다."""
+    """계산기를 켜거나 끈다. 켤 때는 자료를 확인하고(없거나 다르면 MobilityUnavailable) 적재까지 한다.
+
+    ☆99(2026-10-04) `gh_url` 은 **받기만 하고 쓰지 않는다** — 계산기가 경로 서버를 부르지 않는다(택시·자동차는 저장소 안
+      차도 그래프 · 자전거 승차 소요는 근거없음). 팀 설정 칸(`ACOP_MOBILITY_GH_URL` · settings.mobility_gh_url)과 이 인자로
+      부르는 팀 시험이 있어 인자는 남긴다 — 값이 와도 계산기로 넘기지 않는다."""
     if not data_dir:
         paths.disable()
         _STATE.update(mode="disabled", kw=None, datacheck=None)
@@ -46,7 +50,7 @@ def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
         _STATE.update(mode="broken", kw=None, datacheck=dc)
         raise MobilityUnavailable(f"이동 자료 확인 실패 — 서버를 띄우지 않는다(결정 15): 없음 {dc['missing']} · "
                                   f"다름 {dc['mismatched']} · 자료 폴더 {dc['data_dir']}")
-    kw = {"quiet": True, "data_dir": data_dir, "gh_url": gh_url or "", "seoul_key": seoul_key or "",
+    kw = {"quiet": True, "data_dir": data_dir, "seoul_key": seoul_key or "",
           "guardrails_path": str(guardrails_path) if guardrails_path else None}
     _STATE.update(mode="enabled", kw=kw, datacheck=dc)
     if preload:
@@ -61,7 +65,6 @@ def configure_from_settings(settings: Any, *, preload: bool = True) -> dict[str,
     if not gp.is_absolute():
         gp = CS_ROOT / gp
     return configure(data_dir=getattr(settings, "mobility_data_dir", ""),
-                     gh_url=getattr(settings, "mobility_gh_url", ""),
                      seoul_key=getattr(settings, "seoul_openapi_key", ""), guardrails_path=gp, preload=preload)
 
 

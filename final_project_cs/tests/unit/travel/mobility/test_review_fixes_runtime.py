@@ -131,9 +131,9 @@ def test_49_verifier_reads_values_from_guardrails(tmp_path):
 # ── #24 · #25 · #32 적재 · 자료 확인 · 노후 · 다시 올리기 ─────────────
 def test_24_build_verifier_on_mini_data(mini):
     from app.modules.travel_ops.mobility.engine.runtime import build_verifier
-    rt = build_verifier(quiet=True, data_dir=mini, gh_url="", seoul_key="")
+    rt = build_verifier(quiet=True, data_dir=mini, seoul_key="")
     assert rt.stats["timetable_stations"] == 3 and rt.stats["data_dir_source"] == "settings"
-    assert rt.stats["bike_live"] is False and rt.stats["bike_router"] is False, "빈 값은 끔 — 환경변수로 새지 않는다"
+    assert rt.stats["bike_live"] is False and "bike_router" not in rt.stats, "빈 값은 끔 — 환경변수로 새지 않는다 · 자전거 라우터 칸은 없다(99)"
     r = rt.verify_case({"id": "t", "date": "2026-10-07", "depart_at": "10:00", "legs": [
         {"line": "01호선", "from": "A", "to": "C"}], "no_alternatives": True})
     assert r.verdict == "feasible", r.reason
@@ -144,7 +144,7 @@ def test_24_missing_data_names_the_folder(tmp_path, monkeypatch):
     before = (paths.SOURCE, paths.DATA_DIR)
     try:
         with pytest.raises(RuntimeError, match="자료 폴더"):
-            build_verifier(quiet=True, data_dir=tmp_path, gh_url="", seoul_key="")
+            build_verifier(quiet=True, data_dir=tmp_path, seoul_key="")
     finally:
         paths._layout(before[1], before[0])
 
@@ -166,7 +166,7 @@ def test_32_stale_timetable_is_flagged(tmp_path):
     before = (paths.SOURCE, paths.DATA_DIR)
     _write_mini_data(tmp_path, built_at="2026-01-01T00:00:00+09:00")
     try:
-        rt = build_verifier(quiet=True, data_dir=tmp_path, gh_url="", seoul_key="")
+        rt = build_verifier(quiet=True, data_dir=tmp_path, seoul_key="")
         assert rt.timetable_stale and rt.stats["timetable_age_days"] > 30
     finally:
         paths._layout(before[1], before[0])
@@ -190,7 +190,7 @@ def test_89_staleness_uses_collection_date_not_build_time(tmp_path, built_ago, t
         "built_at": _iso_days_ago(built_ago),
         "tago_fetched_at": _iso_days_ago(tago_ago)[:10], "seoul_fetched_at": _iso_days_ago(seoul_ago)[:10]}), encoding="utf-8")
     try:
-        rt = build_verifier(quiet=True, data_dir=tmp_path, gh_url="", seoul_key="")
+        rt = build_verifier(quiet=True, data_dir=tmp_path, seoul_key="")
         assert rt.timetable_stale is stale
         assert rt.stats["timetable_age_basis"] == "meta_fetched"
         assert rt.timetable_built_at.startswith("built:"), "판 표시(built_at)는 그대로 — 나이 기준만 바뀐다"
@@ -205,7 +205,7 @@ def test_89_staleness_falls_back_to_row_fetched_at(tmp_path):
     m = _write_mini_data(tmp_path, built_at="2026-01-01T00:00:00+09:00")          # 행 fetched_at = 1/1
     (m / "timetable_v1_meta.json").write_text(json.dumps({"built_at": _iso_days_ago(1)}), encoding="utf-8")
     try:
-        rt = build_verifier(quiet=True, data_dir=tmp_path, gh_url="", seoul_key="")
+        rt = build_verifier(quiet=True, data_dir=tmp_path, seoul_key="")
         assert rt.timetable_stale and rt.stats["timetable_age_basis"] == "row_fetched"
     finally:
         paths._layout(before[1], before[0])
@@ -214,7 +214,7 @@ def test_89_staleness_falls_back_to_row_fetched_at(tmp_path):
 def test_32_get_verifier_reloads_when_source_changes(mini, monkeypatch):
     from app.modules.travel_ops.mobility.engine import runtime as RT
     monkeypatch.setattr(RT, "_SINGLETON", None)
-    first = RT.get_verifier(quiet=True, data_dir=mini, gh_url="", seoul_key="")
+    first = RT.get_verifier(quiet=True, data_dir=mini, seoul_key="")
     assert RT.get_verifier() is first, "바뀐 것이 없으면 같은 판"
     tt = mini / "travel" / "processed" / "mobility" / "timetable_v1.jsonl"
     time.sleep(0.05)

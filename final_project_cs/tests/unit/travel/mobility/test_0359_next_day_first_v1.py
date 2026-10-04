@@ -28,7 +28,7 @@ def rt():
     import gc
     from app.modules.travel_ops.mobility.engine.runtime import build_verifier
     try:
-        r = build_verifier(quiet=True, gh_url="", seoul_key="", road_graph="none")
+        r = build_verifier(quiet=True, seoul_key="", road_graph="none")
     except RuntimeError as e:
         pytest.skip(f"data not present: {e}")
     yield r

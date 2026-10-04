@@ -16,9 +16,14 @@
   저장소 안 `mini_timetable_v2.jsonl.gz` 로 바꾸고 역 순서표·환승표는 여전히 DATA_DIR 에서 읽는다(0단계 문서 §5).
   수집(collection) 단계에서는 DATA_DIR 을 건드리지 않는다(27번 규칙 26) — 데이터 없는 CI 에서 수집 오류 0.
 
-★라우터(GraphHopper)는 **항상 끈다**(`gh_url="none"`) — 기기에 라우터가 있어도 안 잡는다(재현성). alt 묶음의 `expect_taxi` 4건은
-  CLI `--allow-router-down` 과 같이 SKIP 으로 세고 통과시킨다. 라우터 값은 종전대로 ps1/CLI 로 GH 있는 기기에서 본다.
-  자동차는 합성 경로 픽스처(`car_routes_fixture_v1.json`) · 자전거는 GH 요약 픽스처(`bike_gh_fixture_v1.json`).
+★도로 경로(택시·자동차) — 99(2026-10-04) 부터 경로 서버가 없다. 묶음마다 `road_graph` 로 정한다:
+  · alt = `auto`(저장소 안 차도 그래프 `road_graph_v1` · 파이썬 라우터) — `expect_taxi` 4건의 도착·요금을 **실제로 대조한다**
+    (앞 판은 서버 없는 기기에서 SKIP 으로 세고 넘어갔다). 차도 그래프·도로 소요 자료가 없으면 묶음째 skip.
+  · car = `fixture:car_routes_fixture_v1.json`(합성 경로 대역) — 도로급 커버 경고·골목 과반·라우터 못 닿음처럼 실제 그래프로는
+    만들 수 없는 상황을 잠근다. 실제 경로 계산 결과가 아니다.
+  · 그 밖 = `none` — 택시 대안은 근거없음으로 나온다(이 묶음들은 택시 값을 대조하지 않는다 · 적재 13초·0.2 GB 를 안 쓴다).
+    명령줄(`python -m …verify_time --check-expect`)은 기본이 켠 채(auto)다 — 켜도 이 묶음들의 기대는 같다(95 · 99 확인).
+  자전거 승차 소요는 근거없음이다(자전거 경로 계산 없음) — 자전거 픽스처는 없다.
 
 실행(final_project_cs 에서):
   python -m pytest tests/unit/travel/mobility -q                      # 게이트(+가벼운 단위)
@@ -38,17 +43,20 @@ import pytest
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[3]))          # final_project_cs — 다른 시험 파일과 같은 방식
 
+#: alt 묶음(택시 값 대조)이 더 읽는 파일 — 차도 그래프 + 도로 소요 자료. 없으면 skip(99).
+NEED_ROAD = ("road_graph_v1/edges.jsonl.gz", "graph/topis_class_factor_v1.json")
+
 # ── 14묶음 — 파일 + CLI 인자(scratch\_69\s7_resolve_run.ps1 (8) 구간과 같은 조합) ──────────────
 BUNDLES = {
     "synthetic":   {"file": "synthetic_legs_v1.json", "timetable": "mini_timetable_v2.jsonl.gz"},   # #63(9/29) 압축 판 · Timetable.load 가 .gz 읽음
     "real":        {"file": "real_legs_v1.json"},
     "issue":       {"file": "issue_legs_v1.json"},
-    "alt":         {"file": "alt_legs_v1.json", "allow_router_down": True},
+    "alt":         {"file": "alt_legs_v1.json", "road_graph": "auto", "need": NEED_ROAD},
     "bus":         {"file": "bus_legs_v1.json"},
     "mixed":       {"file": "mixed_legs_v1.json"},
     "multi":       {"file": "multi_legs_v1.json"},
-    "car":         {"file": "car_legs_v1.json", "gh_url": "fixture:car_routes_fixture_v1.json"},
-    "bike":        {"file": "bike_legs_v1.json", "bike_fixture": "bike_gh_fixture_v1.json"},
+    "car":         {"file": "car_legs_v1.json", "road_graph": "fixture:car_routes_fixture_v1.json"},
+    "bike":        {"file": "bike_legs_v1.json"},
     "judgment":    {"file": "judgment_legs_v1.json"},
     "night":       {"file": "night_legs_v1.json"},
     "bus_profile": {"file": "bus_profile_legs_v1.json"},
@@ -76,12 +84,12 @@ FULL = [k for k in ALL if k not in GATE_KEYS]
 N_ALL, N_GATE = 199, 21          # 정본 숫자(92 기준 회귀 199 = 80 의 191 + 92 R-EXPRESS-01~08 · 게이트 21) — 케이스를 더하면 여기도 올린다. 검사는 test_gate_list_is_consistent 에서
 
 
-# ── 판정기: 적재 조건(시간표·라우터·자전거 픽스처·버스 프로파일)이 같은 케이스는 한 판정기를 나눠 쓴다 ────────
+# ── 판정기: 적재 조건(시간표·도로 경로·버스 프로파일)이 같은 케이스는 한 판정기를 나눠 쓴다 ────────
 #   묶음마다 따로 올리면 197 MB 시간표를 묶음 수만큼 훑는다(게이트 10묶음 ≈ 100 초). 조건이 같으면 wanted(케이스가
 #   쓰는 노선·역 집합)만 합집합이 되고 판정은 같다 — CLI `--case <id>` 가 케이스 하나만으로 적재해도 같은 값이 나오는 것과
-#   같은 이유. 게이트는 판정기 2개(실데이터 1 · 합성 1), 전체층은 5개(기본 · 합성 · 자동차 픽스처 · 자전거 픽스처 · 프로파일 없음).
+#   같은 이유. 게이트는 판정기 2개(실데이터 1 · 합성 1), 전체층은 5개(기본 · 합성 · 자동차 픽스처 · 택시 대안(차도 그래프) · 프로파일 없음).
 _CACHE = {}
-LOAD_KEYS = ("timetable", "gh_url", "bike_fixture", "bus_profile")
+LOAD_KEYS = ("timetable", "road_graph", "bus_profile")
 
 
 def _processed():
@@ -92,7 +100,7 @@ def _processed():
 
 
 def _skip_if_missing(bundle):
-    need = NEED_SYNTH if bundle == "synthetic" else NEED_REAL
+    need = (NEED_SYNTH if bundle == "synthetic" else NEED_REAL) + tuple(BUNDLES[bundle].get("need") or ())
     p = _processed()
     # 75(9/30): 저장소 데이터의 실 시간표는 `.gz` — 판정기와 같은 규칙(paths.timetable_file · .gz 우선)으로 있는지 본다
     from app.modules.travel_ops.mobility.engine.paths import timetable_file
@@ -110,20 +118,18 @@ def _args(bundle):
     b = BUNDLES[bundle]
     from app.modules.travel_ops.mobility.engine.verify_time import RULES_DIR
     fx = lambda k: str(HERE / b[k]) if b.get(k) else None            # noqa: E731
-    # ★ 라우터(GraphHopper)는 pytest 에서 **항상 끈다**(GPT 대조 ①). 안 끄면 .env 의 MOBILITY_GH_URL 이나 규칙의 주소로
-    #   살아 있는 라우터를 잡아 기기마다 결과가 달라진다. 라우터 값(alt 의 expect_taxi 등)은 종전대로 ps1/CLI 로 GH 있는
-    #   기기에서 본다. 자동차 픽스처(fixture:)만 예외.
-    gh = b.get("gh_url") or "none"
-    if gh.startswith("fixture:"):
-        gh = "fixture:" + str(HERE / gh[len("fixture:"):])
+    # ★ 도로 경로는 묶음이 정한다(머리말) — 안 적은 묶음은 끈다(none). 환경변수 MOBILITY_ROAD_GRAPH 는 보지 않는다(재현성).
+    road = b.get("road_graph") or "none"
+    if road.startswith("fixture:"):
+        road = "fixture:" + str(HERE / road[len("fixture:"):])
     return SimpleNamespace(
         cases=str(HERE / b["file"]), case=None,
         timetable=fx("timetable"), order=None, transfer_walk=None, bus_route=None, bus_stops=None,
         station_coords=None, station_exits=None, bike_stations=None,
-        bike_fixture=fx("bike_fixture"), bike_live="none", bike_record=None,
+        bike_live="none",
         bus_profile=b.get("bus_profile"), congestion=None,
         rules=str(RULES_DIR / "rules_v0.3.json"), holidays=str(RULES_DIR / "holidays_2026_2027.json"),
-        graph_dir=None, gh_url=gh, allow_router_down=bool(b.get("allow_router_down")),
+        graph_dir=None, road_graph=road,
         check_expect=True, verbose=False, json=None)
 
 
@@ -150,10 +156,9 @@ def _run(file, case_id, layer_ids):
     v = _verifier(bundle, layer_ids)
     case = next(c for c in _read_cases(file) if c["id"] == case_id)
     r = v.verify_case(case)
-    miss, skipped = check_expect(case, r, BUNDLES[bundle].get("allow_router_down", False))
+    miss, _skipped = check_expect(case, r)
     assert not miss, (f"[{case_id}] {case.get('note', '')[:120]}\n"
-                      + "\n".join(f"  MISS 기대 {e} → 실제 {g}" for _i, e, g in miss)
-                      + (f"\n  (라우터 없음 SKIP: {[a for _i, a in skipped]})" if skipped else ""))
+                      + "\n".join(f"  MISS 기대 {e} → 실제 {g}" for _i, e, g in miss))
 
 
 def _by_file(keys):

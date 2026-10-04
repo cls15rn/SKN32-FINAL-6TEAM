@@ -56,6 +56,18 @@ def test_31_enabled_preloads_once(tmp_path):
     assert got["mode"] == "enabled" and RT._SINGLETON is not None, "기동 때 적재한다 — 첫 요청이 기다리지 않는다"
 
 
+def test_99_gh_url_setting_is_accepted_but_not_used(tmp_path):
+    """99(2026-10-04) — 팀 설정 칸(ACOP_MOBILITY_GH_URL)에 값이 와도 계산기로 넘기지 않는다(경로 서버를 부르지 않는다).
+    인자는 받는다 — 팀 설정·팀 시험이 이 이름으로 부른다."""
+    _write_mini_data(tmp_path)
+    wiring.configure(data_dir=str(tmp_path), gh_url="http://localhost:1", seoul_key="")
+    assert "gh_url" not in wiring._STATE["kw"], wiring._STATE["kw"]
+    from types import SimpleNamespace
+    wiring.configure_from_settings(SimpleNamespace(mobility_data_dir=str(tmp_path), mobility_gh_url="http://localhost:1",
+                                                   seoul_openapi_key="", guardrails_path="config/guardrails.yaml"))
+    assert "gh_url" not in wiring._STATE["kw"] and wiring.mode() == "enabled"
+
+
 def test_34_35_team_answers_structured_route_with_engine(tmp_path):
     _write_mini_data(tmp_path)
     wiring.configure(data_dir=str(tmp_path), gh_url="", seoul_key="")

@@ -86,38 +86,9 @@ def test_30_adapter_refuses_arrive_only_input():
     assert case is None and note.startswith("mobility_input_incomplete:depart_at")
 
 
-# ── #10 · #28 · #50 자전거 조회 ──────────────────────────────────────
-class _Router:
-    def __init__(self, doc=None, exc=None):
-        self.doc, self.exc = doc, exc
-
-    def route(self, *a, **k):
-        if self.exc:
-            raise self.exc
-        return self.doc
-
-
-def test_10_missing_distance_or_time_is_not_zero():
-    from app.modules.travel_ops.mobility.engine.bike import BikeRouter
-    br = BikeRouter(_Router({"paths": [{}]}))
-    assert br.route("bike", 37.5, 127.0, 37.51, 127.01) is None, "빈 경로를 0 m·0 초로 만들지 않는다"
-    assert br.last_error["kind"] == "bad_response"
-    ok = BikeRouter(_Router({"paths": [{"distance": 1234.5, "time": 300000}]}))
-    assert ok.route("bike", 37.5, 127.0, 37.51, 127.01)["time_s"] == 300
-
-
-def test_28_router_failures_are_classified_and_bugs_not_swallowed():
-    from app.modules.travel_ops.mobility.engine.bike import BikeRouter
-    from app.modules.travel_ops.mobility.engine.car import RouterDown
-    down = BikeRouter(_Router(exc=RouterDown("down")))
-    assert down.route("bike", 37.5, 127.0, 37.51, 127.01) is None and down.last_error["kind"] == "router_down"
-    net = BikeRouter(_Router(exc=OSError("reset")))
-    assert net.route("bike", 37.5, 127.0, 37.51, 127.01) is None and net.last_error["kind"] == "router_error"
-    with pytest.raises(TypeError):                   # 코드 결함은 삼키지 않는다
-        BikeRouter(_Router(exc=TypeError("bug"))).route("bike", 37.5, 127.0, 37.51, 127.01)
-    assert BikeRouter(None).route("bike", 1, 1, 1, 1) is None
-
-
+# ── #28 · #50 자전거 조회 ─────────────────────────────────────────────
+#   99(2026-10-04) — 자전거 경로 계산(BikeRouter)을 지웠다. #10(빈 경로를 0 m·0 초로 만들지 않는다)·#28 의 라우터 실패 분류
+#   시험 둘은 대상 코드와 함께 없어졌다. 승차 소요는 늘 근거없음이다(아래 test_99_*).
 def test_28_bike_live_no_key_reason():
     from app.modules.travel_ops.mobility.engine.bike import BikeLive
     live = BikeLive(key=None)
@@ -150,6 +121,77 @@ def test_9_bike_needs_one_per_person():
     four = v.verify_leg_bike(1, leg, 600, "weekday", party={"size": 4}, live_fixture=live)
     assert one.verdict == "feasible"
     assert four.verdict == "infeasible" and "4명" in four.reason, "4인 일행에 2대면 빌릴 수 없다"
+
+
+def test_99_bike_ride_is_unknown_and_says_why():
+    """99(2026-10-04) — 자전거 경로 계산이 없다: 대여소는 찾되 승차 소요·도착을 내지 않고 이유를 말한다(다른 수단 값으로 안 바꾼다)."""
+    from app.modules.travel_ops.mobility.engine.bike import BikeStations
+    from app.modules.travel_ops.mobility.engine.verify_time import BIKE_NO_ROUTE
+    st = {"stationId": "ST-1", "name": "대여소1", "lat": 37.5000, "lon": 127.0000, "mode": "QR", "rack": 10}
+    st2 = {"stationId": "ST-2", "name": "대여소2", "lat": 37.5100, "lon": 127.0100, "mode": "QR", "rack": 10}
+    v = _verifier(bk=BikeStations([st, st2]))
+    assert not hasattr(v, "bike_router")
+    leg = {"mode": "bike", "from": {"lat": 37.5001, "lng": 127.0001, "name": "출발"},
+           "to": {"lat": 37.5101, "lng": 127.0101, "name": "도착"}}
+    r = v.verify_leg_bike(1, leg, 600, "weekday", party={"size": 1},
+                          live_fixture={"checked_at": "2026-09-29T10:00", "counts": {"ST-1": 2}})
+    assert r.verdict == "feasible" and r.ride_min is None and r.arrive_min is None and r.ride_grade == "근거없음"
+    assert r.grade == "근거없음" and BIKE_NO_ROUTE in r.reason
+    assert any(BIKE_NO_ROUTE in (e.get("claim") or e.get("source_id") or "") or BIKE_NO_ROUTE in str(e) for e in r.evidence)
+
+
+def _key_env(monkeypatch, tmp_path, env=None, dot_env=None, apikeys=None):
+    """final_project_cs/.env · .env.apikeys 를 임시 폴더에 만들고 그 자리를 저장소 맨 위로 본다. None = 파일 없음."""
+    from app.modules.travel_ops.mobility.engine import bike as B
+    from app.modules.travel_ops.mobility.engine import paths
+    cs = tmp_path / "final_project_cs"
+    cs.mkdir(exist_ok=True)
+    for name, text in ((".env", dot_env), (".env.apikeys", apikeys)):
+        if text is not None:
+            (cs / name).write_text(text, encoding="utf-8")
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("ACOP_SEOUL_OPENAPI_KEY", raising=False)
+    monkeypatch.delenv("SEOUL_OPENAPI_KEY", raising=False)
+    for k, v in (env or {}).items():
+        monkeypatch.setenv(k, v)
+    live = B.BikeLive.from_env()
+    return live.key if live else None
+
+
+def test_99_bike_live_key_name(monkeypatch, tmp_path):
+    """99 — 명령줄 관례의 키는 팀 양식 이름(ACOP_SEOUL_OPENAPI_KEY)만. 옛 이름(SEOUL_OPENAPI_KEY)은 읽지 않는다."""
+    assert _key_env(monkeypatch, tmp_path, env={"SEOUL_OPENAPI_KEY": "OLDNAME"}, dot_env="SEOUL_OPENAPI_KEY=OLDFILE\n") is None
+    assert _key_env(monkeypatch, tmp_path, env={"ACOP_SEOUL_OPENAPI_KEY": "NEWNAME"}) == "NEWNAME"
+
+
+def test_99_bike_live_key_order_matches_collect_scripts(monkeypatch, tmp_path):
+    """99(GPT #2) — 읽는 순서가 수집 쪽 `_paths.api_key()` 와 같다: 두 파일을 먼저 합치고(뒤 파일 .env.apikeys 가 이긴다 ·
+    **빈 값으로 적혀 있으면 빈 값**) 환경변수가 그 앞. 앞 판은 뒤 파일의 빈 값을 무시하고 앞 파일 키를 되살렸다."""
+    one = "ACOP_SEOUL_OPENAPI_KEY=FROM_ENV_FILE\n"
+    assert _key_env(monkeypatch, tmp_path, dot_env=one) == "FROM_ENV_FILE"
+    assert _key_env(monkeypatch, tmp_path, dot_env=one, apikeys="ACOP_SEOUL_OPENAPI_KEY=FROM_APIKEYS\n") == "FROM_APIKEYS"
+    assert _key_env(monkeypatch, tmp_path, dot_env=one, apikeys="ACOP_SEOUL_OPENAPI_KEY=\n") is None, "뒤 파일의 빈 값이 이긴다"
+    assert _key_env(monkeypatch, tmp_path, dot_env=one, apikeys="OTHER=1\n") == "FROM_ENV_FILE", "뒤 파일에 칸이 없으면 앞 파일 값"
+    assert _key_env(monkeypatch, tmp_path, env={"ACOP_SEOUL_OPENAPI_KEY": "FROM_OS"}, dot_env=one,
+                    apikeys="ACOP_SEOUL_OPENAPI_KEY=FROM_APIKEYS\n") == "FROM_OS", "환경변수가 먼저"
+    assert _key_env(monkeypatch, tmp_path, env={"ACOP_SEOUL_OPENAPI_KEY": "   "}, dot_env=one, apikeys="OTHER=1\n") is None, \
+        "공백뿐인 환경변수는 그 값으로 읽고(파일로 안 넘어감) 다듬어 빈 값 — 수집 쪽과 같다"
+    # 수집 쪽 함수와 같은 입력에서 같은 답인지 직접 대조(값이 있을 때)
+    import importlib.util
+    import sys
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[5] / "datasets" / "mobility" / "scripts" / "_paths.py"
+    if src.exists():
+        spec = importlib.util.spec_from_file_location("_paths_collect_99", src)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        monkeypatch.setattr(mod, "CS_ROOT", tmp_path / "final_project_cs")
+        got = _key_env(monkeypatch, tmp_path, dot_env=one, apikeys="ACOP_SEOUL_OPENAPI_KEY=FROM_APIKEYS\n")
+        assert mod.api_key("seoul") == got == "FROM_APIKEYS"
+        _key_env(monkeypatch, tmp_path, dot_env=one, apikeys="ACOP_SEOUL_OPENAPI_KEY=\n")
+        with pytest.raises(SystemExit):
+            mod.api_key("seoul")
 
 
 def test_9_party_of_reads_survey_domestic():

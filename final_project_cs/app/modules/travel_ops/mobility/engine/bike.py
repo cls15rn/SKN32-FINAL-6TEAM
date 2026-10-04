@@ -1,12 +1,13 @@
 # modules/mobility/bike.py — 따릉이 조회 계층 (규칙 v0.7 · 22번 방 · 2026-09-20)
 #
-# 셋으로 나뉜다. 판정은 여기서 하지 않는다(verify_time.py verify_leg_bike 가 한다).
+# 둘로 나뉜다. 판정은 여기서 하지 않는다(verify_time.py verify_leg_bike 가 한다).
 #   BikeStations  운영 대여소 목록(processed/mobility/bike_stations_v1.jsonl · 17번 산출). 정적 속성만. 확정(위치) · 추정(운영방식).
 #   BikeLive      실시간 거치 수. bikeList?stationId= **단건** 조회 → parkingBikeTotCnt. 응답은 값만 쓰고 버린다 —
 #                 여기서도 캐시하지 않고, 돌려주는 dict 에는 개수와 조회 시각만 있다(원 응답 보관 없음).
-#                 소스 셋: 'env'(SEOUL_OPENAPI_KEY 로 실제 호출) · dict 픽스처(회귀 — 케이스 bike_live) · None(조회 불가).
-#   BikeRouter    21번 car.py 의 라우터 객체(GraphHopperClient·FixtureRouter)를 bike·foot 프로파일로 부르는 얇은 껍데기.
-#                 응답에서 **거리·시간만** 받고 형상은 버린다(경로 비저장 원칙). 자전거 픽스처(거리·시간 요약)가 있으면 그것을 먼저 본다.
+#                 소스 셋: 'env'(ACOP_SEOUL_OPENAPI_KEY 로 실제 호출) · dict 픽스처(회귀 — 케이스 bike_live) · None(조회 불가).
+#   ☆99(2026-10-04) 자전거 **경로 계산은 없다** — 경로 서버(bike·foot 프로파일)를 부르던 조회 계층을 지웠다. 승차 소요는
+#                 근거없음으로 낸다(판정기가 「자전거 경로 계산 없음」이라 말한다 — 다른 수단으로 몰래 바꾸지 않는다).
+#                 살릴 때는 전용 경로 계산을 만들지 않고 보행 경로 거리 ÷ 자전거 평균 속도(단위 환산)(본인 10/4 · 보행 그래프 뒤).
 #
 # ★ 이 모듈은 규칙 파일을 읽지 않는다 — 규칙값(반경·요금·연령)은 판정기가 넘긴다. fare()·party_excluded() 만 규칙 dict 를 받는다.
 import json, os, math, datetime as _dt
@@ -60,6 +61,7 @@ class BikeLive:
       싣지 않는다**(last_error 에는 종류와 상태 코드만). 전송 구간 노출은 제공처 제약으로 남는다.
     """
     URL = "http://openapi.seoul.go.kr:8088/{key}/json/bikeList/1/5/{sid}"
+    KEY_NAME = "ACOP_SEOUL_OPENAPI_KEY"
 
     def __init__(self, fixture=None, key=None, timeout=5.0):
         self.fixture = fixture          # {'checked_at': ..., 'counts': {stationId: n}} — 회귀용
@@ -70,7 +72,18 @@ class BikeLive:
 
     @classmethod
     def from_env(cls):
-        k = os.environ.get("SEOUL_OPENAPI_KEY")
+        """명령줄 관례 — 팀 양식 이름 `ACOP_SEOUL_OPENAPI_KEY` 하나만 본다(99 · 옛 이름 SEOUL_OPENAPI_KEY 는 안 읽는다).
+        읽는 순서는 수집 쪽 `datasets/mobility/scripts/_paths.api_key()` 와 같다: 환경변수 → final_project_cs/.env →
+        final_project_cs/.env.apikeys. 서버는 이 길을 타지 않는다(설정 값 seoul_key 를 넘긴다 · #48). 값은 어디에도 찍지 않는다."""
+        from dotenv import dotenv_values
+
+        from .paths import REPO_ROOT
+        cs_root = REPO_ROOT / "final_project_cs"
+        merged = {}
+        for f in (cs_root / ".env", cs_root / ".env.apikeys"):      # 뒤 파일이 이긴다 — 빈 값으로 적혀 있으면 빈 값이 된다(_paths 와 같다)
+            if f.exists():
+                merged.update(dotenv_values(f))
+        k = (os.environ.get(cls.KEY_NAME) or merged.get(cls.KEY_NAME) or "").strip()
         return cls(key=k) if k else None
 
     @classmethod
@@ -122,83 +135,6 @@ class BikeLive:
             self.last_error = {"kind": "bad_response", "error": "parkingBikeTotCnt"}
             return None
         return {"available": n, "checked_at": at, "source_id": f"seoul_bikeList@{at}"}
-
-
-class BikeRouter:
-    """bike/foot 소요 — **21번 car.py 의 라우터(GraphHopperClient · FixtureRouter · NoRouter)를 그대로 쓴다.** 새 클라이언트를 만들지 않는다.
-
-    router   : car.make_router(spec) 이 준 객체. route((lng,lat),(lng,lat), profile=...) 을 부르고 응답에서 **거리·시간만** 남긴다(형상은 버린다).
-               None 이면 호출하지 않는다.
-    fixture  : {'<profile>|<lat1>,<lng1>|<lat2>,<lng2>': {'distance_m':..,'time_s':..}} (좌표 5자리) — 자전거 회귀용 요약값. 라우터보다 먼저 본다.
-    pbf_date : source_id 'osm_bike_graph@<pbf_date>' 에 쓴다.
-    record   : dict 를 주면 실제 호출 결과 요약을 모은다(픽스처 기록용 · 형상 없음).
-    """
-
-    def __init__(self, router=None, fixture=None, pbf_date=None, record=None):
-        self.router = router
-        self.fixture = fixture or {}
-        self.pbf_date = pbf_date or "unknown"
-        self.record = record
-        self.calls = 0
-        self.last_error = None          # 마지막 경로 조회 실패의 종류(#28)
-
-    @staticmethod
-    def key(profile, lat1, lng1, lat2, lng2):
-        return f"{profile}|{lat1:.5f},{lng1:.5f}|{lat2:.5f},{lng2:.5f}"
-
-    @property
-    def source_id(self):
-        return f"osm_bike_graph@{self.pbf_date}"
-
-    @property
-    def url(self):
-        return getattr(self.router, "url", None)
-
-    def available(self):
-        return self.router is not None or bool(self.fixture)
-
-    def route(self, profile, lat1, lng1, lat2, lng2):
-        k = self.key(profile, lat1, lng1, lat2, lng2)
-        if k in self.fixture:
-            v = self.fixture[k]
-            return {"distance_m": v["distance_m"], "time_s": v["time_s"], "basis": "fixture",
-                    "source_id": v.get("source_id") or self.source_id}
-        self.last_error = None
-        if self.router is None:
-            self.last_error = {"kind": "no_router"}
-            return None
-        from .car import RouterDown
-        try:
-            self.calls += 1
-            doc = self.router.route((lng1, lat1), (lng2, lat2), profile=profile)   # car.py 와 같은 (lng, lat) 순서
-        except RouterDown as ex:               # 라우터에 못 닿음 — 자전거는 소요 근거없음으로 낸다(죽지 않는다)
-            self.last_error = {"kind": "router_down", "error": str(ex)[:120]}
-            return None
-        except (OSError, ValueError) as ex:    # 통신·응답 해석 실패. 그 밖의 예외(코드 결함)는 삼키지 않는다(#28)
-            self.last_error = {"kind": "router_error", "error": type(ex).__name__}
-            return None
-        paths = (doc or {}).get("paths") or []
-        if not paths:
-            self.last_error = {"kind": "no_path"}
-            return None
-        p = paths[0]
-        # ☆`[2026-09-29 문제목록 #10]` 거리·시간이 빠진 응답을 0 으로 채우지 않는다 — 앞 판은 {"paths":[{}]} 를
-        #   「0 m · 0 초 경로」로 만들었다. 빠졌으면 근거없음이다.
-        try:
-            dist, tms = float(p["distance"]), float(p["time"])
-        except (KeyError, TypeError, ValueError):
-            self.last_error = {"kind": "bad_response", "error": "distance/time 없음"}
-            return None
-        if dist < 0 or tms < 0:
-            self.last_error = {"kind": "bad_response", "error": "음수 거리·시간"}
-            return None
-        out = {"distance_m": round(dist, 1),
-               "time_s": int(round(tms / 1000)), "basis": "graphhopper",
-               "source_id": self.source_id}
-        if self.record is not None:
-            self.record[k] = {"distance_m": out["distance_m"], "time_s": out["time_s"],
-                              "source_id": out["source_id"]}
-        return out       # ★ doc(형상 포함)은 여기서 버린다
 
 
 def party_excluded(party, rules_bike):

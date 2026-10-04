@@ -7,7 +7,7 @@
 
   # 회귀 한 묶음 (저장소 루트, PYTHONPATH=final_project_cs)
   python final_project_cs/tests/unit/travel/mobility/judgment_log_run.py --bundle judgment -- verify_time \\
-      --cases final_project_cs/tests/unit/travel/mobility/judgment_legs_v1.json --check-expect --gh-url none --allow-router-down
+      --cases final_project_cs/tests/unit/travel/mobility/judgment_legs_v1.json --check-expect --road-graph none
 
   # 자기점검 (◆1 = 자기점검까지 · 탐침 9,776줄)
   python final_project_cs/tests/unit/travel/mobility/judgment_log_run.py --source selfcheck --bundle selfcheck -- selfcheck \\

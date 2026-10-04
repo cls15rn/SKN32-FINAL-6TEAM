@@ -52,7 +52,9 @@
 | `REPORT.md`(44 KB) · `consistency_report.md` · `travel_min_check_report.md` · `airport_bus_v1_report.md` · `bus_speed_v1_report.md` | 0.1 MB | 사람 | 제출 문서(드라이브) · 저장소에는 안 둠 — 저장소 설명은 `REPORT.md` · `DATA_IN_GIT.md` |
 | `budget_probe\budget_legs_measured_v1.json` | 3.8 KB | `budget_probe_measure_v1.py` | 탐침 결과(중간 산출) |
 
-## C-4 그래프 라우터 = 재빌드 (`processed\mobility\graph\gh\` 1,240 MB + `graph\` 나머지 6 MB)
+## C-4 옛 경로 서버 빌드물 = 엔진이 안 읽음 (`processed\mobility\graph\gh\` 1,240 MB + `graph\` 나머지 6 MB)
+
+> **10/4 부터 이동 엔진은 경로 서버(GraphHopper)를 부르지 않는다** — 택시·자동차 경로는 저장소 안 `road_graph_v1/`(파이썬 도로 라우터)로 내고, 자전거 승차 소요는 근거없음이다. 아래 빌드물은 9월의 대조·검수 기록으로만 남는다(재빌드할 일 없음).
 
 | 파일 | 크기 | 이유 · 재생성 |
 |---|---:|---|
@@ -63,7 +65,7 @@
 | `graph\topis_link_geom_v1.geojson`(2.9 MB) · `topis_link_geom_v1_len_check.csv` · `topis_osm_match_v1.csv` · `osm_way_topis_link_v1.csv` · `road_test_expected_v1.csv` · `gh_*_result.csv` · `sample10.json` · `step3_result_*.json` · `test_route_teheran_up.json` | 6 MB | 매칭 검수·회귀 기대값·표본 — `car.py` 가 안 읽음(README 표 참조) |
 | `build_topis_pbf.py` · `graph_time.py` · `gh_sample_run.py` · 인계 md 2 | 0.1 MB | GraphHopper 전용 도구라 저장소에 안 넣음 · `graph\` 5파일을 만드는 `_build\*.py` 는 `scripts/graph_*.py` 로 옮김(9/30) |
 
-없을 때: `CarGraph.load` 는 5개 파일(A)로 뜨지만 라우터(`MOBILITY_GH_URL`)가 없으면 택시·자동차·자전거 소요는 근거없음 — 회귀 `CAR-*`·`BIKE-*` 는 전체층(`mobility_full`)이고 `allow_router_down` 이라 팀원 게이트엔 영향 없음.
+없을 때: 영향 없음 — `CarGraph.load` 는 5개 파일(A)로 뜨고 경로는 `road_graph_v1/`(A)로 낸다. 회귀 `CAR-*` 는 합성 경로 픽스처, 택시 대안 `ALT-*` 는 차도 그래프로 돈다(전체층 `mobility_full`).
 
 ## C-5 판정 로그 · ML 실험 (`logs\` 74 MB · `ml_compare*\` 6 MB)
 

@@ -68,7 +68,7 @@
 | `expect_last_depart` / `expect_last_depart_none` | 「늦어도 이때는 출발」(worst 판정기로 역산) / 그 값이 **없어야 한다** | `"24:46"` / `true` |
 | `expect_alt_min` · `expect_alt_max` · `…_by_mode` | 대안 개수 하한·상한(전체 / 수단별) | `1` · `0` · `{"bus":1,"bike":1}` |
 | `expect_alt_axis` · `expect_alt_arrive` | 대안 중 이 축(`수단교체`·`노선교체`…)이 있어야 / 이 도착 시각이 있어야 | `"수단교체"` · `"25:38"` |
-| `expect_taxi` | 택시 대안의 판정·도착·요금·등급·경고. **라우터(GraphHopper)가 없으면 SKIP** 으로 세고 넘어간다(`--allow-router-down`) | `{"verdict":"feasible","arrive":"25:05","fare_won":12300}` |
+| `expect_taxi` | 택시 대안의 판정·도착·요금·등급·경고. 99(10/4)부터 저장소 안 차도 그래프(파이썬 라우터)로 **어느 기기에서나 대조한다** — 「라우터 없음 SKIP」 은 없어졌다 | `{"verdict":"feasible","arrive":"25:05","fare_won":12300}` |
 | `expect_taxi_leg` | 택시·자동차 **구간**의 요금·심야·커버율 | |
 | `expect_warn_codes` / `expect_warn_codes_absent`(=`expect_warn_absent`) | 이 경고 **코드**가 있어야 / 없어야 (케이스 경고 ∪ 대안 경고) | `["MOB_W_DEST_INFERRED"]` |
 | `expect_relief_contains` · `expect_reason_contains` | 완화 문장 · 사유 문장에 이 글자가 있어야 | `"더 일찍"` · `"최악값"` |
@@ -79,7 +79,7 @@
 
 ## 3. `--check-expect` 가 비교하는 칸 (기대 칸 → 실제 칸)
 
-`verify_time.py` 의 `check_expect(c, r, allow_router_down)` 함수가 전부다(9/29 에 `main()` 의 `--check-expect` 블록을 그대로 함수로 뺌 · CLI 와 pytest 가 같이 쓴다). 판정 경로와는 분리돼 있다.
+`verify_time.py` 의 `check_expect(c, r)` 함수가 전부다(9/29 에 `main()` 의 `--check-expect` 블록을 그대로 함수로 뺌 · CLI 와 pytest 가 같이 쓴다). 판정 경로와는 분리돼 있다.
 
 | 기대 칸 | 실제(어디서 꺼내나) | 비교 |
 |---|---|---|
@@ -91,7 +91,7 @@
 | `expect_last_depart(_none)` | `r.out["last_feasible_depart_min"]` | 분→`HH:MM` 문자열 같아야 / None 이어야 |
 | `expect_arrive` | `r.arrive_min` | 분 단위 정수 같아야(1분도 다르면 MISS) |
 | `expect_alt_*` | `r.alternatives[]` (`label`·`mode`·`axis`·`arrive_min`) | 개수·축·도착 |
-| `expect_taxi` | `r.taxi` | 라우터 다운 + `--allow-router-down` 이면 SKIP 로 셈(조용히 통과 아님 — 요약 줄에 찍힌다) |
+| `expect_taxi` | `r.taxi` | 차도 그래프 없이(`--road-graph none`) 돌리면 MISS 다(99 — SKIP 없음) |
 | `expect_taxi_leg` | `r.legs[].car` | 요금·심야·커버율 |
 | `expect_warn_codes(_absent)` | `r.warnings[].code` ∪ `r.alternatives[].warnings[].code` | 있어야 / 없어야 |
 | `expect_relief_contains` · `expect_reason_contains` | `r.relief` · `r.reason` + 각 구간 `reason` | 부분 문자열 |
@@ -111,12 +111,12 @@
 | 1 | `synthetic_legs_v1` | 28 | **합성** `mini_timetable_v2.jsonl`(20 MB · git 안) + 역 순서·환승표(§5) | `--timetable mini_timetable_v2.jsonl` | 지하철 판정의 **기본 문법** — 첫차·막차·24시 넘김·짧은 구간·종착·행선지 없음·방향·순환·시발역·환승·동행 상한·토/일/공휴일·공백·역 없음 | `LAST-01` 24:30 강변→잠실 성립 · 늦어도 24:46 → **24시 넘김(분 단위 시각) 처리나 막차 선택이 깨졌다** |
 | 2 | `real_legs_v1` | 32 | 실 시간표 | — | 1 과 같은 축을 **실제 시간표**로. 도착 시각 22건을 분까지 잠근다(2026-09-10 순환선 73분 버그가 판정은 「성립」이었고 도착만 틀렸다) | `R-LOOP-01` 성수→잠실 14:00 → 14:11 · 시발역 경고 → **순환선 시발역(592편 전부 「성수행」)을 종착 필터가 통째로 죽였다** |
 | 3 | `issue_legs_v1` | 9 | 실 | — | 이슈(`disruptions`) — 무정차·간선 중단·환승역 무정차 · 대안 상한(`expect_alt_max`) | `ISSUE-02/03/03B` 같은 구간·시각 — 무정차=성립 · 한쪽 끊김=반대로 돌아 성립 · **양쪽** 끊김=불가 → **셋이 갈리지 않으면 이슈 모델(`rules.disruption`)이 무너졌다** |
-| 4 | `alt_legs_v1` | 5 | 실 (+GH 라우터 있으면 택시 값) | `--allow-router-down` | 불가일 때 **대안 열거** — 규칙 순서로 후보를 만들고 **같은 판정기에 재통과** · 접근·이탈 도보를 시각에 넣는다 · 택시 요금(라우터) | `ALT-01` 24:55 잠실→성수 막차 이후 → 심야버스 대안 25:38 · 택시 25:05/12,300원 → **대안이 도보 157 m+209 m 를 시각에서 빼먹었거나 재판정을 안 한다** |
+| 4 | `alt_legs_v1` | 5 | 실 + 차도 그래프 `road_graph_v1`(git 안 · 파이썬 라우터) | (기본 `--road-graph auto`) | 불가일 때 **대안 열거** — 규칙 순서로 후보를 만들고 **같은 판정기에 재통과** · 접근·이탈 도보를 시각에 넣는다 · 택시 요금(라우터) | `ALT-01` 24:55 잠실→성수 막차 이후 → 심야버스 대안 25:38 · 택시 25:05/12,300원 → **대안이 도보 157 m+209 m 를 시각에서 빼먹었거나 재판정을 안 한다** |
 | 5 | `bus_legs_v1` | 11 | 실 (버스 717노선) | — | 버스 첫차·막차·배차·승차 소요 · 버스 불가 시 **수단교체(지하철)** | `BUS-03` 2016 22:40(막차 22:20) → 불가 `after_last` · 2호선 대안 22:47 → **버스 막차 판정 또는 버스→지하철 수단교체 축** |
 | 6 | `mixed_legs_v1` | 6 | 실 | — | 지하철↔버스 **혼합 환승 도보**(정류장↔가장 가까운 출구 직선×우회계수) · 상한 ±20 m 근거없음 · 좌표 없음 | `MIX-01` 2016 하차→성수역 122 m → 11:31 → **환승 도보가 0분으로 돌아갔다(9/16 결함 재발)** |
 | 7 | `multi_legs_v1` | 6 | 실 | — | **후보 생성기**(최단·최소환승·최소도보 + 버스 직행) · 동급(tie) · 노선별 불가 | `MULTI-01` 사당→왕십리 후보 ≥2 · 최단=4호선→이촌→경의선 · 최소환승=2호선 직행 → **후보 생성기(`candidates.py`)가 기준을 못 가른다** |
-| 8 | `car_legs_v1` | 12 | 실 그래프(`graph/`) + **합성 경로 픽스처**(git 안) | `--gh-url fixture:car_routes_fixture_v1.json` | 택시·자동차 소요·요금(병산·심야 할증·하한) · 도로급 커버율 → 등급·경고 · 라우터 다운 | `CAR-06` 골목 100% → 성립이지만 등급 **근거없음** + `MOB_W_CAR_SPEED_DEFAULT` · CLASS 경고는 없어야 → **커버율→등급 규칙이 깨졌거나 경고가 섞인다** |
-| 9 | `bike_legs_v1` | 14 | 실 대여소 + **GH 요약 픽스처**(git 안) | `--bike-fixture bike_gh_fixture_v1.json` | 따릉이 — 반경 안 대여소·LCD 제외·연령·실시간 거치(픽스처)·요금·초과 경고 · 자전거가 **대안**으로 서는가 | `BIKE-01` 24:55 잠실→성수 → N73 뒤 따릉이 대안 · 8번출구(LCD) 건너뛰고 6번 → **자전거 대안 축이나 LCD 규칙** |
+| 8 | `car_legs_v1` | 12 | 실 그래프(`graph/`) + **합성 경로 픽스처**(git 안 · 실제 경로 계산 결과 아님) | `--road-graph fixture:car_routes_fixture_v1.json` | 택시·자동차 소요·요금(병산·심야 할증·하한) · 도로급 커버율 → 등급·경고 · 라우터 다운 | `CAR-06` 골목 100% → 성립이지만 등급 **근거없음** + `MOB_W_CAR_SPEED_DEFAULT` · CLASS 경고는 없어야 → **커버율→등급 규칙이 깨졌거나 경고가 섞인다** |
+| 9 | `bike_legs_v1` | 14 | 실 대여소(자전거 경로 계산 없음 — 승차 소요는 근거없음 · 99) | — | 따릉이 — 반경 안 대여소·LCD 제외·연령·실시간 거치(픽스처) · 승차 소요 없음 = 불가(no_data) + 이유 · 도착 없는 자전거는 **성립 대안에 안 선다** | `BIKE-01` 24:55 잠실→성수 → 대안은 N73 뿐 · 따릉이는 열거 기록에 근거없음 → **도착 없는 자전거가 성립 대안에 섞였다** · `BIKE-09` 대여소 없음 = 불가(확정) → **대여소 반경 규칙** |
 | 10 | `judgment_legs_v1` | 17 | 실 | — | **@ 판정 계약 v0.8** — best·worst 이중 계산 · 판정은 worst · 밖 판정 둘 + 이유 코드 · @·여유 · 늦어도 출발 · 혼잡 @ | `J-WORST-02` N73→2호선 24:09: best 는 막차를 타지만 worst(대기 35분)면 놓친다 → 불가 + `MOB_W_BEST_OK_WORST_FAIL` · 늦어도 24:02 → **판정이 worst 가 아니라 best 로 나가고 있다** |
 | 11 | `night_legs_v1` | 18 | 실 (버스) | — | 심야 N노선 — 자정 정규화(N26 첫차 24:00) · 심야A21 막차 익일 · `service_days` · 운행일 경계 04:00 | `NIGHT-01` N26 00:30(=24:30) 성립 → **자정 정규화가 풀려 첫차 00:00·막차 03:25 로 읽힌다** |
 | 12 | `bus_profile_legs_v1` | 8 | 실 + `bus_seg_profile_v1.jsonl.gz` | — | 버스 **구간 통행시간 프로파일(v0.9)** — 진입 시각대 누적 · p90 · 대체 구간 · 승차 ≤ 막차 통과 상한 | `BP-01` 472 17:40 → 18:34 · @31 · p90 71 → **18시를 넘긴 뒤 구간이 17시 칸을 쓰거나 p90 누적이 틀렸다** |
@@ -133,7 +133,7 @@
 
 - **합성**(`synthetic`): 축소 시간표 `mini_timetable_v2.jsonl`(20 MB · 저장소 안)로 돈다. 기대값은 이 축소 판 기준이라 **실제 시간표로 돌리면 맞지 않는다**(파일 note).
 - **실데이터**(나머지 13 묶음): 판정기 입력 파일(시간표 `timetable_v1.jsonl.gz` 등)이 있어야 한다. 9/29 부터 저장소 `datasets/mobility/processed/mobility/` 에 있어 pull 만 하면 된다(`.env` `DATA_DIR` 이 있으면 그쪽이 이김 · `datasets/mobility/DATA_IN_GIT.md`). 없으면 판정기가 `RuntimeError: 판정기 입력이 없다` 로 멈춘다 — 코드가 깨진 게 아니라 데이터가 없는 것.
-- 픽스처 3개(`car_routes_fixture_v1` · `bike_gh_fixture_v1` · `mini_timetable_v2`)는 저장소 안이다. 응답 원문이 아니라 거리·시간 요약이다.
+- 픽스처 2개(`car_routes_fixture_v1` · `mini_timetable_v2`)는 저장소 안이다. 자동차 픽스처는 손으로 이은 합성 경로다(실제 경로 계산 결과 아님). 자전거 경로 요약 픽스처 둘(`bike_gh_fixture_v1` · `plan_bike_gh_fixture_v1`)은 99(10/4)에 지웠다 — 경로 서버를 부르지 않는다.
 
 **★ 확인(2026-09-28 · 클라우드에서 `DATA_DIR` 를 빈 폴더로 놓고 재현)**: 합성 묶음은 시간표만 바꿔 끼우고 **역 순서표(`line_station_order_v1.json` 780 KB)와 환승 거리표(`transfer_walk_v1.json` 59 KB)는 여전히 `DATA_DIR` 에서 읽는다**.
 - 역 순서표가 없으면 `FileNotFoundError` 로 죽는다(28건 전부).

@@ -50,7 +50,6 @@ from app.modules.travel_ops.mobility.engine.runtime import Runtime  # noqa: E402
 
 IN = HERE / "plan_example_in_v1.json"
 GOLD_ALL = HERE / "plan_example_out_all_v1.json"
-GH_FIX = HERE / "plan_bike_gh_fixture_v1.json"     # 58 — GH 요약 픽스처(집 PC 기록 · 형상 없음) — GH 없는 기기도 같은 값
 MODES_ALL = ["subway", "walk", "bus"]
 THREADS, TOTAL = 8, 80                      # 24 ① 과 같은 규모(8스레드 × 5회 × 복사본 40 + 공유 40 = 80)
 # 다른 요청 — 2호선 운행중단 사건이 붙은 재판정. 도착 목표를 새벽으로 둬 역산 후보가 몇 개 안 되게(시험 시간)
@@ -245,14 +244,11 @@ def test_bike_not_called_by_default():
     try:
         d = _doc()
         got = json.loads(_plan(d, rt))
-        assert calls["n"] == 0, f"기본 plan() 이 자전거 구간을 {calls['n']}번 판정했다(따릉이 실시간·라우터 호출)"
-        # 자전거를 켜면 판정을 부르고 자전거 옵션이 실린다(58) — 라우터는 요약 픽스처 · 실시간 없음(복사본에서)
-        from app.modules.travel_ops.mobility.engine.bike import BikeRouter
-        fx = json.loads(GH_FIX.read_text(encoding="utf-8"))
+        assert calls["n"] == 0, f"기본 plan() 이 자전거 구간을 {calls['n']}번 판정했다(따릉이 실시간 호출)"
+        # 자전거를 켜면 판정을 부른다(58) — 실시간 없음(복사본에서). 99: 자전거 경로 계산이 없어 옵션은 안 실리고 이유만 남는다
         rt2 = copy.copy(rt)
         rt2._v = copy.copy(rt._v)
         rt2._v.bike_live = None
-        rt2._v.bike_router = BikeRouter(None, fx["routes"], fx.get("pbf_date"))
         with_bike = json.loads(_plan(d, rt2, modes=MODES_ALL + ["bike"]))
         if rt._v.bk is not None:
             assert calls["n"] > 0, "bike 를 주면 자전거 후보를 만든다(따릉이 표가 있는 기기)"
@@ -267,9 +263,9 @@ def test_bike_not_called_by_default():
         assert with_bike != got, "자전거 이유가 left_out 에 안 남았다(58 이전 모양)"
         for k in got["routes"]:
             assert any(e["label"].startswith("자전거(따릉이)") for e in with_bike["left_out"].get(k, [])), (k, with_bike["left_out"].get(k))
-        # 58 뒤집음 ② — 자전거만 요청: 옵션이 전부 자전거(56: 「옵션 0 · skipped」)
+        # 99 — 자전거만 요청: 자전거 경로 계산이 없어 옵션 0 · 구간마다 skipped 에 자전거 이유(56 모양으로 돌아옴 · 58 뒤집음 ② 해제)
         only = json.loads(_plan(d, rt2, modes=["bike"]))
-        assert only["routes"] and all([o["id"] for o in r["options"]] == ["bike"] for r in only["routes"].values()), only
+        assert only["routes"] == {} and only["skipped"] and all(x["reason"].startswith("자전거") for x in only["skipped"]), only
 
 
 @_full

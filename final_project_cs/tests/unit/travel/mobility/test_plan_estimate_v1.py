@@ -399,33 +399,27 @@ def test_g7_basis_wording():
 
 
 @_full
-def test_g8_no_bike_router_calls_by_default():
-    """결정 8 — 기본 수단(지하철·버스·도보)에서는 자전거 후보를 안 만든다 → 라우터가 떠 있어도 경로 탐색 호출 0.
-    (노트북 2026-09-25: GraphHopper 를 켜 둔 채 reg48 가 1시간 넘게 돌았다 — 표본마다 자전거 경로 탐색)"""
+def test_g8_no_bike_legs_by_default():
+    """결정 8 — 기본 수단(지하철·버스·도보)에서는 자전거 후보를 안 만든다 → 자전거 구간 판정 호출 0.
+    (99 — 자전거 경로 계산은 없어졌다. 앞 판은 경로 서버 호출을 셌고, 지금은 자전거 구간 판정 호출을 센다)"""
     _skip_if_no_data()
     rt = _runtime()
-    v = rt._v
+    V = type(rt._v)
+    calls = {"n": 0}
+    orig = V.verify_leg_bike
 
-    class Spy:
-        url, calls = "spy", 0
-
-        def available(self):
-            return True
-
-        def route(self, *a, **k):
-            Spy.calls += 1
-            return None
-
-    old = v.bike_router
-    v.bike_router = Spy()
+    def counted(self, *a, **k):
+        calls["n"] += 1
+        return orig(self, *a, **k)
+    V.verify_leg_bike = counted
     try:
         Estimator(rt).estimate(HOTEL, SEONGSU, WEEKDAY, "오후", window=(720, 740))
-        assert Spy.calls == 0, f"기본 수단에서 자전거 경로 탐색 {Spy.calls}회"
-        assert v.bk is not None, "공유 판정기의 대여소 표는 그대로"
+        assert calls["n"] == 0, f"기본 수단에서 자전거 구간 판정 {calls['n']}회"
+        assert rt._v.bk is not None, "공유 판정기의 대여소 표는 그대로"
         Estimator(rt, modes=["subway", "bike"]).estimate(HOTEL, SEONGSU, WEEKDAY, "오후", window=(720, 740))
-        assert Spy.calls > 0, "bike 를 달라고 하면 자전거 후보를 본다(시험이 무는지)"
+        assert calls["n"] > 0, "bike 를 달라고 하면 자전거 후보를 본다(시험이 무는지)"
     finally:
-        v.bike_router = old
+        V.verify_leg_bike = orig
 
 
 if __name__ == "__main__":

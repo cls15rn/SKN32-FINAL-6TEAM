@@ -121,51 +121,47 @@ def test_20_mixed_bus_transfer_gets_sum_of_single_upper_bound():
     assert O.fare_upper_of(v, legs[:1], lr[:1]) is None, "버스가 안 섞인(한 번) 경로는 fare_of 의 몫"
 
 
-# ── #13 장소 사이 도보 — 보행망 라우터가 있으면 실제 길, 「길 없음」이면 후보에서 뺀다 ─────────
-class _FootRouter:
-    def __init__(self, result=None, error=None):
-        self.result, self.error, self.calls = result, error, []
-        self.last_error = None
-
-    def available(self):
-        return True
-
-    def route(self, profile, lat1, lng1, lat2, lng2):
-        self.calls.append(profile)
-        self.last_error = self.error
-        return self.result
-
-
-def _walk_leg(router):
+# ── #13 장소 사이 도보 ─────────────────────────────────────────────────
+#   99(2026-10-04) — 보행망 거리를 끼우던 자리(경로 서버 foot 프로파일)를 지웠다(본인: 자리까지 지움). 「보행망 거리 사용」
+#   「길 없음이면 도보 후보 뺌」 시험 둘은 대상 코드와 함께 없어졌다 — 보행 그래프 방에서 다시 만든다. 남는 것: 직선 × 우회계수.
+def _walk_leg():
     from datetime import datetime, timedelta, timezone
-    rt = _rt()
-    rt._v.bike_router = router
-    planner = P.Planner(rt, modes=["walk"])
+    planner = P.Planner(_rt(), modes=["walk"])
     kst = timezone(timedelta(hours=9))
     return planner.leg(PLACES[0], PLACES[1], datetime(2026, 10, 5, 12, 0, tzinfo=kst), {}, True, "P1_to_P2")
 
 
-def test_13_walk_uses_network_distance_when_router_answers():
-    r = _FootRouter({"distance_m": 900.0, "time_s": 700, "basis": "graphhopper", "source_id": "x"})
-    got, why = _walk_leg(r)
-    assert r.calls == ["foot"]
-    route = got[0]
-    walk = next(o for o in route["options"] if o["id"] == "walk")
-    speed = RULES["measured_baseline"]["kakao_walk_speed_mps"]["value"]
-    import math
-    assert walk["walk_m"] == 900 and walk["eta_min"] == math.ceil(900 / speed / 60), walk
-
-
-def test_13_no_walk_path_drops_walk_with_reason():
-    got, why = _walk_leg(_FootRouter(None, {"kind": "no_path"}))
-    assert got is None
-    assert "no_walk_path" in [e["code"] for e in why.get("left_out", [])], why
-
-
-def test_13_router_down_falls_back_to_straight_line_estimate():
+def test_13_walk_is_straight_line_times_detour():
     from app.modules.travel_ops.mobility.engine.geo import meters
-    got, why = _walk_leg(_FootRouter(None, {"kind": "router_down", "error": "x"}))
+    got, why = _walk_leg()
     walk = next(o for o in got[0]["options"] if o["id"] == "walk")
     straight = meters(PLACES[0]["lat"], PLACES[0]["lon"], PLACES[1]["lat"], PLACES[1]["lon"])
     detour = RULES["transfer"]["stop_station_walk"]["detour_factor"]["value"]
-    assert walk["walk_m"] == int(round(straight * detour)), "라우터가 못 닿은 것은 길이 없다는 근거가 아니다"
+    assert walk["walk_m"] == int(round(straight * detour)), "도보 거리 = 직선 × 우회계수(추정)"
+    assert "no_walk_path" not in [e["code"] for e in (got[4] or [])]
+
+
+def test_13_walk_formula_is_the_same_in_leg_and_earliest():
+    """99(GPT #3) — 도보 직행은 leg()(도착 목표 역산)와 earliest()(가장 이른 도착)가 **같은 식**(직선 × 우회계수 · 분 올림 ·
+    단계 버퍼)을 쓴다. 보행망 자리를 지우면서 두 군데가 각자 식을 갖게 됐다 — 한쪽만 바뀌면 여기서 운다."""
+    import math
+    from datetime import datetime, timedelta, timezone
+
+    from app.modules.travel_ops.mobility.engine.geo import meters
+    kst = timezone(timedelta(hours=9))
+    planner = P.Planner(_rt(), modes=["walk"])
+    straight = meters(PLACES[0]["lat"], PLACES[0]["lon"], PLACES[1]["lat"], PLACES[1]["lon"])
+    detour = RULES["transfer"]["stop_station_walk"]["detour_factor"]["value"]
+    speed = RULES["measured_baseline"]["kakao_walk_speed_mps"]["value"]
+    buf = planner.v.rv("buffer", "by_stage", planner.stage)
+    eta = max(1, math.ceil(straight * detour / speed / 60))
+    got, _why = planner.leg(PLACES[0], PLACES[1], datetime(2026, 10, 5, 12, 0, tzinfo=kst), {}, True, "P1_to_P2")
+    route, start, end = got[0], got[1], got[2]
+    assert next(o for o in route["options"] if o["id"] == "walk")["eta_min"] == eta
+    assert end - start == eta and 12 * 60 - end == buf, (start, end, buf)
+    nb = datetime(2026, 10, 5, 11, 0, tzinfo=kst)
+    egot, ewhy = planner.earliest(PLACES[0], PLACES[1], nb, {}, True, "P1_to_P2")
+    assert egot is not None, ewhy
+    _r, estart, eend, _sd, _left, t = egot
+    assert t == 11 * 60 + eta + buf, (t, eta, buf)          # 가장 이른 도착 목표 = 앞 일정 끝 + 도보 + 버퍼
+    assert (estart, eend) == (11 * 60, 11 * 60 + eta)

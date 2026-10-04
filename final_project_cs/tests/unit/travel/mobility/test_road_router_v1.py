@@ -2,8 +2,8 @@
 """77 — 서버 없는 파이썬 도로 라우터(engine/road_router.py) 단위 시험.
 
 게이트 층(데이터 없이 돈다): 작은 합성 그래프를 tmp 폴더에 76 형식(nodes·edges .jsonl.gz · polyline 1e-6)으로 써서
-  ① 스냅 200 m 상한 ② 일방통행 ③ 섬(main=0)에는 안 붙음 ④ 중앙분리 도로 반대 차로 ⑤ 범위 밖 ⑥ 시간 가중 ⑦ GH 모양 응답이
-  CarGraph.compute 로 소요가 나오는지 ⑧ CarService 순서(파이썬 라우터 → GH → 근거없음) ⑨ 자전거 간선.
+  ① 스냅 200 m 상한 ② 일방통행 ③ 섬(main=0)에는 안 붙음 ④ 중앙분리 도로 반대 차로 ⑤ 범위 밖 ⑥ 시간 가중 ⑦ `/route` 모양 응답이
+  CarGraph.compute 로 소요가 나오는지 ⑧ CarService 순서(파이썬 라우터 → 근거없음 · 99 에서 경로 서버 단 삭제) ⑨ 자전거 간선.
 전체층(mobility_full · 실데이터): 76 그래프로 서울역→강남역 · 353 도로 끝점 스냅.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pytest
 pytest.importorskip("scipy")
 
 from app.modules.travel_ops.mobility.engine import road_router as RRM  # noqa: E402
-from app.modules.travel_ops.mobility.engine.car import (CarGraph, CarService, NoRouter,  # noqa: E402
+from app.modules.travel_ops.mobility.engine.car import (CarGraph, CarService,  # noqa: E402
                                                         RouterDown, ROAD_SOURCE_ID)
 from app.modules.travel_ops.mobility.engine.road_router import RoadRouter, decode_polyline  # noqa: E402
 
@@ -196,7 +196,7 @@ RULES = {"car": {"coverage": {"warn_class_pct": {"value": 10}, "warn_default_pct
          "measured_baseline": {"kakao_walk_speed_mps": {"value": 1.04}}}
 
 
-def test_gh_shape_feeds_compute(rr):
+def test_route_shape_feeds_compute(rr):
     res = rr.route(_pt(37.5, 127.002), _pt(37.5, 127.008))
     c = _mini_graph().compute(res, dt.datetime(2026, 10, 6, 10, 0))
     assert abs(c["distance_m"] - res["paths"][0]["distance"]) < 2
@@ -204,15 +204,45 @@ def test_gh_shape_feeds_compute(rr):
 
 
 def test_carservice_order(rr):
-    svc = CarService(_mini_graph(), NoRouter(), RULES, road=rr)
+    svc = CarService(_mini_graph(), RULES, road=rr)
     out = svc.leg(_pt(37.5, 127.002), _pt(37.5, 127.008), dt.datetime(2026, 10, 6, 10, 0))
     assert out["source_id"][1] == ROAD_SOURCE_ID and out["grade"] == "근거없음"      # 전부 골목 → 기존 등급 규칙 그대로
-    with pytest.raises(RouterDown) as ex:                      # 파이썬 라우터 실패 → GH 없음 → 두 이유를 잇는다
+    with pytest.raises(RouterDown) as ex:                      # 파이썬 라우터 실패 → 넘길 곳 없음 → 그 이유·갈래 그대로(99)
         svc.leg(_pt(37.505, 127.005), _pt(37.5, 127.005), dt.datetime(2026, 10, 6, 10, 0))
-    assert "도로 그래프" in str(ex.value) and "GH" in str(ex.value)
-    plain = CarService(_mini_graph(), NoRouter(), RULES)       # road 없음 = 종전 그대로
-    with pytest.raises(RouterDown, match="라우터 없이"):
+    assert ex.value.code in ("no_snap", "no_path", "out_of_area"), ex.value.code
+    plain = CarService(_mini_graph(), RULES)                   # road 없음 = 근거없음
+    with pytest.raises(RouterDown, match="도로 경로 계산 없이") as ex2:
         plain.leg(_pt(37.5, 127.002), _pt(37.5, 127.008), dt.datetime(2026, 10, 6, 10, 0))
+    assert ex2.value.code == "router_down"
+
+
+def test_no_route_server_client_left():
+    """99(2026-10-04) — 경로 서버를 부르는 코드가 엔진에 없다(클라이언트·주소 인자·네트워크 모듈)."""
+    import inspect
+
+    from app.modules.travel_ops.mobility.engine import bike, car, runtime, verify_time
+    for name in ("GraphHopperClient", "make_router", "NoRouter"):
+        assert not hasattr(car, name), name
+    assert not hasattr(bike, "BikeRouter")
+    assert "urllib" not in inspect.getsource(car)
+    assert "gh_url" not in inspect.signature(runtime.build_verifier).parameters
+    assert "bike_router" not in inspect.signature(verify_time.Verifier.__init__).parameters
+
+
+def test_fixture_router_sits_in_the_road_slot(tmp_path):
+    """99 — 합성 경로 대역은 road 자리에 끼운다(`--road-graph fixture:<파일>`) · 없는 키·down 은 RouterDown."""
+    from app.modules.travel_ops.mobility.engine.car import GRAPH_SOURCE_ID, FixtureRouter
+    from app.modules.travel_ops.mobility.engine.verify_time import road_of
+    f = tmp_path / "fx.json"
+    f.write_text(json.dumps({"routes": {"127.0020,37.5000|127.0080,37.5000": {"down": True}}}), encoding="utf-8")
+    fx = road_of(f"fixture:{f}")
+    assert isinstance(fx, FixtureRouter) and fx.source_id == GRAPH_SOURCE_ID
+    svc = CarService(_mini_graph(), RULES, road=fx)
+    with pytest.raises(RouterDown, match="다운"):
+        svc.leg(_pt(37.5, 127.002), _pt(37.5, 127.008), dt.datetime(2026, 10, 6, 10, 0))
+    with pytest.raises(RouterDown, match="픽스처에 경로가 없다"):
+        svc.leg(_pt(37.6, 127.002), _pt(37.5, 127.008), dt.datetime(2026, 10, 6, 10, 0))
+    assert road_of("none") is None
 
 
 # ── 전체층(실데이터) ──────────────────────────────────────────────────────
@@ -236,18 +266,18 @@ def test_real_seoul_station_gangnam():
     rr = RoadRouter.load(d / "road_graph_v1", speed=cg.static_kmh)
     res = rr.route((126.9707, 37.5547), (127.0276, 37.4979))
     c = cg.compute(res, dt.datetime(2026, 9, 22, 18, 0))
-    assert 9000 < c["distance_m"] < 12500                   # 네이버 12.0 km · GH 10.5 km
-    assert 25 * 60 < c["topis_time_s"] < 45 * 60             # GH 33.5분 · 77 판 35.1분
+    assert 9000 < c["distance_m"] < 12500                   # 네이버 12.0 km · 옛 경로 서버 10.5 km
+    assert 25 * 60 < c["topis_time_s"] < 45 * 60             # 옛 경로 서버 33.5분 · 77 판 35.1분
     assert c["coverage_pct"]["topis"] > 70
 
 
 @pytest.mark.mobility_full
 def test_real_runtime_taxi_alternative():
-    """서버 적재 경로(runtime.build_verifier)에서 GH 없이 택시 대안이 소요·요금으로 나온다(앞 판은 늘 근거없음)."""
+    """서버 적재 경로(runtime.build_verifier)에서 경로 서버 없이 택시 대안이 소요·요금으로 나온다(앞 판은 늘 근거없음)."""
     d = _real()
     from app.modules.travel_ops.mobility.engine.runtime import build_verifier
     try:
-        rt = build_verifier(quiet=True, gh_url="", seoul_key="", road_graph=str(d / "road_graph_v1"))
+        rt = build_verifier(quiet=True, seoul_key="", road_graph=str(d / "road_graph_v1"))
     except RuntimeError as e:
         pytest.skip(f"data not present: {e}")
     assert rt.stats["car_router"] == "road_graph_v1"
@@ -256,7 +286,7 @@ def test_real_runtime_taxi_alternative():
     res = rt.verify_case(case)
     tx = res.taxi
     assert tx["verdict"] == "feasible" and tx["grade"] == "추정", tx
-    assert 4000 < tx["distance_m"] < 9000 and 5 <= tx["ride_min"] <= 20       # GH 판 25:05 도착 · 12,300원
+    assert 4000 < tx["distance_m"] < 9000 and 5 <= tx["ride_min"] <= 20       # 옛 경로 서버 판 25:05 도착 · 12,300원 → 차도 그래프 25:04 · 12,200원(alt_legs ALT-01)
     assert tx["car"]["source_id"][1] == ROAD_SOURCE_ID
     # 77-2 — 수단별 후보의 택시 칸이 채워진다 · 계획·options[] 는 끔/켬이 같다(택시는 그 칸에서만)
     from app.modules.travel_ops.mobility.engine import plan as P
@@ -306,7 +336,7 @@ def test_compute_worst_uses_p10_and_reports_roads(rr):
 
 
 def test_arrive_by_latest_departure_meets_worst(rr):
-    svc = CarService(_graph_with_link(), NoRouter(), RULES, road=rr)
+    svc = CarService(_graph_with_link(), RULES, road=rr)
     arrive = dt.datetime(2026, 10, 6, 11, 0)
     out = svc.arrive_by(_pt(37.5, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
     assert out["worst_time_s"] >= out["topis_time_s"] and out["grade"] == "추정"
@@ -330,7 +360,7 @@ def test_arrive_by_finds_later_window_across_hour_boundary(rr):
     for h in range(24):
         g.prof[("L1", "평일", h)] = 30.0 if h == 11 else 3.0        # 약 528 m: 11시대 약 1분 · 그 밖 약 11분
         g.p10[("L1", "평일", h)] = g.prof[("L1", "평일", h)]
-    svc = CarService(g, NoRouter(), RULES, road=rr)
+    svc = CarService(g, RULES, road=rr)
     arrive = dt.datetime(2026, 10, 6, 12, 5)
     out = svc.arrive_by(_pt(37.5, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
     assert out["depart_dt"] == dt.datetime(2026, 10, 6, 11, 59), out["depart_dt"]   # 11시대 마지막 분 — 12:00 부터는 못 닿는다
@@ -351,7 +381,7 @@ def test_arrive_by_drive_starts_after_the_walk_to_the_road(rr):
     for h in range(24):
         g.prof[("L1", "평일", h)] = 30.0 if h == 11 else 3.0
         g.p10[("L1", "평일", h)] = g.prof[("L1", "평일", h)]
-    svc = CarService(g, NoRouter(), RULES, road=rr)
+    svc = CarService(g, RULES, road=rr)
     arrive = dt.datetime(2026, 10, 6, 12, 5)
     on_road = svc.arrive_by(_pt(37.5, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
     off_road = svc.arrive_by(_pt(37.5009, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
@@ -366,7 +396,7 @@ def test_arrive_by_drive_starts_after_the_walk_to_the_road(rr):
 
 def test_arrive_by_counts_walk_to_the_road(rr):
     """GPT 77-2 #3 — 장소가 차도에서 100 m 떨어져 있으면 그만큼 걷는 시간이 소요에 든다(이격 × 1.4 ÷ 1.04 m/s)."""
-    svc = CarService(_graph_with_link(), NoRouter(), RULES, road=rr)
+    svc = CarService(_graph_with_link(), RULES, road=rr)
     arrive = dt.datetime(2026, 10, 6, 11, 0)
     on = svc.arrive_by(_pt(37.5, 127.002), _pt(37.5, 127.008), arrive, taxi=False)
     off = svc.arrive_by(_pt(37.5009, 127.002), _pt(37.5, 127.008), arrive, taxi=False)      # 출발지가 길에서 100 m
@@ -412,9 +442,7 @@ def test_resolve_does_not_share_across_plain_speed_functions(tmp_path):
 
 
 def test_cli_road_graph_default():
-    """GPT 77-2 #6 — 픽스처가 명령줄이 아니라 환경변수·규칙에서 와도(최종 GH 설정) 파이썬 라우터가 앞을 가로채지 않는다."""
+    """99 — `--road-graph` 를 안 주면 환경변수 → auto. 회귀 대조도 켠 채가 기본이다(앞 판은 경로 서버 픽스처 값을 지키려 껐다)."""
     from app.modules.travel_ops.mobility.engine.verify_time import road_graph_default as f
-    assert f(False, "http://localhost:8989", {}) == "auto"
-    assert f(True, "http://localhost:8989", {}) == "none"                       # 회귀 대조
-    assert f(False, "fixture:x.json", {}) == "none"                             # 최종 GH 설정이 픽스처
-    assert f(True, "none", {"MOBILITY_ROAD_GRAPH": "auto"}) == "auto"           # 환경변수가 먼저
+    assert f({}) == "auto"
+    assert f({"MOBILITY_ROAD_GRAPH": "none"}) == "none"                         # 환경변수가 먼저

@@ -1,5 +1,5 @@
 {
- "note": "자동차·택시 구간 판정 회귀 v1 (21번 방 · 2026-09-20). **합성 경로 픽스처**(tests/mobility/car_routes_fixture_v1.json — 18번 테헤란로 상행 4.0 km TOPIS 링크 체인의 변형)로 돌린다: python scripts/verify_time.py --cases tests/mobility/car_legs_v1.json --gh-url fixture:tests/mobility/car_routes_fixture_v1.json --check-expect. 실제 GraphHopper 로 돌리면 픽스처 좌표가 강남 도로에 스냅되어 다른 경로가 나온다 — 그건 alt_legs 의 expect_taxi 가 본다.",
+ "note": "자동차·택시 구간 판정 회귀 v1 (21번 방 · 2026-09-20). **합성 경로 픽스처**(tests/mobility/car_routes_fixture_v1.json — 18번 테헤란로 상행 4.0 km TOPIS 링크 체인의 변형)로 돌린다: (final_project_cs 에서) python -m app.modules.travel_ops.mobility.engine.verify_time --cases tests/unit/travel/mobility/car_legs_v1.json --road-graph fixture:tests/unit/travel/mobility/car_routes_fixture_v1.json --check-expect. 픽스처는 실제 경로 계산 결과가 아니라 손으로 이은 합성 경로다(99번 2026-10-04 — 경로 서버 호출을 지우면서 `--gh-url fixture:` 가 `--road-graph fixture:` 로 바뀜 · 기대값 변경 0). 실제 차도 그래프(--road-graph auto)로 돌리면 픽스처 좌표가 강남 도로에 스냅되어 다른 경로가 나온다 — 실제 경로 값은 alt_legs 의 expect_taxi 가 본다.",
  "built_at": "2026-09-20",
  "주의": [
   "from/to 가 'lat,lng' 문자열이면 그 좌표가 그대로 라우터 요청이다(역명이면 역 좌표).",

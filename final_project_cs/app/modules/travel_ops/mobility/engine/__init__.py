@@ -7,8 +7,9 @@
      저장소 맨 위 `.env` 의 DATA_DIR 을 읽는다. **import 때는 아무 것도 읽지 않는다**(#48).
   ② 정책 수치 — `guardrails.py` 가 팀 `final_project_cs/config/guardrails.yaml` 의 `mobility:` 절을 읽는다(#49).
   ③ 팀 공용 코드 — `options.py` 가 `travel_ops/route_uses.py` 를 `from ...route_uses` 로 든다(uses 형식 검사 · 팀장 소유).
-  ④ 네트워크 — `bike.py`(서울 열린데이터 따릉이 실시간 · http 만 받는다, #50) · `car.py`(GraphHopper 라우터, 자전거·
-     자동차 경로에 좌표를 보낸다). 키·주소는 서버가 build_verifier 로 넘긴다(명령줄은 환경변수).
+  ④ 네트워크 — `bike.py`(서울 열린데이터 따릉이 실시간 · http 만 받는다, #50) 하나. 키는 서버가 build_verifier 로
+     넘긴다(명령줄은 ACOP_SEOUL_OPENAPI_KEY). ☆99(2026-10-04) 경로 서버 호출은 없다 — 택시·자동차 경로는 저장소 안 차도
+     그래프 파일을 `road_router.py` 가 파이썬에서 계산하고, 좌표를 밖으로 보내지 않는다.
   ⑤ 파일 쓰기 — `judgment_log.py` 를 **켰을 때만**(`install`) 자료 폴더 아래 logs/ 에 판정 기록을 쓴다. 기본 경로는 안 쓴다.
      `datacheck.py --write` 는 판 명세(manifest_v1.json)를 쓴다(자료 기기에서 사람이 부를 때만).
 그래서 이 패키지는 `final_project_cs/` 만 sys.path 에 있으면 돈다 —

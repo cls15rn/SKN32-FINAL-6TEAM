@@ -1,5 +1,5 @@
 {
- "note": "자동차·택시 접기 골든 픽스처(21번 방 · 2026-09-20). tests/mobility/car_legs_v1.json 을 합성 경로 픽스처로 돌린 판정 결과를 fold_case 로 접은 것. 재생성: verify_time --cases car_legs_v1.json --gh-url fixture:... --json → fold_case(basis 2026-09-22/v0.6). check_fold [12] 가 읽는다.",
+ "note": "자동차·택시 접기 골든 픽스처(21번 방 · 2026-09-20). tests/mobility/car_legs_v1.json 을 합성 경로 픽스처로 돌린 판정 결과를 fold_case 로 접은 것. 재생성: verify_time --cases car_legs_v1.json --road-graph fixture:... --json → fold_case(basis 2026-09-22/v0.6). check_fold [12] 가 읽는다.",
  "basis": {
   "timetable_built_at": "2026-09-09",
   "rules_version": "v0.6",

@@ -53,14 +53,14 @@ from .candidates import (MIX_CUTS_PER_ROUTE_PROPOSED, MIX_MAX_PROPOSED, ChainGen
 from .options import line_name, station_name  # noqa: F401 — 32 시험·호출 쪽이 plan 에서 가져간다
 from .geo import same_station
 from .timeutil import MIN_DAY, SERVICE_DAY_START_MIN
-from .verify_time import leg_mode
+from .verify_time import BIKE_NO_ROUTE, leg_mode
 
 KST = timezone(timedelta(hours=9))
 PLAN_VERSION = "plan-v2.5"   # 98 — 고르는 기준이 「예정 소요 + 일찍 떠나는 분」으로(계획 수단·수단별 대표 · 모든 후보를 한 무리로) · 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다) · options[] 는 계획 출발에서 재판정한 값 — 기본 호출 결과가 v2.4 와 다르다 (97 — 못 채운 구간 택시 소요 메우기 taxi_fallback 도 켤 때만 · 판 번호 유지) (93 — 수단별 대표 후보 by_mode 는 켤 때만 · 기본 호출 결과가 같아 판 번호 유지) 87 — 지하철+버스 혼합 후보(환승 1회 · A 버스→지하철 · B 지하철→버스) · 지하철만·버스만 후보는 v2.3 과 같다
 # (v2.3 · 86) 가장 이른 도착 모드(Planner.earliest · earliest_on_late) 추가 · 기본 호출 결과는 v2.2 와 같다
 # (v2.2 · 58) modes 에 bike 를 주면 자전거 후보를 싣는다 · 기본(bike 없음)은 v2.1 과 같다 · 모양 무변경
 # 56 (2026-09-27 · 본인) — modes 를 안 주면 지하철·버스·도보. 자전거는 modes 에 "bike" 를 줄 때만(48 결정 8 · ◆선호 「요청 시만」).
-#   뺄 때는 **후보 생성 전에** 끊는다(아래 Planner — 따릉이 실시간·GraphHopper 호출 0).
+#   뺄 때는 **후보 생성 전에** 끊는다(아래 Planner — 따릉이 실시간 호출 0).
 DEFAULT_MODES = ("subway", "bus", "walk")
 KNOWN_MODES = frozenset(DEFAULT_MODES) | {"bike"}
 #: ☆`[2026-09-30 83 E1 · 85]` 장소마다 볼 역 개수 — 규칙 candidates.장소_역_후보_최대 **변경안** 값(27 규칙 32: 규칙 파일은
@@ -186,6 +186,9 @@ XFER_MEET_KEYS = ("정류장_동일_반경_m", "정류장_반경_m")
 #     (도보는 짧은 구간용)로 부른다. 지하철·버스와 섞어 주면 계획 수단 규칙(가장 늦게 떠나도 되는 후보)이 그대로라
 #     더 일찍 떠나야 하는 자전거는 봉투 left_out 에 이유만 남는다. 자전거가 안 되는 구간은 skipped + 이유
 #     (대중교통으로 몰래 바꾸지 않는다 — 입력 이동 항목은 그대로 남는다).
+#   · ☆99(2026-10-04) **자전거 경로 계산이 없다** — 승차 소요가 근거없음이라 자전거 후보는 지금 한 건도 실리지 않는다.
+#     자전거만 요청하면 구간마다 skipped(no_data · 「자전거 경로 계산 없음」), 섞어 주면 left_out 에 같은 이유. 아래 lfd 규칙은
+#     승차 소요가 다시 생길 때(보행 경로 거리 ÷ 자전거 평균 속도(단위 환산) · 본인 10/4)를 위해 그대로 둔다. PLAN_VERSION 은 그대로(기본 호출 무변경).
 
 # ── 시각 ────────────────────────────────────────────────────────────────
 def _parse_dt(v):
@@ -348,7 +351,7 @@ class Planner:
         #   시간표·표·캐시(_passes/_origin/_dominant · 후보 그래프)는 공유한다 — 키가 입력 전부라 값이 요청과 무관하다.
         self.v = copy.copy(runtime._v)
         # 56 ② — 자전거를 안 볼 때는 복사본에서 따릉이 대여소 표를 뗀다 → verify_multi 가 자전거 후보를 **만들지 않는다**
-        #   (따릉이 실시간·라우터 호출 0). 종전에는 modes 거르기가 후보 생성 뒤(leg() 의 후보 루프)라 빼도 호출이 났다.
+        #   (따릉이 실시간 호출 0). 종전에는 modes 거르기가 후보 생성 뒤(leg() 의 후보 루프)라 빼도 호출이 났다.
         if "bike" not in self.modes:
             self.v.bk = None
         elif stage == "planning":
@@ -393,21 +396,6 @@ class Planner:
     def _walk(self, straight_m):
         """장소 도보 분 = 직선 × 우회계수 ÷ 1.04 m/s (rules transfer.stop_station_walk — 정류장↔역과 같은 식)."""
         return math.ceil(straight_m * self.detour / self.speed / 60) if straight_m else 0
-
-    def _walk_net(self, a_place, b_place, straight_m):
-        """장소↔장소 도보 거리(m) — 보행망 라우터 foot 거리 → 없으면 직선 × 우회계수. (거리, 길 없음 여부).
-
-        「길 없음」은 라우터가 **경로가 없다**고 답했을 때만이다. 라우터가 없거나 못 닿으면(no_router·router_down·
-        router_error·bad_response) 길이 없다는 근거가 아니다 — 직선 식으로 낸다(verify_time._bike_walk 와 같은 규칙)."""
-        br = getattr(self.v, "bike_router", None)
-        if br is not None and br.available():
-            prof = ((self.v.R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
-            r = br.route(prof, a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
-            if r:
-                return float(r["distance_m"]), False
-            if (br.last_error or {}).get("kind") == "no_path":
-                return None, True
-        return straight_m * self.detour, False
 
     def _blocked_station(self, rec):
         """사고 조건(self.disruptions)으로 **그 물리적 역의 모든 노선**이 서지 않거나 운행하지 않으면 True.
@@ -573,6 +561,10 @@ class Planner:
         r1 = self._vc(dict(base, depart_at=arrive_by))
         o1 = r1.out or {}
         if o1.get("verdict") != "feasible" or o1.get("eta_min") is None or o1.get("margin_min") is None:
+            if BIKE_NO_ROUTE in (o1.get("reason") or ""):
+                # 99(2026-10-04) — 대여소는 있는데 승차 소요를 못 낸다(자전거 경로 계산 없음). 이유를 그 말로 싣는다 —
+                #   다른 수단으로 바꾸지 않는다(자전거만 요청이면 구간을 못 만든 것으로 · 섞어 주면 뺀 후보 이유로).
+                return [], {"code": "no_data", "reason": f"자전거 — {BIKE_NO_ROUTE}: 승차 소요를 낼 수 없다(대여소는 반경 안에 있다)"}
             return [], {"code": o1.get("code") or "no_data", "reason": "자전거 — " + (o1.get("reason") or r1.reason or "소요를 못 냈다")}
         prev = (o1["eta_min"], o1["margin_min"])
         for _ in range(2):
@@ -1631,10 +1623,8 @@ class Planner:
         sources = []
         direct = meters(a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
         if direct <= wlim and "walk" in self.modes:
-            wm, no_path = self._walk_net(a_place, b_place, direct)
-            if not no_path:
-                walk_t = max(1, math.ceil(wm / self.speed / 60)) + buf
-                sources.append(lambda m: ([m + walk_t], False))
+            walk_t = max(1, math.ceil(direct * self.detour / self.speed / 60)) + buf      # leg() ① 과 같은 식(직선 × 우회계수)
+            sources.append(lambda m: ([m + walk_t], False))
         sa, sb, pairs = self._station_pairs(a_place, b_place, wlim)
         for pi, (_ia, _ib, xa, xb) in enumerate(pairs):
             def rail(m, pi=pi, xa=xa, xb=xb):
@@ -1945,19 +1935,14 @@ class Planner:
         # ① 도보 직행 — 두 장소 직선이 도보 상한 안이면 후보. 여유는 정책 버퍼(수단 무관 · 39 결정 2).
         direct = meters(a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
         if direct <= wlim and (self.modes is None or "walk" in self.modes):
-            # ☆`[2026-09-29 문제목록 #13]` 앞 판은 직선 × 우회계수만 봐서 하천·철도 건너편 두 점도 「걸어서 n분」이었다.
-            #   보행망 라우터(GraphHopper foot — 자전거와 같은 서버)가 있으면 그 거리를 쓰고, 라우터가 「길 없음」이라
-            #   하면 도보 후보를 싣지 않는다. 라우터가 없거나 닿지 않으면 종전 식(직선 × 계수)으로 낸다(대체 소스).
-            wm, no_path = self._walk_net(a_place, b_place, direct)
-            if no_path:
-                left.append({"_o": {"_legs": []}, "label": "도보", "code": "no_walk_path",
-                             "reason": "보행망에 두 장소를 잇는 길이 없다(직선으로는 도보 상한 안)"})
-            else:
-                eta = max(1, math.ceil(wm / self.speed / 60))
-                opts.append({"eta_min": eta, "uses": [], "_legs": [], "_route": "도보",
-                             "_start": arrive_by - eta - buf, "_transfers": 0, "_n": 0, "_key": ("walk", 0, 0),
-                             "_margin": buf, "_slack": 0, "_walk_min": eta,
-                             "_walk_m": wm, "_fare": 0, "_severe": [], "_covered": False})
+            # 도보 거리 = 직선 × 우회계수(추정). ☆99(2026-10-04) 보행망 거리를 끼우던 자리(#13 · 경로 서버 foot 프로파일)를
+            #   지웠다 — 하천·철도 건너편 두 점도 「걸어서 n분」으로 나오는 #13 의 한계가 다시 남는다(보행 그래프 방에서 다시 만든다).
+            wm = direct * self.detour
+            eta = max(1, math.ceil(wm / self.speed / 60))
+            opts.append({"eta_min": eta, "uses": [], "_legs": [], "_route": "도보",
+                         "_start": arrive_by - eta - buf, "_transfers": 0, "_n": 0, "_key": ("walk", 0, 0),
+                         "_margin": buf, "_slack": 0, "_walk_min": eta,
+                         "_walk_m": wm, "_fare": 0, "_severe": [], "_covered": False})
 
         # ② 대중교통 — 장소마다 도보 상한 안 역 **가까운 순 여럿**(막힌 역 뺌 · E1) → 역 짝마다 다목적 후보(판정기
         #   verify_multi) → 후보마다 마지막 성립 출발로 다시 판정. 짝은 가까운 짝부터 보고, **실을 수 있는 대중교통 후보가

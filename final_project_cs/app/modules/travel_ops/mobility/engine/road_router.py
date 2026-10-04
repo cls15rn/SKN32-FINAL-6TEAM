@@ -1,35 +1,37 @@
 # -*- coding: utf-8 -*-
 """서버 없는 파이썬 도로 라우터 — 76 서울 차도 그래프 파일(`road_graph_v1`) 위 최단 거리 경로. 77번 방(2026-09-30).
 
-왜: 택시·자동차 소요가 GraphHopper 서버가 있는 기기에서만 나왔다. 팀원·코어 서버엔 GH 가 없다(공용 서버 없음) →
+왜: 택시·자동차 소요가 경로 서버(GraphHopper)가 있는 기기에서만 나왔다. 팀원·코어 서버엔 그 서버가 없다(공용 서버 없음) →
   실행에서 택시 대안이 늘 근거없음이었다(본인 9/29 「시험은 픽스처로 돌더라도 실행이 서버 없어 근거없음이면 안 된다」).
+  ☆99(2026-10-04) 그 서버를 부르는 코드를 지웠다 — 이 라우터가 택시·자동차의 **유일한** 경로 계산이다. 아래에 남은 「옛 서버」
+  비교는 77 때의 측정 기록이다.
 
 무엇을 하나
   ① 적재(프로세스당 1회 · 약 10~15초): nodes·edges `.jsonl.gz` → 방향 간선(일방 `ow` 1 = u→v · -1 = v→u · 0 = 양방향)
      → `scipy.sparse` csr(같은 두 노드 사이 평행 간선은 짧은 것 하나) · 형상 `g`(polyline 1e-6)를 25 m 이하 조각으로
      잘라 조각 중점 KD-tree(`scipy.spatial.cKDTree` · 평면 근사 m).
   ② 스냅: 좌표 → 가장 가까운 간선 위 점. 차량은 `main=1`(최대 강연결 성분)만, 자전거는 `bike=1`·`bmain=1` 만.
-     200 m(`SNAP_MAX_M`)를 넘으면 스냅하지 않는다(→ RouterDown · 뒤 라우터 또는 근거없음). 두 끝 노드가 모두
+     200 m(`SNAP_MAX_M`)를 넘으면 스냅하지 않는다(→ RouterDown · 근거없음). 두 끝 노드가 모두
      범위 밖(`r=0` · 3 km 여백)이면 범위 밖으로 본다.
   ③ `scipy.sparse.csgraph.dijkstra` — 가중은 **정적 시간**(기본 배선 · `speed=CarGraph.static_kmh`): TOPIS 링크 평일
-     07~20시 평균 · 링크 없는 간선급은 도로급 평균 · 골목은 고정값 — GH maxspeed 주입 v2(18번)와 같은 잣대라 경로
-     **선택**이 GH 와 같은 원리다. `speed` 를 안 주면 길이 가중. 출발 가상 노드 하나(스냅 후보 → 간선 양끝, 방향 허용된
+     07~20시 평균 · 링크 없는 간선급은 도로급 평균 · 골목은 고정값 — 18번 방 maxspeed 주입 v2 와 같은 잣대라 경로
+     **선택**이 옛 서버와 같은 원리다. `speed` 를 안 주면 길이 가중. 출발 가상 노드 하나(스냅 후보 → 간선 양끝, 방향 허용된
      쪽만)로 한 번 돈다. 도착은 스냅점까지 남은 몫을 더해 가장 싼 쪽. 스냅 이격은 벌점으로 더한다.
      ★ 77 첫 메시지는 「길이 가중」이었다 — 353 도로·표본 7구간 대조에서 길이 가중이 간선도로를 버리고 골목·시내로
-       질러 소요가 크게 틀려(인천공항→명동 03시 134분 vs 네이버 52 · GH 76) 시간 가중으로 바꿨다(77 닫힘 문서 표).
-  ④ 결과는 **GraphHopper `/route` 응답과 같은 모양**(`paths[0].points.coordinates` · `details.osm_way_id` ·
+       질러 소요가 크게 틀려(인천공항→명동 03시 134분 vs 네이버 52 · 옛 서버 76) 시간 가중으로 바꿨다(77 닫힘 문서 표).
+  ④ 결과는 **옛 서버의 `/route` 응답과 같은 모양**(`paths[0].points.coordinates` · `details.osm_way_id` ·
      `details.road_class` · `distance`)으로 돌려준다 → 소요는 `car.CarGraph.compute`(= 옛 graph_time.py) **같은 함수**가
      TOPIS 링크×요일형×시간대 프로파일로 낸다. 계산 규칙·등급 규칙·요금 산식은 그대로다.
 
 한계(문서 · 등급 추정)
   · **회전 제약 없음** — turn restriction 을 싣지 않았다. 좌회전 금지 교차로에서 실제보다 짧은 길이 나올 수 있다.
-  · 경로 선택 속도는 정적(평일 낮 평균)이다 — 시각별 막힘으로 길을 바꾸지 않는다(GH 와 같다 · 18번 「경로는 정적, 소요는 동적」).
-  · 회전·신호 대기 없음(GH 도 같다).
+  · 경로 선택 속도는 정적(평일 낮 평균)이다 — 시각별 막힘으로 길을 바꾸지 않는다(옛 서버와 같다 · 18번 「경로는 정적, 소요는 동적」).
+  · 회전·신호 대기 없음(옛 서버도 같다).
   · ★ 경로는 저장하지 않는다 — 응답 dict 는 CarService.leg 안에서 소요 계산 뒤 버린다(car.py 와 같은 원칙).
 
 자전거(profile="bike"): 같은 그래프 `bike=1` 간선(`bow` 자전거 일방)으로 **거리만** 낸다. 소요(time)는 싣지 않는다 —
-  자전거 속도 규칙이 없고(GH bike 프로파일 속도를 썼다) 대여소까지 걷는 foot 망이 이 그래프에 없다. 그래서 판정기의
-  따릉이 라우터에는 끼우지 않았다(58 결정 무변경 · 따릉이는 `modes` 에 bike 줄 때만).
+  자전거 속도 규칙이 없고 대여소까지 걷는 보행망이 이 그래프에 없다. 그래서 판정기에는 끼우지 않았다 — 자전거 승차
+  소요는 근거없음이다(99 · 살릴 때는 보행 경로 거리 ÷ 자전거 평균 속도(단위 환산) · 본인 10/4).
 """
 from __future__ import annotations
 
@@ -45,7 +47,7 @@ SNAP_ALT_M = 30.0           # 가장 가까운 간선보다 이만큼 안쪽의 
 SNAP_K = 6                  # 스냅 후보 간선 수 상한
 NO_DOOR_HW = frozenset({"motorway", "motorway_link"})   # 출발·도착(승하차) 스냅에서 빼는 도로급 — 경유점은 그대로
 SNAP_PEN_S_PER_M = 3.6 / 20.0   # 시간 가중일 때 이격 1 m 의 벌점(초) — 20 km/h 로 그 거리를 도는 셈(추정 · 후보 고르기용)
-ROAD_SOURCE_ID = "road_graph_v1@2026-09-18"      # OSM 기준 시각(76 README) — GH 그래프와 같은 pbf
+ROAD_SOURCE_ID = "road_graph_v1@2026-09-18"      # OSM 기준 시각(76 README) — 옛 서버 그래프와 같은 pbf
 _R = 6371000.0
 _LAT0 = math.radians(37.55)
 _KX = _R * math.cos(_LAT0) * math.pi / 180.0      # 경도 1도 → m (평면 근사 · 스냅 후보 찾기에만)
@@ -134,18 +136,17 @@ class _Net:
 
 
 class RoadRouter:
-    """76 차도 그래프 파일 위 라우터. `route(s, e, profile)` 은 GraphHopperClient 와 같은 부름·같은 응답 모양이다.
+    """76 차도 그래프 파일 위 라우터. `route(s, e, profile)` 의 응답 모양은 car.CarGraph.prepare 가 읽는 `/route` 모양이다.
 
-    s, e = (lng, lat). 실패하면 car.RouterDown(스냅 실패 · 범위 밖 · 경로 없음) — CarService 가 GH 로 넘기거나 근거없음.
+    s, e = (lng, lat). 실패하면 car.RouterDown(스냅 실패 · 범위 밖 · 경로 없음) — CarService 는 근거없음으로 낸다(넘길 다른 라우터 없음 · 99).
     """
 
-    url = None                  # 따릉이 BikeRouter.url 과 같은 자리 — 서버 주소가 없다
     door = True                 # 출발·도착은 승하차 지점 — 자동차전용도로에 붙이지 않는다(도로 위 끝점 대조 때만 False)
     source_id = ROAD_SOURCE_ID
 
     def __init__(self, graph_dir, speed=None):
         """speed: None 이면 **길이 가중**. (way, seg_idx, 'fwd'|'bwd', highway) → km/h 함수를 주면 **정적 시간 가중**
-        (GH maxspeed 주입 v2 와 같은 잣대 — car.CarGraph.static_kmh). 소요는 어느 쪽이든 CarGraph.compute 가 따로 낸다."""
+        (18번 방 maxspeed 주입 v2 와 같은 잣대 — car.CarGraph.static_kmh). 소요는 어느 쪽이든 CarGraph.compute 가 따로 낸다."""
         self.dir = Path(graph_dir)
         self.speed = speed
         self.weight = "time" if speed else "length"
@@ -359,7 +360,7 @@ class RoadRouter:
         used = [lg[1] for lg in legs]
         pieces = [pc for lg in legs for pc in lg[0]]
         coords, way_det, rc_det, dist = [], [], [], 0.0
-        for way, hw, poly, L in pieces:          # 조각(간선 일부 포함)을 GH 모양으로 잇는다
+        for way, hw, poly, L in pieces:          # 조각(간선 일부 포함)을 `/route` 모양으로 잇는다
             if len(poly) < 2:
                 continue
             if not coords:

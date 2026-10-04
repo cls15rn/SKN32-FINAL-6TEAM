@@ -32,20 +32,23 @@
 #   ★ `legs` 케이스의 판정 경로는 손대지 않았다 — 회귀 91건은 그대로다.
 #
 # 규칙 v0.6 (2026-09-20 · 21번 방 · 자동차·택시 판정)
-#   ★ 택시 대안이 「소요 판단 불가」에서 **소요·요금(추정)** 으로 바뀐다 — 18번 도로망 그래프(GraphHopper 상주 서버,
-#     캐시 없음) 위에서 TOPIS 프로파일로 edge 마다 소요를 재계산하고(modules/mobility/car.py) 15번 산식으로 요금을 낸다.
+#   ★ 택시 대안이 「소요 판단 불가」에서 **소요·요금(추정)** 으로 바뀐다 — 차도 그래프 경로(☆99 부터 저장소 안 파일 ·
+#     파이썬 도로 라우터 하나) 위에서 TOPIS 프로파일로 edge 마다 소요를 재계산하고(modules/mobility/car.py) 15번 산식으로 요금을 낸다.
 #     라우터에 닿지 못하면 종전대로 근거없음 + MOB_W_CAR_ROUTER_DOWN. 지어내지 않는다.
 #   ★ legs 에 mode=car / mode=taxi 구간이 생겼다(verify_leg_car). from/to 는 역명 또는 'lat,lng'.
 #   ★ 경로는 저장하지 않는다 — LegResult.car / CaseResult.taxi.car 에는 거리·소요·커버·링크 요약만 남는다.
-#   ★ --gh-url (기본 rules car.graphhopper.url · 환경변수 MOBILITY_GH_URL · 'none' · 'fixture:<파일>') ·
-#     --allow-router-down 은 라우터 없는 실행에서 expect_taxi 축을 SKIP 으로 세어 준다(조용히 통과시키지 않는다).
+#   ★ ☆99(2026-10-04) 경로 서버 호출을 지웠다 — `--road-graph`(auto · none · <폴더> · 'fixture:<합성경로 파일>') 하나로
+#     정한다. 기본 auto(자료 폴더 mobility/road_graph_v1). 경로 서버 주소·「라우터 없음 SKIP」·자전거 경로 픽스처 인자는
+#     없어졌다. 규칙 파일의 car.graphhopper.* 칸은 읽지 않는다(규칙 파일은 따로 모아 고친다).
 #
 # 규칙 v0.7 (2026-09-20 · 22번 방 · 자전거(따릉이) 판정 · rules bike.ddareungi)
 #   ★ legs 에 mode=bike. from/to 는 역명(station_coords) 또는 {lat,lng,name}. verify_leg_bike.
 #     출발·도착 반경 station_walk_m 안 운영 대여소 ≥1 → 후보(없으면 **불가**) · 출발 대여소 실시간 거치(bikeList 단건, 값만 쓰고 버림)
 #     · 만 12세 이하 제외 · LCD 전용 출발 대여소 제외 · 요금·초과 경고(> 50분) · 소요 = 도보 + 대여 3 + bike 프로파일 + 반납 3.
 #   ★ 시각을 확정하지 않는다 — 소요만. 대안 열거 수단교체 축과 multi 후보(「자전거」)에 들어간다. tie_band 는 여전히 지하철×버스.
-#   ★ 라우터(GraphHopper)·실시간 조회가 없으면 죽지 않고 **근거없음**으로 낸다 — 판정은 성립, 소요·가용은 미상.
+#   ★ 실시간 조회가 없으면 죽지 않고 **근거없음**으로 낸다 — 판정은 성립, 가용은 미상.
+#   ★ ☆99(2026-10-04) 자전거 **경로 계산이 없다** — 승차 소요는 늘 근거없음(「자전거 경로 계산 없음」) · 예정 도착을 내지
+#     않는다(밖 판정 = 불가 no_data). 대여소 없음·연령·LCD·거치 부족의 「불가」는 그대로 확정으로 낸다.
 #
 # 규칙 v0.8 (2026-09-24 · 39번 방 · @ 판정 계약 — 최악값·최선값 이중 계산)
 #   ★ 구간 열을 **두 번** 통과한다 — best(종전 계산 그대로 · 예정 시각) 와 worst(버스 대기 = 배차 전부 ·
@@ -77,7 +80,6 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 RULES_DIR = PKG / "rules"
 
-from .paths import REPO_ROOT                                            # noqa: E402
 from .line_order import LineOrder                                       # noqa: E402
 from .transfer_walk import TransferWalk, ceil1                          # noqa: E402
 from .bus import BusRoutes                                              # noqa: E402
@@ -86,9 +88,9 @@ from .geo import StationCoords, meters                                  # noqa: 
 from .exits import StationExits                                         # noqa: E402
 from .candidates import (CandidateGraph, MixedGenerator, interleave, mix_rule, ride_estimator,  # noqa: E402
                          MIX_MAX_PROPOSED, MIX_CUTS_PER_ROUTE_PROPOSED)
-from .car import CarGraph, CarService, RouterDown, make_router          # noqa: E402
+from .car import CarGraph, CarService, FixtureRouter, RouterDown       # noqa: E402
 from .congestion import Congestion                                       # noqa: E402
-from .bike import (BikeStations, BikeLive, BikeRouter,                  # noqa: E402
+from .bike import (BikeStations, BikeLive,                              # noqa: E402
                    party_excluded as bike_party_excluded, fare as bike_fare)
 from .timeutil import (to_min, to_service_min, fmt_min,                 # noqa: E402
                        fmt_wall, day_type_of, MIN_DAY, HolidayCalendar)
@@ -96,6 +98,8 @@ from .timeutil import (to_min, to_service_min, fmt_min,                 # noqa: 
 from .errors import CaseInputError                                       # noqa: E402  #30·#66 — SystemExit 대신
 
 VERDICTS = ("feasible", "infeasible", "rejected_by_limit", "unknown")
+#: 99(2026-10-04) — 자전거 승차 소요를 못 내는 이유 문구. 판정 이유·근거·계획의 뺀 후보(plan left_out)가 같은 말을 쓴다.
+BIKE_NO_ROUTE = "자전거 경로 계산 없음"
 OUT_VERDICTS = ("feasible", "infeasible")          # 밖으로 나가는 판정 둘 (v0.8)
 # 내부 판정 → 밖 판정 · 이유 코드(내부 코드가 없을 때의 기본값). rules judgment.reason_codes 가 어휘의 정본이다.
 OUT_OF = {"feasible": ("feasible", None), "infeasible": ("infeasible", None),
@@ -367,7 +371,7 @@ def match_stops(a_mins, b_mins, est, n_edges):
 # ── 검증기 ────────────────────────────────────────────────────────────────
 class Verifier:
     def __init__(self, tt, lo, rules, holidays, tw=None, bus=None, sc=None, ex=None, car=None,
-                 bk=None, bike_live=None, bike_router=None, cg_data=None, bus_prof=None):
+                 bk=None, bike_live=None, cg_data=None, bus_prof=None):
         self.tt, self.lo, self.R, self.tw, self.bus = tt, lo, rules, tw, bus
         self.bus_prof = bus_prof        # 버스 구간 통행시간 프로파일(v0.9 · 41번 방) — None 이면 종전 모델(거리 ÷ 표정속도)
         self.sc = sc
@@ -383,7 +387,6 @@ class Verifier:
         self._case_date = None  # verify_case 가 매 건 갈아 끼운다 — 자동차 소요는 날짜(요일형)가 필요하다
         self.bk = bk            # 따릉이 운영 대여소(22번 방) — 없으면 자전거는 근거없음
         self.bike_live = bike_live      # 실시간 거치 조회(BikeLive) — None 이면 가용 근거없음
-        self.bike_router = bike_router  # GraphHopper(bike/foot) — None 이면 소요 근거없음
         self.cg_data = cg_data          # 혼잡도(Congestion · v0.8 @ 부품) — None 이면 혼잡 가산 없음(근거없음)
         self.lfd_enabled = True         # 마지막 성립 출발 역산(v0.8). 자기점검처럼 수천 번 돌릴 땐 끈다(케이스당 최대 600회 재판정)
         self._lines_of = None
@@ -1273,21 +1276,14 @@ class Verifier:
                              groups=" / ".join(self.sc.ambiguous_lines(station)), what=what)
 
     def _bike_walk(self, lat1, lng1, lat2, lng2):
-        """대여소까지 도보 — GraphHopper foot 거리(추정) → 없으면 직선 × 우회계수(추정). (m, 분, 근거 dict)"""
+        """대여소까지 도보 — 직선 × 우회계수(추정). (m, 분, 근거 dict, 직선 m). 보행망 거리는 없다(99 — 경로 서버 삭제)."""
         B = self.R["bike"]["ddareungi"]
         speed = self.R["measured_baseline"]["kakao_walk_speed_mps"]["value"]
         straight = meters(lat1, lng1, lat2, lng2)
-        r = (self.bike_router.route(B["ride"]["walk_profile"], lat1, lng1, lat2, lng2)
-             if self.bike_router and self.bike_router.available() else None)
-        if r:
-            dist, basis = r["distance_m"], f"보행망 {r['basis']}"
-            ev = {"source_type": "db", "source_id": r["source_id"], "grade": "추정", "observed_at": None,
-                  "claim": f"도보 {dist:,.0f}m (직선 {straight:,.0f}m · {basis})"}
-        else:
-            factor = B["station_walk_detour"]["value"]
-            dist, basis = straight * factor, f"직선×{factor:g}"
-            ev = self._ev_rule(f"bike.ddareungi.station_walk_detour — {basis}", "추정")
-            ev["claim"] = f"도보 {dist:,.0f}m (직선 {straight:,.0f}m × {factor:g} — 보행망 없음)"
+        factor = B["station_walk_detour"]["value"]
+        dist, basis = straight * factor, f"직선×{factor:g}"
+        ev = self._ev_rule(f"bike.ddareungi.station_walk_detour — {basis}", "추정")
+        ev["claim"] = f"도보 {dist:,.0f}m (직선 {straight:,.0f}m × {factor:g} — 보행망 없음)"
         return dist, math.ceil(dist / speed / 60), ev, straight
 
     def verify_leg_bike(self, idx, leg, now_min, day_type, party=None, live_fixture=None):
@@ -1298,8 +1294,9 @@ class Verifier:
                  응답은 값만 쓰고 버린다 — 이력엔 checked_at + 개수. 조회 못 하면 후보 유지 · 가용 근거없음 · 경고.
         제외     만 12세 이하 동반 → 불가(확정). 출발 대여소 LCD 전용 → 다음 대여소로(추정).
         요금     1h 1,000 … 초과 200원/5분. 승차 > overtime_warn_min → MOB_W_BIKE_OVERTIME.
-        소요     도보(보행망) + 대여 3 + bike 프로파일 + 반납 3 — 대여·반납은 ◇ 근거없음.
-        시각     확정하지 않는다. 출발 시각 = now, 도착 = now + 소요(추정). 라우터가 없으면 도착을 내지 않는다.
+        소요     ☆99 — **승차 소요는 내지 않는다**(자전거 경로 계산 없음 · 근거없음). 대여소 도보(직선×계수)·대여 3·반납 3 만 안다.
+        시각     도착을 내지 않는다(예정 시각 없음 → 밖 판정은 불가 no_data · 이유에 「자전거 경로 계산 없음」).
+                 살릴 때는 보행 경로 거리 ÷ 자전거 평균 속도(단위 환산)로(본인 10/4 · 보행 그래프 뒤) — 전용 경로 계산을 만들지 않는다.
         """
         party = party or {}
         B = self.R["bike"]["ddareungi"]
@@ -1415,19 +1412,10 @@ class Verifier:
         ev += [wev_in, wev_out]
         rent = B["rent_return_min"]["value"]
         ev.append(self._ev_rule("bike.ddareungi.rent_return_min", "근거없음"))
-        ride = ride_grade = None
-        r = (self.bike_router.route(B["ride"]["profile"], sa["lat"], sa["lon"], sb["lat"], sb["lon"])
-             if self.bike_router and self.bike_router.available() else None)
-        if r:
-            ride = ceil1(r["time_s"] / 60)                  # #2 올림
-            ride_grade = "추정"
-            ev.append({"source_type": "db", "source_id": r["source_id"], "grade": "추정", "observed_at": None,
-                       "claim": f"{sa['name']} → {sb['name']} bike 프로파일 {r['distance_m']/1000:.2f}km · "
-                                f"{ride:g}분 ({r['basis']})"})
-            ev.append(self._ev_rule("bike.ddareungi.ride", "추정"))
-        else:
-            ride_grade = "근거없음"
-            ev.append(self._ev_rule("bike.ddareungi.ride — 라우터·픽스처 없음 → 승차 소요 없음", "근거없음"))
+        # ☆99(2026-10-04) 승차 소요 — 자전거 경로 계산이 없다(경로 서버 삭제 · 본인 결정 ②). 숫자를 지어내지 않고, 다른 수단의
+        #   소요로 몰래 바꾸지도 않는다. 아래 요금·초과 경고는 승차 소요가 생길 때(보행 경로 거리 ÷ 자전거 평균 속도 · 결정 ③)를 위해 둔다.
+        ride, ride_grade = None, "근거없음"
+        ev.append(self._ev_rule(f"bike.ddareungi.ride — {BIKE_NO_ROUTE} → 승차 소요 없음", "근거없음"))
 
         # 4) 요금 · 초과 경고 · 외국인 안내
         fare_txt = ""
@@ -1447,7 +1435,7 @@ class Verifier:
         arrive = now_min + total if ride is not None else None
         grade = worst_grade("확정", mode_grade, avail_grade, ride_grade)
         reason = (f"대여소 {sa['name']}(도보 {wmin_in}분) → {sb['name']}(도보 {wmin_out}분)"
-                  + (f" · 승차 {ride:g}분" if ride is not None else " · 승차 소요 근거없음")
+                  + (f" · 승차 {ride:g}분" if ride is not None else f" · {BIKE_NO_ROUTE}(승차 소요 근거없음)")
                   + f" · 대여·반납 {rent * 2}분"
                   + (f" · 거치 {avail['available']}대" if avail else " · 거치 미상")
                   + fare_txt)
@@ -1657,6 +1645,11 @@ class Verifier:
                  else self.verify_leg_bike(idx, newleg, t, day_type, party, case.get("bike_live"))
                  if newleg.get("mode") == "bike"
                  else self.verify_leg(idx, newleg, t, day_type, is_sat, worst=worst, party=party))
+            if newleg.get("mode") == "bike" and r.verdict == "feasible" and r.arrive_min is None:
+                # 99(GPT #1) — 도착을 못 내는 자전거(자전거 경로 계산 없음)는 **성립 대안이 아니다**. 본 경로가 이 모양을
+                #   판단불가(no_data)로 올리는 것과 같게, 대안에서도 근거없음으로 적고 대안 목록(최대_제시 자리)에 넣지 않는다.
+                tried.append((axis, f"{label} — {BIKE_NO_ROUTE}(승차 소요 근거없음)", "unknown"))
+                return r
             tried.append((axis, label, r.verdict))
             if r.verdict == "feasible":
                 arr = r.arrive_min + walk_min(walk_out) if r.arrive_min is not None else None
@@ -2627,12 +2620,12 @@ class Verifier:
                 tail = (i == len(case["legs"]) - 1) and arrive_by is None
                 if mode == "bike":
                     warns.append(self.warn_msg("MOB_W_WORST_NO_SPREAD", what=f"{r.label} 소요")) if worst else None
-                reason = ((f"{r.label} 은 성립한다(대여소·{fmt_min(r.depart_min)} 출발) — 승차 소요를 낼 수 없어 도착 시각은 내지 않는다"
+                reason = ((f"{r.label} 은 성립한다(대여소·{fmt_min(r.depart_min)} 출발) — {BIKE_NO_ROUTE}: 승차 소요를 낼 수 없어 도착 시각은 내지 않는다"
                            if mode == "bike" else
                            f"{r.label} 은 그 시각 편성이 있다({fmt_min(r.depart_min)} 출발) — "
                            f"승차 소요를 낼 수 없어 도착 시각은 내지 않는다")
                           if tail else
-                          f"{r.label} 의 승차 소요를 낼 수 없어 이후 구간의 시각을 이어 갈 수 없다 "
+                          f"{r.label} 의 승차 소요를 낼 수 없어{'(' + BIKE_NO_ROUTE + ')' if mode == 'bike' else ''} 이후 구간의 시각을 이어 갈 수 없다 "
                           f"(그 구간 편성은 있다: {fmt_min(r.depart_min)} 출발)")
                 # ☆`[2026-09-29 문제목록 #65]` 앞 판은 마지막 구간이고 도착 기한이 없으면 도착 시각 없이 「성립」을 냈다.
                 #   소요를 모르는 것은 데이터 결함이다(결정 15) — 끝 구간이어도 판정 불가로 올린다.
@@ -3054,12 +3047,18 @@ def load_cases(path, only=None):
     return cases
 
 
-def road_graph_default(check_expect, gh_spec, environ):
-    """`--road-graph` 를 안 줬을 때의 값(77-2). 환경변수 MOBILITY_ROAD_GRAPH → 회귀 대조(--check-expect)거나 **최종** GH 설정
-    (명령줄 · 환경변수 · 규칙을 다 본 값)이 픽스처면 "none"(회귀는 라우터를 끈다 · 픽스처 앞을 가로채지 않는다 — GPT 77-2 #6)
-    → 그 밖은 "auto"."""
-    return environ.get("MOBILITY_ROAD_GRAPH") or (
-        "none" if (check_expect or str(gh_spec or "").startswith("fixture:")) else "auto")
+def road_graph_default(environ):
+    """`--road-graph` 를 안 줬을 때의 값 — 환경변수 MOBILITY_ROAD_GRAPH → "auto"(자료 폴더의 road_graph_v1).
+    ☆99(2026-10-04) 회귀 대조(--check-expect)도 **켠 채**가 기본이다 — 앞 판은 경로 서버 픽스처 값을 지키려고 회귀에서 껐다."""
+    return environ.get("MOBILITY_ROAD_GRAPH") or "auto"
+
+
+def road_of(spec, speed=None):
+    """`--road-graph` 값 → CarService 의 road. auto·<폴더> = 파이썬 도로 라우터 · fixture:<파일> = 합성 경로 대역 · none = 없음."""
+    if str(spec or "").startswith("fixture:"):
+        return FixtureRouter(spec[len("fixture:"):])
+    from .road_router import resolve as _road_resolve
+    return _road_resolve(spec, speed=speed)
 
 
 def build_verifier_for_cases(args, cases):
@@ -3067,7 +3066,7 @@ def build_verifier_for_cases(args, cases):
 
     71번 방(2026-09-29): main() 안에 있던 데이터 올리기 블록을 그대로 옮겼다 — pytest 회귀
     (tests/unit/travel/mobility/test_regression_cases.py)가 CLI 와 **같은 적재**를 쓰기 위해서다.
-    판정 경로·출력은 바뀌지 않았다. ctx = {record, bike_router, bike_live, rules} (main 의 끝맺음용).
+    판정 경로·출력은 바뀌지 않았다. ctx = {bike_live, rules} (main 의 끝맺음용).
     """
     if not all((args.timetable, args.order, args.transfer_walk, args.bus_route,
                 args.bus_stops, args.station_coords, args.station_exits)):
@@ -3095,19 +3094,11 @@ def build_verifier_for_cases(args, cases):
     bk = BikeStations.load(args.bike_stations)
     bike_live = None
     if args.bike_live == "env":
-        from dotenv import load_dotenv
-        load_dotenv(REPO_ROOT / ".env")
-        bike_live = BikeLive.from_env()
+        bike_live = BikeLive.from_env()            # ACOP_SEOUL_OPENAPI_KEY — 환경변수 → final_project_cs/.env → .env.apikeys
         if bike_live is None:
-            print("  ! --bike-live env 인데 SEOUL_OPENAPI_KEY 가 없다 — 가용은 근거없음으로 낸다")
+            print(f"  ! --bike-live env 인데 {BikeLive.KEY_NAME} 가 없다 — 가용은 근거없음으로 낸다")
     elif args.bike_live and args.bike_live != "none":
         bike_live = BikeLive.from_fixture(json.loads(Path(args.bike_live).read_text(encoding="utf-8")))
-    fixture = json.loads(Path(args.bike_fixture).read_text(encoding="utf-8")) if args.bike_fixture else {}
-    record = None
-    if args.bike_record:
-        rp = Path(args.bike_record)
-        record = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else {}
-        fixture = dict(record, **fixture) if fixture else dict(record)
 
     # 시간표는 케이스에 나오는 (노선, 역) 만 올린다 — 46만 행을 통째로 들지 않는다.
     # ★ 19번 방(2026-09-19): 대안이 쓸 (노선, 역) 도 같이 올린다. 종전에는 케이스 구간의 노선만 올려서
@@ -3169,37 +3160,25 @@ def build_verifier_for_cases(args, cases):
         print("  ! 역 출구표(station_exits_v1.json)를 못 찾았다 — 정류장↔역 환승은 역 좌표로 잰다")
     else:
         print(f"역 출구 {ex.built_at} · {len(ex.exits)}역명 · {sum(len(v) for v in ex.exits.values()):,}출구 [{ex.grade}]")
-    # 자동차·택시(v0.6) — 그래프 자료는 프로세스당 한 번, 라우터는 캐시 없이 매번 묻는다
+    # 자동차·택시(v0.6) — 소요 자료(TOPIS 프로파일)는 프로세스당 한 번. 경로는 파이썬 도로 라우터 하나(99 — 경로 서버 삭제).
     car = None
-    gh_spec = args.gh_url or os.environ.get("MOBILITY_GH_URL") or rules["car"]["graphhopper"]["url"]["value"]
     cg = CarGraph.load(args.graph_dir, holidays)
     if cg is None:
         print("  ! 도로망 그래프 자료(graph/topis_class_factor_v1.json 등)를 못 찾았다 — 택시·자동차는 근거없음으로 낸다")
     else:
-        router = make_router(gh_spec)
-        # 77 — 파이썬 도로 라우터가 GH 앞. 속성이 없는 호출(회귀 pytest 의 인자 묶음)은 끈다(재현성 · 픽스처 그대로).
-        from .road_router import resolve as _road_resolve
+        # 속성이 없는 호출(인자 묶음을 직접 만드는 쪽)은 끈다 — 켜려면 road_graph 를 준다(pytest 회귀는 묶음마다 준다).
         road_spec = getattr(args, "road_graph", "none")
         if road_spec is None:
-            road_spec = road_graph_default(getattr(args, "check_expect", False), gh_spec, os.environ)
-        road = _road_resolve(road_spec, speed=cg.static_kmh)           # 정적 시간 가중(GH 와 같은 잣대)
-        car = CarService(cg, router, rules, road=road)
-        info = router.info()
-        print(f"도로망 {len(cg.prof):,}셀 · 링크표 way {len(cg.seg):,} · 파이썬 라우터 "
-              + (f"{road.dir}(회전 제약 없음 · 추정)" if road else f"없음({road_spec})")
-              + f" · GH {gh_spec} → "
-              + (f"응답(version {info.get('version')})" if info else
-                 ("응답 없음" + (" — 택시·자동차는 근거없음" if road is None else ""))))
-    # 자전거 라우터(22번) — 21번의 라우터 객체를 **그대로** 쓴다(profile=bike/foot). 응답이 있을 때만 붙이고,
-    #   아니면 자전거 픽스처(--bike-fixture / --bike-record)만. 자동차 합성 픽스처(fixture:)는 자전거 키가 없어 소요 근거없음이 된다.
-    live_router = router if (cg is not None and info) else None
-    pbf_date = (rules.get("bike") or {}).get("pbf_date") or "2026-09-18"
-    bike_router = BikeRouter(live_router, fixture, pbf_date, record=record) if (live_router or fixture) else None
+            road_spec = road_graph_default(os.environ)
+        road = road_of(road_spec, speed=cg.static_kmh)                 # 정적 시간 가중(평일 낮 평균 · 본인 10/3)
+        car = CarService(cg, rules, road=road)
+        print(f"도로망 {len(cg.prof):,}셀 · 링크표 way {len(cg.seg):,} · 도로 라우터 "
+              + (f"{road.dir}" + ("" if isinstance(road, FixtureRouter) else "(회전 제약 없음 · 추정)") if road
+                 else f"없음({road_spec}) — 택시·자동차는 근거없음"))
     if bk is None:
         print("  ! 따릉이 대여소(bike_stations_v1.jsonl)를 못 찾았다 — 자전거는 근거없음으로 낸다")
     else:
-        print(f"따릉이 대여소 {len(bk.rows):,}곳 · {bk.checked_at} · 라우터 "
-              f"{'GraphHopper ' + bike_router.url if (bike_router and bike_router.url) else ('픽스처 ' + str(len(fixture)) + '건' if fixture else '없음(소요 근거없음)')}"
+        print(f"따릉이 대여소 {len(bk.rows):,}곳 · {bk.checked_at} · 승차 소요 없음({BIKE_NO_ROUTE})"
               f" · 실시간 {'env' if args.bike_live == 'env' else ('픽스처' if bike_live else '없음(가용 근거없음)')}")
     # 버스 구간 통행시간 프로파일(v0.9 · 41번 방) — 파일이 없으면 종전 모델(거리 ÷ 표정속도 · worst 스프레드 근거없음)
     bus_prof = None if args.bus_profile == "none" else BusSegProfile.load(args.bus_profile)
@@ -3207,11 +3186,11 @@ def build_verifier_for_cases(args, cases):
         print("  ! 버스 구간 프로파일(bus_seg_profile_v1.jsonl.gz)을 못 찾았거나 끔 — 버스 승차는 표정속도 모델로 낸다")
     else:
         print(f"버스 구간 프로파일 {len(bus_prof.index):,}구간 · {bus_prof.dates} · {bus_prof.source_id}")
-    v = Verifier(tt, lo, rules, holidays, tw, bus, sc, ex, car, bk, bike_live, bike_router, cg_data, bus_prof)
-    return v, {"record": record, "bike_router": bike_router, "bike_live": bike_live, "rules": rules}
+    v = Verifier(tt, lo, rules, holidays, tw, bus, sc, ex, car, bk, bike_live, cg_data, bus_prof)
+    return v, {"bike_live": bike_live, "rules": rules}
 
 
-def check_expect(c, r, allow_router_down=False):
+def check_expect(c, r):
     """케이스 c 의 expect 칸과 결과 r 을 대조한다 → (miss, skipped).
 
     71번 방(2026-09-29): main() 의 `--check-expect` 블록을 그대로 옮겼다(비교 칸·문구 동일).
@@ -3434,41 +3413,35 @@ def check_expect(c, r, allow_router_down=False):
                 miss.append((c["id"], f"자동차 구간 {k} {etl[k]}", str(gotv)))
                 print(f"  >> MISS 자동차 구간 {k} 기대 {etl[k]} / 실제 {gotv}")
     # ★ 택시 대안 축(2026-09-20 · 21번 방). verdict · arrive · fare_won(정확) · fare_min/max_won(범위) · warn_codes.
-    #   라우터 없이 돌리면 택시가 근거없음이라 전부 MISS 다 — 그게 맞다. --allow-router-down 을 주면
-    #   **SKIP 으로 세어 보이게** 통과시킨다(조용히 통과가 아니다). expect_taxi: {"verdict": "unknown"} 는
-    #   라우터 유무와 무관하게 「택시도 못 낸다」를 잠근다.
+    #   ☆99(2026-10-04) 「라우터 없음이면 SKIP」(--allow-router-down)을 없앴다 — 차도 그래프가 저장소 안에 있어 어느 기기에서나
+    #   값이 나온다. 그래프 없이 돌리면 택시가 근거없음이라 MISS 다(그게 맞다). expect_taxi: {"verdict": "unknown"} 는
+    #   「택시도 못 낸다」를 잠근다. 돌려주는 skipped 는 늘 빈 목록(부르는 쪽 모양 유지).
     et = c.get("expect_taxi")
     if et is not None:
         tx = r.taxi or {}
-        down = (tx.get("verdict") == "unknown"
-                and any(w["code"] == "MOB_W_CAR_ROUTER_DOWN" for w in (tx.get("warnings") or [])))
-        if down and allow_router_down and et.get("verdict") != "unknown":
-            skipped.append((c["id"], "expect_taxi"))
-            print("  >> SKIP expect_taxi — 라우터 없음(--allow-router-down)")
-        else:
-            tmiss = []
-            if not tx:
-                tmiss.append(("택시 대안", "없음"))
-            if et.get("verdict") and tx.get("verdict") != et["verdict"]:
-                tmiss.append((f"택시 {MARK[et['verdict']]}", MARK.get(tx.get("verdict"), "없음")))
-            if et.get("arrive") and fmt_min(to_service_min(et["arrive"])) != fmt_min(tx.get("arrive_min")):
-                tmiss.append((f"택시 도착 {et['arrive']}", fmt_min(tx.get("arrive_min"))))
-            fw = tx.get("fare_won")
-            if et.get("fare_won") is not None and fw != et["fare_won"]:
-                tmiss.append((f"택시 요금 {et['fare_won']:,}", str(fw)))
-            if et.get("fare_min_won") is not None and (fw is None or fw < et["fare_min_won"]):
-                tmiss.append((f"택시 요금 ≥ {et['fare_min_won']:,}", str(fw)))
-            if et.get("fare_max_won") is not None and (fw is None or fw > et["fare_max_won"]):
-                tmiss.append((f"택시 요금 ≤ {et['fare_max_won']:,}", str(fw)))
-            if et.get("grade") and tx.get("grade") != et["grade"]:
-                tmiss.append((f"택시 등급 {et['grade']}", str(tx.get("grade"))))
-            got_w = {w["code"] for w in (tx.get("warnings") or [])}
-            lack = [x for x in (et.get("warn_codes") or []) if x not in got_w]
-            if lack:
-                tmiss.append((f"택시 경고 {lack}", str(sorted(got_w))))
-            for e_, g_ in tmiss:
-                miss.append((c["id"], e_, g_))
-                print(f"  >> MISS {e_} 기대 / 실제 {g_}")
+        tmiss = []
+        if not tx:
+            tmiss.append(("택시 대안", "없음"))
+        if et.get("verdict") and tx.get("verdict") != et["verdict"]:
+            tmiss.append((f"택시 {MARK[et['verdict']]}", MARK.get(tx.get("verdict"), "없음")))
+        if et.get("arrive") and fmt_min(to_service_min(et["arrive"])) != fmt_min(tx.get("arrive_min")):
+            tmiss.append((f"택시 도착 {et['arrive']}", fmt_min(tx.get("arrive_min"))))
+        fw = tx.get("fare_won")
+        if et.get("fare_won") is not None and fw != et["fare_won"]:
+            tmiss.append((f"택시 요금 {et['fare_won']:,}", str(fw)))
+        if et.get("fare_min_won") is not None and (fw is None or fw < et["fare_min_won"]):
+            tmiss.append((f"택시 요금 ≥ {et['fare_min_won']:,}", str(fw)))
+        if et.get("fare_max_won") is not None and (fw is None or fw > et["fare_max_won"]):
+            tmiss.append((f"택시 요금 ≤ {et['fare_max_won']:,}", str(fw)))
+        if et.get("grade") and tx.get("grade") != et["grade"]:
+            tmiss.append((f"택시 등급 {et['grade']}", str(tx.get("grade"))))
+        got_w = {w["code"] for w in (tx.get("warnings") or [])}
+        lack = [x for x in (et.get("warn_codes") or []) if x not in got_w]
+        if lack:
+            tmiss.append((f"택시 경고 {lack}", str(sorted(got_w))))
+        for e_, g_ in tmiss:
+            miss.append((c["id"], e_, g_))
+            print(f"  >> MISS {e_} 기대 / 실제 {g_}")
     return miss, skipped
 
 
@@ -3485,10 +3458,8 @@ def main():
     ap.add_argument("--station-coords")
     ap.add_argument("--station-exits")
     ap.add_argument("--bike-stations", help="따릉이 운영 대여소 jsonl (v0.7 · 22번 방). 없으면 자전거는 근거없음")
-    ap.add_argument("--bike-fixture", help="GraphHopper 거리·시간 요약 픽스처 json — 서버 없이 회귀를 돌릴 때")
     ap.add_argument("--bike-live", default="none",
-                    help="실시간 거치 조회: none(기본 · 근거없음) · env(SEOUL_OPENAPI_KEY 로 실제 호출) · <픽스처 json 경로>")
-    ap.add_argument("--bike-record", help="GraphHopper 실제 응답의 거리·시간 요약을 이 픽스처 파일에 **추가** 기록한다(형상 없음)")
+                    help="실시간 거치 조회: none(기본 · 근거없음) · env(ACOP_SEOUL_OPENAPI_KEY 로 실제 호출) · <픽스처 json 경로>")
     ap.add_argument("--bus-profile", help="버스 구간 통행시간 프로파일(v0.9 · 41번 방) · 'none' 이면 종전 모델(거리 ÷ 표정속도). "
                                          "기본 processed/mobility/bus_seg_profile_v1.jsonl.gz")
     ap.add_argument("--congestion", nargs="*",
@@ -3498,13 +3469,8 @@ def main():
     ap.add_argument("--case", help="이 id 만 돌린다")
     ap.add_argument("--graph-dir", help="도로망 그래프 자료 폴더(기본 processed/mobility/graph)")
     ap.add_argument("--road-graph",
-                    help="77 파이썬 도로 라우터(서버 없음 · GH 앞): auto(processed/mobility/road_graph_v1 이 있으면) · none · "
-                         "<폴더>. 안 주면 환경변수 MOBILITY_ROAD_GRAPH → 회귀 대조(--check-expect)·자동차 픽스처(--gh-url "
-                         "fixture:)면 none(회귀는 라우터를 끈다 · 픽스처 앞을 가로채지 않게) · 그 밖은 auto")
-    ap.add_argument("--gh-url", help="GraphHopper 주소 · 'none' · 'fixture:<합성경로 파일>' "
-                                     "(기본: 환경변수 MOBILITY_GH_URL → rules car.graphhopper.url)")
-    ap.add_argument("--allow-router-down", action="store_true",
-                    help="라우터에 못 닿아 택시가 근거없음이면 expect_taxi 축을 MISS 대신 SKIP 으로 센다(클라우드 실행용)")
+                    help="택시·자동차 경로 — 파이썬 도로 라우터(서버 없음): auto(processed/mobility/road_graph_v1 이 있으면) · "
+                         "none · <폴더> · fixture:<합성경로 파일>(시험 대역). 안 주면 환경변수 MOBILITY_ROAD_GRAPH → auto")
     ap.add_argument("--check-expect", action="store_true", help="expect 와 대조하고 MISS 면 종료코드 1")
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("--json", help="판정 결과를 이 경로에 저장")
@@ -3512,14 +3478,14 @@ def main():
 
     cases = load_cases(args.cases, args.case)
     v, ctx = build_verifier_for_cases(args, cases)
-    record, bike_router, bike_live, rules = ctx["record"], ctx["bike_router"], ctx["bike_live"], ctx["rules"]
+    bike_live, rules = ctx["bike_live"], ctx["rules"]
     results, miss, skipped = [], [], []
     for c in cases:
         r = v.verify_case(c)
         results.append(r)
         show(c, r, args.verbose)
         if args.check_expect:
-            m_, s_ = check_expect(c, r, args.allow_router_down)
+            m_, s_ = check_expect(c, r)
             miss += m_
             skipped += s_
 
@@ -3531,15 +3497,9 @@ def main():
     print("판정(밖)   " + " · ".join(f"{OUT_MARK[k]} {otally[k]}" for k in OUT_VERDICTS if otally[k])
           + (" · 이유 " + " ".join(f"{k}:{n}" for k, n in ctally.most_common()) if ctally else ""))
     if args.check_expect:
-        print(f"기대 대조 — 케이스 {len(cases)}건 중 어긋남 {len(miss)}건"
-              + (f" · 라우터 없음 SKIP {len(skipped)}건 ({', '.join(i for i, _ in skipped)}) — 노트북 묶음에서 확인한다"
-                 if skipped else ""))
+        print(f"기대 대조 — 케이스 {len(cases)}건 중 어긋남 {len(miss)}건")
         for i, e, g in miss:
             print(f"  MISS {i}: 기대 {e} → {g}")
-    if record is not None and bike_router is not None:
-        Path(args.bike_record).write_text(json.dumps(record, ensure_ascii=False, indent=1) + "\n",
-                                          encoding="utf-8", newline="\n")
-        print(f"GraphHopper 요약 픽스처 {len(record)}건 → {args.bike_record} (호출 {bike_router.calls}회 · 형상 없음)")
     if bike_live is not None and bike_live.key:
         print(f"bikeList 호출 {bike_live.calls}회 (1일 한도 {rules['bike']['ddareungi']['live_check']['daily_quota']})")
     if args.json:

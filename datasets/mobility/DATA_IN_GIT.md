@@ -104,11 +104,11 @@
 | `osm_way_seg_topis_link_v1.csv` | 1.9 MB · 67,458행 | `osm_way_id` `seg_idx` `dir` `link_id` `n_pts` | — |
 | `osm_way_geom_v1.csv` | 1.7 MB · 8,664행 | `osm_way_id` `highway` `name` `pts` | 확정(형상) |
 | `daytype_calendar_v1.csv` | 8.0 KB · 365행 | `date` `daytype` `is_holiday` | — |
-원자료 TOPIS 속도 xlsx 12개(`raw\mobility\topis\` 465 MB) + OSM pbf. 생성 `graph_01_geom.py → graph_02a_extract_car_ways.py → graph_02b_match.py → graph_03a_convert_xlsx.py → graph_03b_profile.py`(작업 폴더를 cwd 로 · 각 파일 머리말). **라우터(GraphHopper jar · pbf · graph-cache 1,240 MB)는 C** — 없으면 택시·자동차 근거없음(회귀 CAR-* 는 전체층 · `allow_router_down`).
+원자료 TOPIS 속도 xlsx 12개(`raw\mobility\topis\` 465 MB) + OSM pbf. 생성 `graph_01_geom.py → graph_02a_extract_car_ways.py → graph_02b_match.py → graph_03a_convert_xlsx.py → graph_03b_profile.py`(작업 폴더를 cwd 로 · 각 파일 머리말). **경로는 아래 `road_graph_v1/` 를 파이썬 도로 라우터가 계산한다** — 10/4 부터 엔진은 경로 서버(GraphHopper)를 부르지 않는다(그 빌드물 jar · pbf · graph-cache 1,240 MB 는 C · 엔진이 읽지 않음). 이 5파일은 소요(TOPIS 프로파일) 계산에 그대로 쓴다.
 
 ### `road_graph_v1/` 3파일 (서울+인접·공항 차도·자전거 그래프 · 15.96 MB · 9/30 추가)
 
-서버(GraphHopper) 없이 파이썬에서 택시·자동차(·자전거) 경로를 계산하기 위한 지도 데이터. **소요는 이 파일에 없다**(TOPIS 속도 프로파일로 계산). 경로는 저장하지 않는다.
+경로 서버 없이 파이썬에서 택시·자동차 경로를 계산하기 위한 지도 데이터(10/4 부터 유일한 경로 계산 · 자전거 간선도 들어 있지만 자전거 소요는 내지 않는다 — 근거없음). **소요는 이 파일에 없다**(TOPIS 속도 프로파일로 계산). 경로는 저장하지 않는다.
 
 | 파일 | 행 | 크기 | md5 |
 |---|---:|---:|---|

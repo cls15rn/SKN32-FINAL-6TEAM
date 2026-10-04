@@ -158,9 +158,8 @@ class Estimator:
         self.v.lfd_enabled = False
         self.modes = set(modes) if modes else set(DEFAULT_MODES)
         # 결정 8 — 자전거를 안 볼 때는 복사본에서 따릉이 대여소 표를 뗀다 → multi 가 자전거 후보를 만들지 않는다.
-        #   라우터(GraphHopper)가 떠 있으면 자전거 후보가 표본마다 HTTP 경로 탐색을 불러 창 하나가 수십 분이 된다
-        #   (노트북 2026-09-25 · reg48 가 1시간 넘게 돎). 자전거 소요는 시각대에 따라 안 변하고 대여 가능 여부가
-        #   실시간이라(근거없음) 계획용 범위에 넣을 값이 아니다.
+        #   자전거 후보는 대여 가능 여부가 실시간이라(근거없음) 계획용 범위에 넣을 값이 아니다. (99 부터 자전거 경로 계산도 없다
+        #   — 앞 판은 경로 서버가 떠 있으면 표본마다 경로 탐색을 불러 창 하나가 수십 분이 됐다 · 노트북 2026-09-25.)
         if "bike" not in self.modes:
             self.v.bk = None
         self.P = Planner(runtime, stage=stage, modes=modes)      # 장소↔역 도보 식은 32 와 같은 것을 쓴다

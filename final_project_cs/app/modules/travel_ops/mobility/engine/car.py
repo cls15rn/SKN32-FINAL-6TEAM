@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""자동차·택시 구간 — 도로망 그래프(GraphHopper) 위 시각별 소요 + 택시 요금. 21번 방(2026-09-20).
+"""자동차·택시 구간 — 차도 그래프 경로 위 시각별 소요 + 택시 요금. 21번 방(2026-09-20).
 
 18번 방 `processed/mobility/graph/graph_time.py` 를 모듈로 옮긴 것이다(계산 규칙은 그대로).
 
-  경로 선택은 정적(GraphHopper, maxspeed 주입 v2) · 소요는 동적(TOPIS 링크×요일형×시간대 프로파일).
+  경로 선택은 정적(파이썬 도로 라우터 road_router · 평일 낮 평균 속도) · 소요는 동적(TOPIS 링크×요일형×시간대 프로파일).
+  ☆99(2026-10-04) 경로 서버(GraphHopper) 호출을 지웠다 — 경로는 저장소 안 차도 그래프 파일(road_graph_v1)로만 낸다.
+    응답 모양(`paths[0].points.coordinates` · `details.osm_way_id` · `details.road_class`)과 출력 칸 이름
+    (`gh_time_s` · `gh_distance_m` — 라우터가 준 정적 값 · 파이썬 라우터는 시간을 안 줘 None)은 스키마·골든이 걸려 그대로 둔다.
   응답 edge 마다 세그먼트→링크→프로파일(그 시각) 로 소요를 다시 계산하고 진행하면서 시각을 넘긴다.
   ★ 경로는 저장하지 않는다 — 좌표열·edge 목록은 이 함수 밖으로 나가지 않는다. 나가는 것은
     거리·소요·커버 m/%·링크 요약(link_id, m)뿐이다(저장소 설계 3차 변경점 §2·§3).
-  ★ 캐시 없음 — 같은 요청도 매번 라우터에 묻는다(시간표 상주 원칙과 같은 이유: 낡은 값을 조용히 내주지 않는다).
+  ★ 경로 캐시 없음 — 같은 요청도 매번 다시 계산한다(시간표 상주 원칙과 같은 이유: 낡은 값을 조용히 내주지 않는다).
 
 등급(18번 §3)
   edge 프로파일 있음 = topis(추정) · 간선(motorway~tertiary)인데 없음 = class(추정, 도로급 계수 — 약함) ·
@@ -28,8 +31,6 @@ import datetime as dt
 import gzip
 import json
 import math
-import urllib.error
-import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
@@ -40,14 +41,14 @@ CLASS_MAP = {"motorway": "도시고속도로", "motorway_link": "도시고속도
              "secondary": "보조간선도로", "secondary_link": "보조간선도로",
              "tertiary": "기타도로", "tertiary_link": "기타도로"}
 SOURCE_ID = "topis_link_profile_v1@2025-09~2026-05"
-GRAPH_SOURCE_ID = "osm_road_graph@2026-09-18"
+GRAPH_SOURCE_ID = "osm_road_graph@2026-09-18"   # 합성 경로 픽스처(FixtureRouter · 시험 대역)의 출처 표기 — 골든이 이 값을 잠근다
 ROAD_SOURCE_ID = "road_graph_v1@2026-09-18"      # 77 파이썬 라우터(76 그래프 파일 · 같은 pbf) — road_router 와 같은 값
 
 
 class RouterDown(Exception):
     """라우터에 닿지 못했다 — 소요·요금을 지어내지 않고 근거없음으로 낸다.
 
-    code(77-2): 왜 못 냈는지의 갈래 — `router_down`(기본 · 서버 없음·응답 없음) · `out_of_area`(도로 그래프 범위 밖) ·
+    code(77-2): 왜 못 냈는지의 갈래 — `router_down`(기본 · 라우터 없음) · `out_of_area`(도로 그래프 범위 밖) ·
       `no_snap`(가까운 차도 없음) · `no_path`(이을 길 없음). 수단별 후보의 택시 칸이 이유를 가르는 데 쓴다."""
 
     def __init__(self, msg="", code="router_down"):
@@ -124,7 +125,7 @@ class CarGraph:
         return cls(p, holidays)
 
     def static_kmh(self, way, seg_idx, d, hw):
-        """경로 **선택**용 정적 속도(km/h) — GH maxspeed 주입 v2(18번 · build_topis_pbf.py)와 같은 잣대.
+        """경로 **선택**용 정적 속도(km/h) — 18번 방 maxspeed 주입 v2(build_topis_pbf.py)와 같은 잣대.
         TOPIS 링크 = 평일 07~20시 평균 · 링크 없는 간선급 = 도로급 평일 07~20시 평균 · 골목 = DEFAULT_KMH.
         77 파이썬 라우터의 시간 가중에 쓴다. 소요(compute)는 여전히 그 시각의 프로파일로 따로 낸다."""
         segtab = self.seg.get(way)
@@ -178,7 +179,7 @@ class CarGraph:
         return hw, adv >= 0, [q[1] for q in ps]
 
     def prepare(self, route):
-        """GH 모양 응답 → 세그먼트 열(길이 m · TOPIS 링크 · 도로급) + 도로명별 길이. 출발 시각과 무관한 부분만.
+        """라우터 응답(`/route` 모양) → 세그먼트 열(길이 m · TOPIS 링크 · 도로급) + 도로명별 길이. 출발 시각과 무관한 부분만.
         77-2: 도착 목표에 맞춘 출발 탐색(arrive_by)이 같은 경로를 여러 시각으로 다시 셈하므로 형상 맞추기를 한 번만 한다.
         ★좌표는 여기서 길이·링크로 바뀌고 버려진다 — 돌려주는 값에 좌표·way 열은 없다."""
         path = route["paths"][0]
@@ -217,7 +218,7 @@ class CarGraph:
                 "roads": [{"name": k, "m": round(m, 1)} for k, m in sorted(roads.items(), key=lambda kv: -kv[1])[:8]]}
 
     def compute(self, route, depart, slow_threshold_kmh=None, worst=False):
-        """GraphHopper /route 응답 → 시각별 소요. 반환값에 좌표·edge 목록은 없다. (= prepare + run)"""
+        """라우터 응답(`/route` 모양) → 시각별 소요. 반환값에 좌표·edge 목록은 없다. (= prepare + run)"""
         return self.run(self.prepare(route), depart, slow_threshold_kmh=slow_threshold_kmh, worst=worst)
 
     def run(self, prep, depart, slow_threshold_kmh=None, worst=False):
@@ -291,49 +292,20 @@ class CarGraph:
         return tot
 
 
-# ── 라우터 ─────────────────────────────────────────────────────────────────
-class GraphHopperClient:
-    """노트북/집 PC 상주 GraphHopper 11.0. 캐시 없음."""
-
-    def __init__(self, url="http://localhost:8989", timeout_s=30):
-        self.url = url.rstrip("/")
-        self.timeout = timeout_s
-        self.calls = 0
-
-    def route(self, s, e, profile="car", via=None):
-        body = {"points": [list(s)] + [list(v) for v in (via or [])] + [list(e)], "profile": profile,
-                "points_encoded": False, "details": ["osm_way_id", "road_class"],
-                "instructions": False, "calc_points": True}
-        req = urllib.request.Request(self.url + "/route", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
-        self.calls += 1
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                res = json.load(r)
-        except urllib.error.HTTPError as ex:
-            msg = ex.read().decode(errors="replace")[:200]
-            raise RouterDown(f"GraphHopper {ex.code}: {msg}")
-        except (urllib.error.URLError, OSError, ValueError) as ex:
-            raise RouterDown(f"GraphHopper 에 닿지 못했다 ({self.url}): {ex}")
-        if "paths" not in res:
-            raise RouterDown(f"GraphHopper 응답에 paths 가 없다: {str(res)[:120]}")
-        return res
-
-    def info(self):
-        try:
-            with urllib.request.urlopen(self.url + "/info", timeout=5) as r:
-                return json.load(r)
-        except (urllib.error.URLError, OSError, ValueError):
-            return None
-
-
+# ── 라우터 대역 ────────────────────────────────────────────────────────────
+#   실제 경로 계산은 road_router.RoadRouter(차도 그래프 파일 · 서버 없음) 하나다. ☆99(2026-10-04) 경로 서버
+#   클라이언트와 「파이썬 라우터 → 서버」 둘째 단을 지웠다 — 라우터가 못 내면 바로 근거없음(RouterDown)이다.
 class FixtureRouter:
-    """시험용 — 합성 경로 파일에서 꺼낸다. 키 = 'lng,lat|lng,lat'(소수 4자리) 또는 케이스 id.
-    실제 API 응답을 담는 자리가 아니다: 18번의 합성 시험(TOPIS 링크 체인)과 같은 종류의 픽스처만 둔다."""
+    """시험용 — 합성 경로 파일에서 꺼낸다. 키 = 'lng,lat|lng,lat'(소수 4자리).
+    실제 경로 계산 결과를 담는 자리가 아니다: 18번의 합성 시험(TOPIS 링크 체인)과 같은 종류의 픽스처만 둔다.
+    도로급 커버 경고·골목 과반(근거없음)·라우터 못 닿음처럼 **실제 그래프로는 만들 수 없는 상황**을 회귀(car_legs_v1)가
+    잠그는 데 쓴다. CarService 의 `road` 자리에 끼운다(`--road-graph fixture:<파일>`)."""
+    source_id = GRAPH_SOURCE_ID
 
     def __init__(self, path):
         self.doc = json.loads(Path(path).read_text(encoding="utf-8"))
         self.routes = self.doc["routes"]
+        self.dir = f"fixture:{Path(path).name}"
         self.calls = 0
 
     @staticmethod
@@ -348,28 +320,6 @@ class FixtureRouter:
         if r.get("down"):
             raise RouterDown("픽스처가 라우터 다운을 흉내낸다")
         return r
-
-    def info(self):
-        return {"version": "fixture"}
-
-
-class NoRouter:
-    """라우터를 쓰지 않기로 한 실행(--gh-url none). 매번 RouterDown."""
-    calls = 0
-
-    def route(self, *a, **k):
-        raise RouterDown("라우터 없이 실행 중(--gh-url none)")
-
-    def info(self):
-        return None
-
-
-def make_router(spec):
-    if not spec or spec == "none":
-        return NoRouter()
-    if spec.startswith("fixture:"):
-        return FixtureRouter(spec[len("fixture:"):])
-    return GraphHopperClient(spec)
 
 
 # ── 택시 요금 (rules taxi.fare · 15번 방) ───────────────────────────────────
@@ -406,34 +356,23 @@ def taxi_fare(fare, kind, dist_m, slow_s, hhmm, out_of_city=False):
 class CarService:
     """그래프 + 라우터 + 규칙. Verifier 가 자동차/택시 구간과 택시 대안에 쓴다.
 
-    ☆77(2026-09-30) 경로를 묻는 순서 = **파이썬 도로 라우터(`road` · road_router.RoadRouter) → (있으면) `router`(GH) →
-      둘 다 못 내면 RouterDown(근거없음)**. 두 라우터 모두 GH `/route` 모양 응답을 주고, 소요는 같은 `CarGraph.compute`
-      가 낸다 — 판정·요금·등급 규칙은 그대로다. 파이썬 라우터는 회전 제약이 없어 등급은 추정을 넘지 않는다(원래 이
-      구간 등급은 추정/근거없음 둘뿐). 어느 라우터였는지는 `source_id` 둘째 칸(도로 그래프 판)으로 남긴다.
+    ☆77(2026-09-30) · 99(2026-10-04) 경로는 **`road`(road_router.RoadRouter · 시험은 FixtureRouter) 하나**에 묻는다. 못 내면
+      RouterDown(근거없음) — 다른 서버로 넘기지 않는다(99 에서 경로 서버 단 삭제). 소요는 `CarGraph` 가 낸다 — 판정·요금·
+      등급 규칙은 그대로다. 파이썬 라우터는 회전 제약이 없어 등급은 추정을 넘지 않는다(원래 이 구간 등급은 추정/근거없음
+      둘뿐). 어느 그래프였는지는 `source_id` 둘째 칸으로 남긴다.
     """
 
-    def __init__(self, graph, router, rules, road=None):
-        self.g, self.router, self.R = graph, router, rules
+    def __init__(self, graph, rules, road=None):
+        self.g, self.R = graph, rules
         self.road = road
         self.C = rules["car"]
         self.F = rules["taxi"]["fare"]
 
     def _route(self, s, e):
-        """(응답, 그래프 출처 id). 파이썬 라우터 → GH. 둘 다 실패하면 두 이유를 이어 RouterDown."""
-        why, road_code = [], None
-        if self.road is not None:
-            try:
-                return self.road.route(s, e), getattr(self.road, "source_id", None) or ROAD_SOURCE_ID
-            except RouterDown as ex:
-                why.append(f"도로 그래프: {ex}")
-                road_code = ex.code
-        try:
-            return self.router.route(s, e), GRAPH_SOURCE_ID
-        except RouterDown as ex:
-            if not why:
-                raise
-            why.append(f"GH: {ex}")
-            raise RouterDown(" · ".join(why), code=road_code or ex.code) from ex   # 갈래는 앞 라우터(도로 그래프)의 것
+        """(응답, 그래프 출처 id). 라우터가 없거나 못 내면 RouterDown."""
+        if self.road is None:
+            raise RouterDown("도로 경로 계산 없이 실행 중(차도 그래프 없음 · --road-graph none)")
+        return self.road.route(s, e), getattr(self.road, "source_id", None) or ROAD_SOURCE_ID
 
     def in_airport_box(self, pt):
         b = self.C["공항_상자"]["value"]
@@ -458,7 +397,7 @@ class CarService:
           처음 성립하는 분**을 고른다 → 시간대 경계에서 소요가 뛰어도 그 뒤의 성립 구간을 놓치지 않는다(GPT 77-2 #1).
           SCAN_MAX_MIN 분 안에 못 찾으면 RouterDown(code="depart_unconfirmed") — 경로는 있는데 출발을 못 정한 것(#2).
         차도까지 걷는 시간: 장소 좌표 ↔ 스냅점 이격(양끝 합) × 우회계수 ÷ 보행속도(정류장↔역 환승과 같은 규칙 값) — 택시가 문 앞에
-          서지 못하는 만큼을 소요에 넣는다(#3). GH 응답에는 이격이 없어 0. 도로 소요·요금은 **출발지 쪽 걷는 시간 뒤**의 시각으로
+          서지 못하는 만큼을 소요에 넣는다(#3). 합성 픽스처 응답에는 이격이 없어 0. 도로 소요·요금은 **출발지 쪽 걷는 시간 뒤**의 시각으로
           셈한다(GPT 97 #4 — 걷는 사이 시간대가 바뀌는 경우).
         호출·승차 대기는 넣지 않는다(근거 없음 — rules car.택시_대기).
         반환 = leg() 와 같은 dict + depart_dt · worst_time_s(걷기 포함) · access_m · access_s · p10_pct · roads."""
