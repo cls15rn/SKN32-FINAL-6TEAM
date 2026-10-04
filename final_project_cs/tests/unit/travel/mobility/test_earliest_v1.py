@@ -297,7 +297,7 @@ def test_walk_only_earliest_real_planner():
 
 
 def test_plan_version_bumped():
-    assert P.PLAN_VERSION == "plan-v2.4"      # 87 — 혼합 후보 추가로 올림(86 판 = plan-v2.3)
+    assert P.PLAN_VERSION == "plan-v2.5"      # 98 — 버스 환승·혼합 2회를 계획·options 후보에(87 판 = plan-v2.4)
 
 
 # ── E3 — 답 문장에 등급 없음 ───────────────────────────────────────────
@@ -389,10 +389,10 @@ def test_full_earliest_is_minimal_and_matches_latest_mode(name, a, b, arrive, pr
 
 @pytest.mark.mobility_full
 def test_full_default_leg_unchanged_without_flag():
-    """끄기(기본) — 이유 dict 모양이 앞 판과 같다(earliest 없음)."""
+    """끄기(기본) — 이유 dict 에 earliest 가 없다. (98 · GPT 98 #4) 뺀 후보(left_out)와 「판정하지 않은 후보가 남았다」 표시는 온다."""
     got, why = _pl(SKIP_SEONGSU).leg(AQUARIUM, SEONGSU, D("2026-09-23T11:30:00+09:00"), P.party_of(2, {}), True, "x",
                                     not_before_dt=D("2026-09-23T10:45:00+09:00"))
-    assert got is None and set(why) == {"code", "reason"}
+    assert got is None and "earliest" not in why and set(why) - {"left_out", "search_limited"} == {"code", "reason"}
 
 
 @pytest.mark.mobility_full

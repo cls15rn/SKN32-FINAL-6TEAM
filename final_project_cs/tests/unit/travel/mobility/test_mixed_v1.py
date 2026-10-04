@@ -252,22 +252,25 @@ def test_plan_mixed_cap_and_no_base():
     assert any(e["code"] == "mix_cap" and "2개" in e["label"] for e in left), left
 
 
-def test_planned_prefers_plain_candidates():
-    """GPT 87 #2 — 계획 수단은 앞 판 후보(지하철만·버스만·도보)에서 **앞 판 순서(자격 → nb 재판정)** 를 먼저 다 밟는다. 혼합이 처음부터
-    자격이 있어도 기존 후보가 nb 재판정으로 살아나면 그것이 계획. 기존 후보가 하나도 안 살면 그때 혼합."""
+def test_planned_mixed_competes_with_plain_candidates():
+    """98(본인 10/4) — 혼합도 지하철만·버스만과 **한 무리**로 겨룬다(87 의 「추가만」은 끝). 앞 일정 끝 뒤에 떠날 수 있는 후보가 있으면 그중
+    「소요 + 일찍 떠나는 분」이 가장 작은 것, 없으면 앞 일정 끝 재판정으로 살아난 것."""
     plain = _opt(30, 0, 5, 590, SUB, ("rail", 0, 1))            # nb(600) 보다 이른 역산 출발 — 재판정으로 살아날 수 있다
     mixed = _opt(25, 1, 5, 610, MIXL, ("mix", 0, 0))            # 처음부터 자격
     revived = dict(plain, _start=600)
     got, rv = P.Planner._choose_planned([plain, mixed], 600, lambda o: revived if o is plain else None)
-    assert got is revived and rv == [revived]
-    got, rv = P.Planner._choose_planned([plain, mixed], 600, lambda o: None)
-    assert got is mixed and rv == []
+    assert got is mixed and rv == [revived]                     # 살아난 지하철(10:00 · 30분)보다 혼합(10:10 · 25분)이 낫다 — 같이 겨룬다(GPT 98 #2)
     late_mix = dict(mixed, _start=590)
+    got, rv = P.Planner._choose_planned([plain, late_mix], 600, lambda o: revived if o is plain else None)
+    assert got is revived and rv == [revived]
     got, rv = P.Planner._choose_planned([plain, late_mix], 600, lambda o: None)
     assert got is None and rv == []
-    # nb 없음 — 앞 판처럼 가장 늦게 떠나도 되는 기존 후보(혼합이 더 늦어도)
+    # nb 없음 — 20분 늦게 떠나고 5분 덜 타는 혼합이 계획 · 환승 없는 지하철이 5분 안으로 따라오면(양보 5분) 지하철
     got, _ = P.Planner._choose_planned([plain, mixed], None, lambda o: None)
-    assert got is plain
+    assert got is mixed
+    near = dict(plain, _start=612)
+    got, _ = P.Planner._choose_planned([near, mixed], None, lambda o: None, 5)
+    assert got is near
     assert P._is_mixed({"_legs": MIXL}) and not P._is_mixed({"_legs": SUB})
     assert not P._is_mixed({"_legs": [{"mode": "bus", "route": "1", "from": "a", "to": "b"}]})
 
@@ -458,8 +461,9 @@ def test_full_earliest_uses_mixed_when_stations_blocked():
 
 
 @pytest.mark.mobility_full
-def test_full_plain_options_unchanged_by_mixed():
-    """혼합은 **추가만** — 혼합을 끈 판(_mixed → [])과 계획 수단·출발·지하철만/버스만 options 가 같다(사고 없는 다섯 구간)."""
+def test_full_mixed_competes_without_worsening_plan():
+    """98(본인 10/4) — 혼합도 한 무리로 겨룬다(87 의 「추가만」은 끝). 혼합을 끈 판과 견줘: 계획이 같은 경로면 지하철만/버스만 options 가
+    같고, 계획이 바뀌면 고르는 값(예정 소요 − 출발)이 나빠지지 않는다(환승 양보 5분 안 · 사고 없는 다섯 구간)."""
     legs = [(AQUARIUM, SEONGSU, ARRIVE),
             ({"key": "a", "name": "명동", "lat": 37.5609, "lon": 126.9862}, {"key": "b", "name": "경복궁", "lat": 37.5796, "lon": 126.977},
              datetime.fromisoformat("2026-09-23T10:00:00+09:00")),
@@ -473,11 +477,16 @@ def test_full_plain_options_unchanged_by_mixed():
         on, _ = _planner().leg(a, b, arr, {}, True, "on")
         off_pl = _planner()
         off_pl._mixed = lambda *x, **k: []
+        off_pl._mixed2 = lambda *x, **k: ([], False)          # (98) 혼합 2회도 계획·options 후보다 — 같이 끈다
         off, _ = off_pl.leg(a, b, arr, {}, True, "off")
         assert (on is None) == (off is None), (a["name"], b["name"])
         if on is None:
             continue
-        assert (on[0]["planned"], on[1], on[2]) == (off[0]["planned"], off[1], off[2]), (a["name"], b["name"])
+        cost = lambda g: (g[2] - g[1]) - g[1]                 # noqa: E731 — 예정 소요 − 출발
+        assert cost(on) <= cost(off) + P.BY_MODE_YIELD_MIN_PROPOSED, (a["name"], b["name"])
+        if (on[0]["planned"], on[1], on[2]) != (off[0]["planned"], off[1], off[2]):
+            assert "subway" in on[0]["planned"] and "bus" in on[0]["planned"], (a["name"], on[0]["planned"])   # 바뀌었다면 혼합으로
+            continue
         plain = [o for o in on[0]["options"] if not ("subway" in o["id"] and "bus" in o["id"])]
         strip = lambda o: {k: v for k, v in o.items() if k != "label"}       # noqa: E731 — 축별 사실 문구는 실린 후보끼리 비교라 바뀔 수 있다
         assert [strip(o) for o in plain] == [strip(o) for o in off[0]["options"]], (a["name"], b["name"])

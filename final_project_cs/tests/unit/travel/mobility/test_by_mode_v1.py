@@ -90,14 +90,14 @@ def test_pick_latest_departure_is_representative():
 
 
 def test_pick_yields_to_fewer_transfers_within_minutes():
-    """환승이 더 적은 후보가 5분 안으로 따라오면 그쪽 · 6분이면 그대로(가장 이르지만 환승 많은 경로를 막는다 · 본인 10/2)."""
+    """환승이 더 적은 후보가 5분 안으로 따라오면 그쪽 · 6분이면 그대로(본인 10/2 · 10/3). 따라온다 = 「소요 + 일찍 떠나는 분」의 차(98)."""
     two = _opt(SUB2, 620, 30, 2, ("rail", 0, 1))
-    one_5 = _opt(SUB2, 615, 35, 1, ("rail", 0, 2))
-    one_6 = _opt(SUB2, 614, 36, 1, ("rail", 0, 3))
+    one_5 = _opt(SUB2, 617, 32, 1, ("rail", 0, 2))         # 3분 먼저 떠나고 2분 더 탄다 — 차 5
+    one_6 = _opt(SUB2, 617, 33, 1, ("rail", 0, 3))         # 차 6
     assert P.Planner._by_mode_pick([two, one_5], 5) is one_5
     assert P.Planner._by_mode_pick([two, one_6], 5) is two
     assert P.Planner._by_mode_pick([two, one_6], 0) is two
-    zero = _opt(SUB1, 616, 34, 0, ("rail", 0, 4))
+    zero = _opt(SUB1, 618, 32, 0, ("rail", 0, 4))          # 차 4
     assert P.Planner._by_mode_pick([two, one_5, zero], 5) is zero          # 양보 폭 안에서는 환승이 가장 적은 것
     late_zero = _opt(SUB1, 600, 50, 0, ("rail", 0, 5))
     assert P.Planner._by_mode_pick([two, one_5, late_zero], 5) is one_5    # 폭 밖의 더 적은 환승은 안 본다
@@ -341,12 +341,24 @@ def test_mixed_unverified_candidates_are_unconfirmed_not_absent():
     assert _run(_stub([], mleft=[late]), [])["modes"]["subway_bus"]["code"] == "after_last"
 
 
-def test_pick_is_latest_departure_not_earliest_arrival():
-    """GPT 93 #3 — 대표는 「가장 늦게 떠나도 되는 후보」다. 더 일찍 도착하거나 예정 소요가 짧은 후보가 따로 있어도 바꾸지 않는다
-    (여유·남는 분이 후보마다 다르다) — 이 뜻을 잠근다."""
-    a = _opt(SUB2, 620, 30, 1, ("rail", 0, 1))            # 10:20 출발 · 30분 · 10:50 도착
-    b = _opt(SUB2, 615, 20, 1, ("rail", 0, 2), _slack=15)  # 10:15 출발 · 20분 · 10:35 도착
-    assert P.Planner._by_mode_pick([a, b], 5) is a
+def test_pick_is_duration_plus_early_departure():
+    """98(본인 10/4 「다」) — 대표는 「예정 소요 + 일찍 떠나야 하는 분」이 가장 작은 후보다. 1분 더 타는 것과 1분 먼저 떠나는 것을 같은
+    무게로 센다. 앞 판(가장 늦게 떠나도 되는)도 소요만 보는 것도 아니다."""
+    a = _opt(SUB2, 620, 30, 1, ("rail", 0, 1))            # 10:20 출발 · 30분
+    b = _opt(SUB2, 615, 20, 1, ("rail", 0, 2), _slack=15)  # 5분 먼저 떠나지만 10분 덜 탄다
+    assert P.Planner._by_mode_pick([a, b], 5) is b
+    far = _opt(SUB2, 500, 20, 1, ("rail", 0, 3))          # 10분 덜 타려고 2시간 먼저 떠난다(드물게 다니는 편) — 안 뽑힌다
+    assert P.Planner._by_mode_pick([a, far], 5) is a
+    # 심야 — 2분 늦게 떠나려고 43분 더 타는 버스 환승은 안 뽑힌다(98 실측 · 명동 호텔 → 롯데월드)
+    subway = _opt(SUB1, 572, 37, 0, ("rail", 0, 4))
+    night_bb = _opt(BB, 574, 80, 1, ("busx", 1, 0))
+    assert P.Planner._by_mode_pick([subway, night_bb], 5) is subway
+    # 낮 — 2분 덜 타려고 142분 먼저 떠나는 편은 안 뽑힌다(갈매 근처 → 온수 근처)
+    late = _opt(SUB2, 726, 88, 1, ("rail", 0, 5))
+    early = _opt(SUB2, 584, 86, 1, ("rail", 0, 6))
+    assert P.Planner._by_mode_pick([late, early], 5) is late
+    same = _opt(SUB2, 625, 35, 1, ("rail", 0, 7))         # a 와 값이 같다(5분 늦게 · 5분 더) — 더 늦게 떠나도 되는 쪽
+    assert P.Planner._by_mode_pick([a, same], 0) is same
 
 
 def test_range_across_0400_service_day_boundary():
@@ -423,8 +435,8 @@ def test_transfer_stages_do_not_stop_at_first_feasible_stage():
 
 
 def test_transfer_next_stage_skipped_when_estimate_is_not_faster():
-    """추정으로 본 출발(도착 목표 − 추정 − 버퍼)이 앞 단계 후보의 가장 늦은 출발보다 늦지 않으면 판정하지 않고 `xfer_skipped` 로
-    적는다(불가 확정 아님). 1회 출발 10:00(600) · 2회 추정 60분 → 추정 출발 09:50(590) — 늦지 않다."""
+    """추정 소요가 앞 단계 후보의 가장 짧은 소요보다 짧지 않으면 판정하지 않고 `xfer_skipped` 로 적는다(불가 확정 아님 · 98 에서 소요
+    축으로). 1회 소요 50분 · 2회 추정 60분 — 짧지 않다."""
     pl, gen = _xfer_stub({(1, 100): (2, 40), (2, 100): (4, 60)}, feasible={1: (600, 50), 2: (580, 70)})
     got, left, note = _xrun(pl)
     assert pl.judged == [1] and [o["_transfers"] for o in got] == [1]
@@ -442,30 +454,33 @@ def test_transfer_next_stage_skipped_when_estimate_is_not_faster():
     assert pl.judged == [1] and len(got) == 1
 
 
-def test_stage_skip_uses_departure_axis_not_duration():
-    """GPT 94-2 #3 — 대표는 소요가 아니라 출발 시각으로 고른다. 직행 A(10:00 출발 · 30분 · 여유+남는 분 30)와 2회 B(추정 35분 · 실제
-    10:10 출발 · 35분)가 있으면, 소요만 보면 B 가 느리지만 B 가 10분 늦게 떠나도 되므로 B 를 판정하고 대표로 낸다."""
+def test_stage_skip_uses_pick_axis():
+    """98 — 단계 생략은 대표 고르기와 같은 축(예정 소요 − 출발)으로 본다. 도착 목표 11:00 · 버퍼 10분 · 직행 A(10:00 출발 · 30분).
+    2회 B 의 추정이 45분이면 추정 출발 10:05 — 5분 늦게 떠나도 15분 더 타니 판정하지 않고, 추정이 25분이면 판정해 대표로 낸다."""
     a = _opt(BUS, 600, 30, 0, ("bus", 0, 0), margin=30)
-    pl, gen = _xfer_stub({(2, 100): (1, 35)}, feasible={2: (610, 35, {"margin": 15})})
+    pl, gen = _xfer_stub({(2, 100): (1, 45)}, feasible={2: (605, 45, {"margin": 10})})
+    got, left, _note = _xrun(pl, base=[a])
+    assert pl.judged == [] and got == [] and [e["code"] for e in left] == ["xfer_skipped"]
+    pl, gen = _xfer_stub({(2, 100): (1, 25)}, feasible={2: (610, 24, {"margin": 15})})
     got, left, _note = _xrun(pl, base=[a])
     assert pl.judged == [2] and not [e for e in left if e["code"] == "xfer_skipped"]
     assert P.Planner._by_mode_pick([a] + got, 5)["_transfers"] == 2
 
 
 def test_stage_skip_then_pick_at_yield_boundary():
-    """GPT 94-2 #4 — 생성 → 단계 생략 → 대표 고르기를 이어서 본다. 직행 10:00 · 1회 10:05 · 2회 10:10 이면 맨 위는 2회, 그 5분 안의
-    1회가 대표다(직행까지 연쇄로 양보하지 않는다). 1회 단계를 「직행 + 양보 5분보다 늦지 않다」고 건너뛰면 2회가 대표가 돼 버린다."""
-    d0 = _opt(BUS, 600, 40, 0, ("bus", 0, 0))
-    pl, gen = _xfer_stub({(1, 100): (1, 44), (2, 100): (1, 39)}, feasible={1: (605, 45), 2: (610, 40)})
+    """GPT 94-2 #4(98 에서 새 축으로) — 생성 → 단계 생략 → 대표 고르기를 이어서 본다. 직행(10:00 · 50분) · 1회(10:07 · 42분) · 2회
+    (10:10 · 40분)이면 맨 위는 2회, 그 5분 안의 1회가 대표다(직행까지 연쇄로 양보하지 않는다)."""
+    d0 = _opt(BUS, 600, 50, 0, ("bus", 0, 0))
+    pl, gen = _xfer_stub({(1, 100): (1, 44), (2, 100): (1, 39)}, feasible={1: (607, 42), 2: (610, 40)})
     got, _left, _note = _xrun(pl, base=[d0])
-    assert pl.judged == [1, 2]                                             # 1회 추정 출발 10:06 > 직행 10:00 · 2회 10:11 > 10:05
+    assert pl.judged == [1, 2]
     rep_ = P.Planner._by_mode_pick([d0] + got, 5)
-    assert rep_["_transfers"] == 1 and rep_["_start"] == 605
-    # 1회가 6분 뒤(10:04)면 2회가 대표 · 직행과 1회가 같은 출발이면 환승 적은 직행(동률은 환승 적은 쪽)
-    pl, gen = _xfer_stub({(1, 100): (1, 44), (2, 100): (1, 39)}, feasible={1: (604, 45), 2: (610, 40)})
+    assert rep_["_transfers"] == 1 and rep_["_start"] == 607
+    # 1회가 6분 차(10:06 · 42분)면 2회가 대표 · 직행과 1회의 값이 같으면 환승 적은 직행(동률은 환승 적은 쪽)
+    pl, gen = _xfer_stub({(1, 100): (1, 44), (2, 100): (1, 39)}, feasible={1: (606, 42), 2: (610, 40)})
     got, _left, _note = _xrun(pl, base=[d0])
     assert P.Planner._by_mode_pick([d0] + got, 5)["_transfers"] == 2
-    pl, gen = _xfer_stub({(1, 100): (1, 44)}, feasible={1: (600, 45)})
+    pl, gen = _xfer_stub({(1, 100): (1, 44)}, feasible={1: (600, 50)})
     got, _left, _note = _xrun(pl, base=[d0])
     assert P.Planner._by_mode_pick([d0] + got, 5)["_transfers"] == 0
 
@@ -533,8 +548,8 @@ def test_verify_chain_cap_ratio_and_seen():
 
 
 def test_bus_slot_fewer_transfers_do_not_win_by_default():
-    """94-2(본인 10/3) — 환승이 적다고 우선하지 않는다. 직행·1회·2회를 한 목록에서 고른다: 대표 = 가장 늦게 떠나도 되는 후보,
-    환승이 더 적은 후보는 양보 5분 안으로 따라올 때만 대표."""
+    """94-2(본인 10/3) — 환승이 적다고 우선하지 않는다. 직행·1회·2회를 한 목록에서 고른다: 대표 = 「예정 소요 + 일찍
+    떠나는 분」이 가장 작은 후보(98 · 본인 10/4), 환승이 더 적은 후보는 그 값이 양보 5분 안으로 따라올 때만 대표."""
     slow_direct = _opt(BUS, 560, 85, 0, ("bus", 0, 0))                    # 09:20 출발 · 85분
     fast_bb = _opt(BB, 596, 51, 1, ("busx", 1, 0))                         # 09:56 출발 · 51분 — 36분 더 늦게 떠나도 된다
     pl = _stub(xfer=[fast_bb])
@@ -542,16 +557,16 @@ def test_bus_slot_fewer_transfers_do_not_win_by_default():
     assert pl._seen["xfer"] == 1 and pl._seen["xfer_base"] == [slow_direct]   # 직행이 성립해도 환승 후보를 본다
     assert b["transfers"] == 1 and b["eta_min"] == 51 and len(b["legs"]) == 2
     assert "from_seq" not in json.dumps(b)                                # 순번은 판정용 — 밖으로 안 나간다(본인 10/3)
-    # 직행이 5분 안으로 따라오면 직행 · 6분이면 환승 1회
-    for start, want in ((591, 0), (590, 1)):
-        b = _run(_stub(xfer=[fast_bb]), [], [_opt(BUS, start, 60, 0, ("bus", 0, 0))])["modes"]["bus"]
-        assert b["transfers"] == want, (start, b)
-    # 1회 대 2회도 같은 규칙 — 2회가 104분 더 늦게 떠나도 되면 2회 · 1회가 5분 안이면 1회
+    # 같은 시각에 떠나는 직행이 5분 안으로 따라오면(56분) 직행 · 6분이면(57분) 환승 1회
+    for eta, want in ((56, 0), (57, 1)):
+        b = _run(_stub(xfer=[fast_bb]), [], [_opt(BUS, 596, eta, 0, ("bus", 0, 0))])["modes"]["bus"]
+        assert b["transfers"] == want, (eta, b)
+    # 1회 대 2회도 같은 규칙 — 2회가 85분 덜 걸리면 2회 · 1회가 5분 안이면 1회
     far_bb = _opt(BB, 438, 170, 1, ("busx", 1, 0))
     fast_bbb = _opt(BBB, 542, 85, 2, ("busx", 2, 0))
     b = _run(_stub(xfer=[far_bb, fast_bbb]), [])["modes"]["bus"]
     assert b["transfers"] == 2 and len(b["legs"]) == 3
-    b = _run(_stub(xfer=[_opt(BB, 538, 90, 1, ("busx", 1, 0)), fast_bbb]), [])["modes"]["bus"]
+    b = _run(_stub(xfer=[_opt(BB, 540, 88, 1, ("busx", 1, 0)), fast_bbb]), [])["modes"]["bus"]
     assert b["transfers"] == 1
 
 
@@ -597,7 +612,7 @@ def test_mixed_two_transfers_compete_with_one_transfer():
     late_two = _opt(BSB, 640, 14, 2, ("mix2", 2, 0))
     m = _run(_stub([one], mixed2=[late_two]), [])["modes"]["subway_bus"]
     assert m["transfers"] == 2 and [x["mode"] for x in m["legs"]] == ["bus", "subway", "bus"]       # 30분 더 늦게 떠나도 된다
-    m = _run(_stub([one], mixed2=[_opt(BSB, 615, 30, 2, ("mix2", 2, 0))]), [])["modes"]["subway_bus"]
+    m = _run(_stub([one], mixed2=[_opt(BSB, 612, 32, 2, ("mix2", 2, 0))]), [])["modes"]["subway_bus"]
     assert m["transfers"] == 1                                                                      # 5분 안 — 환승 적은 쪽
     m = _run(_stub([], mixed2=[two]), [])["modes"]["subway_bus"]
     assert m["status"] == "found" and m["transfers"] == 2
@@ -886,3 +901,242 @@ def test_full_faster_transfer_beats_slow_direct():
     # 계획 수단·options 는 그대로(직행 버스가 options 에 남아 있어도 수단별 칸의 대표만 바뀐다)
     off = P.Planner(_runtime(), stage="planning").leg(CHEONGGU, GANGNAM, datetime.fromisoformat(ARR14), {}, True, "x")
     assert got == off
+
+
+# ── 98 — 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다 · 계획 수단은 앞 판 후보에서 안 나올 때만) ─────────────
+def test_98_plan_version_and_switch():
+    assert P.PLAN_VERSION == "plan-v2.5" and P.XFER_IN_PLAN is True
+
+
+def test_98_planned_is_best_among_all_candidates():
+    """98(본인 10/4) — 계획 수단은 모든 후보(지하철만 · 버스 직행·환승 · 지하철+버스 1회·2회 · 도보)를 한데 놓고 「예정 소요 + 일찍 떠나는
+    분」이 가장 작은 것(환승이 더 적은 후보는 5분 안일 때) — 수단별 칸의 대표와 같은 규칙. 앞 일정 끝 뒤에 떠날 수 있는 후보가 있으면
+    그중에서, 없으면 앞 일정 끝에서 재판정해 살아난 것 중에서."""
+    plain = _opt(SUB2, 600, 30, 1, ("rail", 0, 1))
+    direct = _opt(BUS, 590, 40, 0, ("bus", 0, 0))
+    bb = _opt(BB, 620, 60, 1, ("busx", 1, 0), _xfer=True)
+    mix = _opt(MIX, 610, 34, 1, ("mix", 0, 0))
+    assert P._is_bus_direct(direct) and not P._is_bus_direct(bb) and P._is_bus(bb)
+    got, rv = P.Planner._choose_planned([plain, direct, mix, bb], None, lambda o: None, 5)
+    assert got is mix and rv == []                        # 10분 늦게 떠나고 4분 더 타는 혼합(따로 뒤 순서가 아니다) · 20분 늦게 30분 더 타는 버스 환승은 아님
+    fast_bb = dict(bb, eta_min=22)
+    got, _ = P.Planner._choose_planned([plain, direct, mix, fast_bb], None, lambda o: None, 5)
+    assert got is fast_bb                                 # 버스 환승이 가장 좋으면 버스 환승이 계획 수단
+    near_direct = dict(direct, _start=607, eta_min=33)
+    got, _ = P.Planner._choose_planned([plain, near_direct, mix], None, lambda o: None, 5)
+    assert got is near_direct                             # 환승 없는 직행이 2분 차로 따라오면 직행
+    # 앞 일정 끝 10:05(605) — 자격 후보(혼합 10:10 · 버스 환승 10:20)와, 그보다 이른 후보를 10:05 에서 재판정해 살아난 것이 같이 겨룬다
+    seen = []
+    got, rv = P.Planner._choose_planned([plain, direct, mix, bb], 605, lambda o: seen.append(o), 5)
+    assert got is mix and rv == [] and seen == [plain, direct]            # 이른 후보만 재판정 · 살아난 것이 없으면 자격 후보 중에서
+    # (GPT 98 #2) 재판정으로 살아난 후보가 더 좋으면 그쪽 — 지하철이 10:05 에 떠나도 15분이면(값 −590) 혼합(−576)을 이긴다
+    fast = dict(plain, _start=605, eta_min=15)
+    got, rv = P.Planner._choose_planned([plain, direct, mix, bb], 605, lambda o: fast if o is plain else None, 5)
+    assert got is fast and rv == [fast]
+    slow = dict(plain, _start=605, eta_min=45)                            # 살아났지만 혼합보다 못하면 혼합 그대로 — 살아난 목록에는 남는다
+    got, rv = P.Planner._choose_planned([plain, direct, mix, bb], 605, lambda o: slow if o is plain else None, 5)
+    assert got is mix and rv == [slow]
+    # 자격 후보가 없으면 재판정으로 살아난 것 중에서
+    revived = dict(plain, _start=625)
+    got, rv = P.Planner._choose_planned([plain, direct, mix, bb], 625, lambda o: revived if o is plain else None, 5)
+    assert got is revived and rv == [revived]
+    assert P.Planner._choose_planned([plain, bb], 625, lambda o: None, 5) == (None, [])
+    assert P.planned_mode_of(plain) == "subway" and P.planned_mode_of(bb) == "bus" and P.planned_mode_of(mix) == "subway_bus"
+    assert P.planned_mode_of({"_legs": []}) == "walk"
+
+
+def test_98_option_ids_for_bus_transfers():
+    from app.modules.travel_ops.mobility.engine import options as O
+    taken = set()
+    for legs, want in ((BUS, "bus_2016"), (BB, "bus_bus_1"), (BB, "bus_bus_2"), (BBB, "bus_bus_bus_1"), (SUB2, "subway_1")):
+        got = O.make_id(legs, taken)
+        taken.add(got)
+        assert got == want
+    assert not O.uses_problems(P.uses_of(BB)) and not O.uses_problems(P.uses_of(BBB))
+
+
+def test_98_fold_left_counts_only_direct_buses():
+    """뺀 후보 접기(버스_직행_최대)는 직행에만 — 버스 환승 줄은 접히지 않고 「그 밖 버스 직행」 수에도 안 들어간다."""
+    pl = P.Planner.__new__(P.Planner)
+    pl.v = SimpleNamespace(R=RULES)
+    bmax = RULES["candidates"]["버스_직행_최대"]["value"]
+    def entry(legs, i, code="earlier_departure"):
+        return {"_o": {"_legs": legs, "_walk_m": 100.0 + i, "_n": i}, "label": P.label_of(legs), "code": code, "reason": "r"}
+    left = [entry(BUS, i) for i in range(bmax + 2)] + [entry(BB, 50), entry(BBB, 51)]
+    out = pl._fold_left(left)
+    assert sum(1 for e in out if e["label"] == P.label_of(BB)) == 1 and sum(1 for e in out if e["label"] == P.label_of(BBB)) == 1
+    assert out[-1]["code"] == "bus_more" and out[-1]["label"] == "그 밖 버스 직행 2개"
+    assert all("_o" not in e for e in out)
+
+
+def test_98_bus_transfer_answer_is_reused_within_a_leg():
+    """같은 leg() 안에서 같은 비교 대상으로 다시 부르면(수단별 칸) 생성·판정을 다시 하지 않는다 · 비교 대상이 다르면 다시 한다."""
+    pl, gen = _xfer_stub({(1, 100): (2, 40), (2, 100): (2, 60)}, feasible={1: (500, 150), 2: (580, 70)})
+    first = _xrun(pl)
+    n_calls, n_judged = len(gen.calls), len(pl.judged)
+    again = _xrun(pl)
+    assert again is first and len(gen.calls) == n_calls and len(pl.judged) == n_judged
+    other = _xrun(pl, base=[_opt(BUS, 400, 40, 0, ("bus", 0, 0))])
+    assert other is not first and len(gen.calls) > n_calls
+
+
+NAMSEONG_ST = {"key": "ns", "name": "남성역", "lat": 37.484688, "lon": 126.971108}
+SEOIL = {"key": "si", "name": "서일초 앞", "lat": 37.4863, "lon": 127.0212}
+ARR09 = "2026-10-06T09:00:00+09:00"
+
+
+def _leg98(a, b, arr, on=True, modes=None, party=None, **kw):
+    """(leg() 결과, bus_chain 이 불린 환승 수 목록). on=False 는 스위치를 끈 판(= plan-v2.4 결과)."""
+    from app.modules.travel_ops.mobility.engine import candidates as CD
+    calls, orig, keep = [], CD.ChainGenerator.bus_chain, P.XFER_IN_PLAN
+
+    def rec(self, n, *a_, **k):
+        calls.append(n)
+        return orig(self, n, *a_, **k)
+    CD.ChainGenerator.bus_chain = rec
+    P.XFER_IN_PLAN = on
+    try:
+        pl = P.Planner(_runtime(), stage="planning", modes=modes)
+        got = pl.leg(a, b, datetime.fromisoformat(arr), party or {}, True, "x", **kw)
+    finally:
+        CD.ChainGenerator.bus_chain, P.XFER_IN_PLAN = orig, keep
+    return got, calls, pl
+
+
+def _n_bus(o):
+    return o["label"].split(" — ")[0].count("버스 ")
+
+
+@pytest.mark.mobility_full
+def test_full_98_bus_transfer_is_planned_when_no_direct_bus():
+    """본인 실측 구간(남성역 → 서일초 앞 · 직행 버스 없음) — 버스만 고르면 앞 판은 이동을 못 만들었다. 이제 버스→버스가 계획 수단."""
+    (off, why), _c, _p = _leg98(NAMSEONG_ST, SEOIL, ARR09, on=False, modes=["bus", "walk"])
+    assert off is None and why["code"]
+    (on, why), calls, _p = _leg98(NAMSEONG_ST, SEOIL, ARR09, modes=["bus", "walk"])
+    assert why is None and 1 in calls
+    route, start, end, sdate, _left = on
+    planned = next(o for o in route["options"] if o["id"] == route["planned"])
+    assert route["planned"].startswith("bus_bus_") and _n_bus(planned) == 2, route
+    assert end - start == planned["eta_min"] and end <= 9 * 60 and "환승 할인 전 상한" in planned["label"]
+    assert len(planned["uses"]) == 2 and all(u.startswith("버스:") for u in planned["uses"]), planned["uses"]
+
+
+@pytest.mark.mobility_full
+def test_full_98_existing_plan_is_kept_and_transfer_goes_to_left_out():
+    """기존 후보가 있는 구간 — 계획 수단·출발·도착·기존 options 는 끈 판과 같다. 더 일찍 떠나야 하는 버스 환승은 뺀 후보에 이유와 함께."""
+    for a, b, arr in ((NAMSEONG_ST, SEOIL, ARR09), (DONGDAEMUN, DEUNGCHON, ARR14), (CHEONGGU, GANGNAM, ARR14)):
+        (off, _w), _c, _p = _leg98(a, b, arr, on=False)
+        (on, _w), _c, _p = _leg98(a, b, arr)
+        assert (on[0]["planned"], on[1], on[2]) == (off[0]["planned"], off[1], off[2]), (a["name"], b["name"])
+        old = {o["id"]: o for o in off[0]["options"]}
+        new = {o["id"]: o for o in on[0]["options"]}
+        def bare(o):          # 축별 사실 꼬리(「환승 가장 적음」 등)는 실린 후보끼리의 비교라 후보가 늘면 바뀔 수 있다
+            return {**o, "label": o["label"].replace(" · 요금은 환승 할인 전 상한", "").split(" — ")[0]}
+        for k, o in old.items():
+            assert bare(new[k]) == bare(o), (a["name"], k)
+        assert all(k.startswith(("bus_bus_", "bus_subway_bus_", "subway_bus_subway_")) for k in set(new) - set(old))
+    (on, _w), _c, _p = _leg98(NAMSEONG_ST, SEOIL, ARR09)
+    lines = [e for e in on[4] if e["label"].count("버스 ") == 2 and "호선" not in e["label"]]
+    assert lines and all(e["code"] and e["reason"] for e in lines), on[4]
+
+
+@pytest.mark.mobility_full
+def test_full_98_late_night_trade_between_duration_and_departure():
+    """심야(01:30 도착 목표 · 98 실측 표본과 같은 운행일) — 계획 수단은 「소요 + 일찍 떠나는 분」으로 고른다.
+    명동 호텔 → 롯데월드: 버스 환승이 2분 늦게 떠날 수 있지만 43분 더 탄다 → 지하철 그대로.
+    동대문 근처 → 등촌 근처: 버스 370 → 601 이 25분 늦게 떠나고 21분 더 탄다 → 버스 환승이 계획 수단(앞 판 후보 뒤 순서가 아니다)."""
+    arr = "2026-10-06T01:30:00+09:00"
+    hotel = {"key": "h", "name": "명동 호텔", "lat": 37.5636, "lon": 126.9826}
+    lotte = {"key": "l", "name": "롯데월드 어드벤처", "lat": 37.5111, "lon": 127.098}
+    (on, _w), _c, _p = _leg98(hotel, lotte, arr)
+    assert on[0]["planned"].startswith("subway_"), on[0]
+    planned = next(o for o in on[0]["options"] if o["id"] == on[0]["planned"])
+    assert all(o["eta_min"] >= planned["eta_min"] for o in on[0]["options"] if o["id"].startswith("bus_bus_"))
+    (on, _w), _c, _p = _leg98(DONGDAEMUN, DEUNGCHON, arr)
+    (off, _w), _c, _p = _leg98(DONGDAEMUN, DEUNGCHON, arr, on=False)
+    assert on[0]["planned"].startswith("bus_bus_") and off[0]["planned"].startswith("subway_")
+    # 값 = 예정 소요 − 출발: 고른 것이 끈 판의 지하철보다 좋아야 한다(더 늦게 떠나는 분 > 더 타는 분)
+    assert (on[2] - on[1]) - on[1] < (off[2] - off[1]) - off[1]
+
+
+@pytest.mark.mobility_full
+def test_full_98_party_limit_one_builds_no_two_transfer_candidates():
+    """환승 상한 1(피로) — 2회 후보는 만들지 않는다(생성 호출 0) · 실린 후보·뺀 후보 어디에도 버스 셋짜리가 없다."""
+    (got, why), calls, _p = _leg98(SANGGYE, HAPJEONG, ARR14, party={"fatigue_high": True})
+    assert 2 not in calls
+    opts = got[0]["options"] if got is not None else []
+    left = got[4] if got is not None else why.get("left_out", [])
+    assert all(_n_bus(o) < 3 for o in opts) and all(e["label"].count("버스 ") < 3 for e in left)
+    (got2, _w), calls2, _p = _leg98(SANGGYE, HAPJEONG, ARR14)
+    assert 2 in calls2
+
+
+@pytest.mark.mobility_full
+def test_full_98_by_mode_reuses_transfer_search():
+    """수단별 칸을 같이 켜도 버스 환승 생성은 한 번(⑥ 의 답을 다시 쓴다) · 수단별 칸의 값은 끈 판과 같다."""
+    for a, b in ((DONGDAEMUN, DEUNGCHON), (NAMSEONG_ST, SEOIL), (GAEPO, KWANGWOON)):
+        (_g, _w), calls_plain, _p = _leg98(a, b, ARR14)
+        (_g, _w), calls_bm, pl_on = _leg98(a, b, ARR14, by_mode=True)
+        assert calls_bm == calls_plain, (a["name"], calls_plain, calls_bm)
+        (_g, _w), _c, pl_off = _leg98(a, b, ARR14, on=False, by_mode=True)
+        assert pl_on.last_by_mode == pl_off.last_by_mode, a["name"]
+
+
+def test_98_recheck_before_service_day_start_is_unknown():
+    """GPT 98 #1 — 계획 출발이 후보의 _start 보다 이를 수 있게 됐다. 다시 볼 승차 시각이 그 운행일의 04:00 전으로 넘어가면 판정기가 다음 날
+    새벽으로 읽으므로(240 미만 → +24h) 판정기를 부르지 않고 「확인 못 함」으로 둔다 — 03:59 는 안 부르고 04:00 은 부른다."""
+    class Called(Exception):
+        pass
+
+    def boom(case):
+        raise Called(case["depart_at"])
+    pl = P.Planner.__new__(P.Planner)
+    pl.stage, pl._vc, pl._vcq = "planning", boom, boom
+    ck = {"date": "2026-10-06", "legs": SUB1, "off": 0, "walk_place_in": 2, "walk_place_out": 0, "walk_stop_in": 0,
+          "walk_stop_out": 0, "by_station": 270}
+    o = _opt(SUB1, 250, 15, 0, ("rail", 0, 1), _check=ck)
+    assert pl._recheck_at(o, 237, 270, {}, True, "t") == (None, "unknown")        # 03:57 출발 + 도보 2분 = 03:59 승차
+    with pytest.raises(Called) as e:
+        pl._recheck_at(o, 238, 270, {}, True, "t")                                # 04:00 승차 — 판정기로 간다
+    assert e.value.args[0] == 240
+    assert pl._recheck_at(_opt(SUB1, 250, 15, 0, ("walk", 0, 0)), 230, 270, {}, True, "t") == (None, "infeasible")   # 도보는 판정기 밖
+
+
+def test_98_public_legs_tell_routes_apart():
+    """GPT 98 #3 — 「계획 수단이 그 칸 대표와 같은 경로인가」는 uses(노선뿐)가 아니라 구간열(노선 + 승하차 이름)로 본다."""
+    other = [dict(BB[0], to="종로3가"), dict(BB[1], **{"from": "종로3가"})]
+    a, b = _opt(BB, 600, 40, 1, ("busx", 1, 0)), _opt(other, 600, 40, 1, ("busx", 1, 1))
+    assert a["uses"] == b["uses"] and P.public_legs(a) != P.public_legs(b)
+    assert P.public_legs(a) == [{"mode": "bus", "route": "370", "from": "동대문", "to": "종로2가"},
+                                {"mode": "bus", "route": "601", "from": "종로2가", "to": "등촌"}]
+    assert P.public_legs({"_legs": []}) == []
+
+
+@pytest.mark.mobility_full
+def test_full_98_late_reason_carries_left_out():
+    """GPT 98 #4 — 앞 일정이 끝난 뒤 떠나서는 못 맞추는 구간(arrive_late)도 뺀 후보를 돌려주고, 판정하지 않은 후보가 남아 있으면
+    `search_limited` 로 밝힌다(대표 이유 문장은 그대로)."""
+    gyeongbok = {"key": "g", "name": "경복궁", "lat": 37.5796, "lon": 126.977}
+    lotte = {"key": "l", "name": "롯데월드 어드벤처", "lat": 37.5111, "lon": 127.098}
+    pl = P.Planner(_runtime(), stage="planning")
+    got, why = pl.leg(gyeongbok, lotte, datetime.fromisoformat("2026-10-06T11:15:00+09:00"), {}, True, "x",
+                      not_before_dt=datetime.fromisoformat("2026-10-06T11:00:00+09:00"))
+    assert got is None and why["code"] == "arrive_late" and "도착에 맞는 후보가 없다" in why["reason"]
+    codes = {e["code"] for e in why["left_out"]}
+    assert "before_prev_end" in codes and all("_o" not in e for e in why["left_out"])
+    assert why.get("search_limited") is True and codes & {"xfer_cap", "xfer_skipped", "mix_cap", "mix_skipped"}
+
+
+@pytest.mark.mobility_full
+def test_full_98_planned_mode_and_representative():
+    """수단별 칸을 켜면 계획 수단이 어느 칸인지(planned_mode)와 그 칸 대표와 같은 경로인지가 붙는다 — 앞 일정 끝이 없으면 계획 수단은
+    그 칸의 대표다(같은 규칙으로 고른다)."""
+    for a, b, arr in ((NAMSEONG_ST, SEOIL, ARR14), (DONGDAEMUN, DEUNGCHON, ARR14), (CHEONGGU, GANGNAM, ARR14)):
+        (got, _w), _c, pl = _leg98(a, b, arr, by_mode=True)
+        bm = pl.last_by_mode
+        want = {"subway": "subway", "bus": "bus"}.get(got[0]["planned"].split("_")[0])
+        if "subway" in got[0]["planned"] and "bus" in got[0]["planned"]:
+            want = "subway_bus"
+        assert bm["planned_mode"] == want and bm["planned_is_representative"] is True, (a["name"], got[0]["planned"], bm["planned_mode"])
+        rep_ = bm["modes"][want]
+        assert rep_["depart_at"][11:16] == f"{got[1] // 60:02d}:{got[1] % 60:02d}" and rep_["eta_min"] == got[2] - got[1]

@@ -81,6 +81,9 @@ def make_id(legs, taken):
         while f"{base}_{n}" in taken:
             n += 1
         return f"{base}_{n}"
+    if kind == "bus":
+        # (98) 버스 환승(버스→버스 · 버스→버스→버스) — 탄 순서대로 잇는다(`bus_bus_1` · `bus_bus_bus_1`). `bus_<노선번호>` 와 안 겹치게
+        kind = "_".join(["bus"] * len(legs))
     n = 1
     while f"{kind}_{n}" in taken:
         n += 1

@@ -350,8 +350,15 @@ def test_recheck_carries_context(monkeypatch):
     items = [{"seq": 1, "kind": "activity", "title": "A", "place": "ns",
               "starts_at": "2026-09-29T11:00:00+09:00", "ends_at": "2026-09-29T12:00:00+09:00"},
              {"seq": 2, "kind": "activity", "title": "B", "place": "it", "starts_at": "2026-09-29T15:00:00+09:00"}]
-    got = plan(_NT, items, 3, c, runtime=_runtime(), modes=MODES_ALL, stage="planning")   # _ns_it — 버스 계획 · 지하철 재판정
+    got = plan(_NT, items, 3, c, runtime=_runtime(), modes=MODES_ALL, stage="planning")   # _ns_it
     assert got["routes"], got["skipped"]
+    # (98) 계획 수단이 소요 기준으로 바뀌어 이 구간에서 재판정이 안 돌 수 있다 — 같은 문맥으로 재판정을 한 번 직접 돌린다
+    party = P.party_of(3, c)
+    pl = P.Planner(_runtime(), modes=MODES_ALL, stage="planning")
+    arrive = datetime(2026, 9, 29, 15, 0, tzinfo=KST)
+    sdate, by = P.service_day(arrive)
+    o = pl._bus_direct(_NT[0], _NT[1], arrive, sdate, by, party, False, "ctx", pl._walk_limit(party))[0]
+    pl._recheck_at(o, o["_start"] - 5, by, party, False, "ctx")
     assert any("/at" in str(x.get("id")) for x in seen), "재판정(_recheck_at)이 한 번은 돌아야 이 시험이 뜻이 있다"
     want = {"size": 3, "fatigue_high": True, "foreign": False}
     for x in seen:
@@ -844,7 +851,9 @@ def test_bus_cap_after_eligibility():
     assert got is not None, why
     route = got[0]
     assert [x["label"].split(" — ")[0] for x in route["options"]] == ["진짜"], route
-    assert {e["code"] for e in got[4]} == {"not_confirmed"}, got[4]
+    # (98) 뺀 후보에는 버스 환승 줄도 온다 — 이 시험은 가짜 직행 셋의 줄만 본다
+    assert {e["code"] for e in got[4] if e["label"].startswith("가짜")} == {"not_confirmed"}, got[4]
+    assert sum(1 for e in got[4] if e["label"].startswith("가짜")) == 3, got[4]
 
 
 def test_recheck_revives():
