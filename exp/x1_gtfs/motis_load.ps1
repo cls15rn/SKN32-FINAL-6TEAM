@@ -1,4 +1,4 @@
-# MOTIS 적재 시간·메모리 + 간단 질의 3건 (X1 · PC) — 경로 응답은 화면에만 찍고 저장하지 않는다.
+﻿# MOTIS 적재 시간·메모리 + 간단 질의 3건 (X1 · PC) — 경로 응답은 화면에만 찍고 저장하지 않는다.
 #   먼저: https://github.com/motis-project/motis/releases 에서 motis-windows.zip 을 받아
 #         C:\final_project\exp\x1_gtfs\motis\ 에 풀어 둔다(motis.exe 가 그 폴더에 있게).
 #   실행: powershell -ExecutionPolicy Bypass -File exp\x1_gtfs\motis_load.ps1
@@ -25,7 +25,7 @@ timetable:
   datasets:
     x1:
       path: $($Gtfs -replace '\\','/')
-"@ | Set-Content -Encoding utf8 config.yml
+"@ | Set-Content -Encoding ascii config.yml
 
 function Run-Measured([string]$argline) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
