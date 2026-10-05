@@ -77,7 +77,13 @@ def main():
         if miss:
             q.update(kind="비교밖", why="역 없음(GTFS 에 그 노선·역이 없다): " + " · ".join(miss))
             rows.append(q); bump(f"{unit}:비교밖-역없음"); return
-        q.update(kind="비교", from_stop=stops[0][0], to_stop=stops[-1][1], leg_stops=stops)
+        # 우리 판정이 쓴 환승 시간(분) = 다음 구간 승강장 도착(승차 − 대기) − 앞 구간 도착. 환승 시간만 맞춘 재실행용(GPT 대조 6번)
+        ox = []
+        for i in range(len(legs) - 1):
+            p, n = (legres[i] if i < len(legres) else None), (legres[i + 1] if i + 1 < len(legres) else None)
+            ok = p and n and p.get("arrive_min") is not None and n.get("depart_min") is not None
+            ox.append(int(round(n["depart_min"] - (n.get("wait_min") or 0) - p["arrive_min"])) if ok else None)
+        q.update(kind="비교", from_stop=stops[0][0], to_stop=stops[-1][1], leg_stops=stops, ours_xfer=ox)
         rows.append(q); bump(f"{unit}:비교")
         for i, (l, (s, t)) in enumerate(zip(legs, stops)):
             lr = legres[i] if legres and i < len(legres) else None

@@ -106,40 +106,54 @@ def leg_q(q, i, lk):
     return dict(q, legs=[l], from_stop=lk[i][0], to_stop=lk[i][1])
 
 
-def chain(base, q, minute, arrive_by):
-    """구간열을 **그 노선 그대로** MOTIS 에 한 구간씩 통과시킨다(환승 시간은 GTFS transfers.txt · 표에 없으면 MOTIS 기본 2분).
-    MOTIS 의 자유 탐색은 도착이 같은 다른 환승역을 골라 「같은 경로」가 답에 안 나올 수 있어서다.
-    돌려줌: (첫 구간 출발, 끝 구간 도착, 표 밖 환승 수) 또는 None."""
-    lk, n, off = q["leg_stops"], len(q["legs"]), 0
+def chain(base, q, minute, arrive_by, xfer=None):
+    """구간열을 **그 노선 그대로** 한 구간씩 MOTIS 에 넣고 **이 스크립트가 잇는다**(MOTIS 구간 탐색 + 바깥 연결기 —
+    MOTIS 의 전체 경로 판정이 아니다). 환승 시간은 MOTIS 가 쓰는 값(transfers.txt 를 분으로 내림 · 최소 2분 · 표에 없으면 2분),
+    xfer 를 주면 그 값(우리 판정이 쓴 분)으로.
+    돌려줌 {st, dep, arr, off_table, rejoin} — st: ok / exhausted(4쪽 안에 같은 경로 없음 — 「편이 없다」가 아님) / error."""
+    lk, n, off, rj = q["leg_stops"], len(q["legs"]), 0, 0
     order = range(n - 1, -1, -1) if arrive_by else range(n)
     t, first, last = minute, None, None
     for i in order:
         hit, _, err = search(base, leg_q(q, i, lk), t, arrive_by)
-        if not hit: return None
+        if err: return {"st": "error", "note": err}
+        if not hit: return {"st": "exhausted"}
+        rj += hit.get("rejoin", 0)
+        k = (i - 1) if arrive_by else i
+        x = None
+        if 0 <= k < n - 1:
+            x = xfer[k] if xfer and xfer[k] is not None else XFER.get((lk[k][1], lk[k + 1][0]))
+            if x is None: x, off = 2, off + 1
         if arrive_by:
             if last is None: last = hit["arr"]
             first = hit["dep"]
-            if i > 0:
-                x = XFER.get((lk[i - 1][1], lk[i][0])); off += x is None
-                t = hit["dep"] - (x if x is not None else 2)
+            if i > 0: t = hit["dep"] - x
         else:
             if first is None: first = hit["dep"]
             last = hit["arr"]
-            if i < n - 1:
-                x = XFER.get((lk[i][1], lk[i + 1][0])); off += x is None
-                t = hit["arr"] + (x if x is not None else 2)
-    return {"dep": first, "arr": last, "off_table": off}
+            if i < n - 1: t = hit["arr"] + x
+    return {"st": "ok", "dep": first, "arr": last, "off_table": off, "rejoin": rj}
 
 
-def rejoin_of(hit):
-    return hit.get("rejoin", 0) if hit else 0
+def ok(h):
+    return bool(h) and h.get("st") == "ok"
+
+
+def in_day(h, dep):
+    """그 운행일 안에서 탈 수 있나 — 케이스 출발 뒤 GAP_MAX 분 안에 떠나고 운행일 끝(28:00) 전."""
+    return ok(h) and dep <= h["dep"] < DAY_END and h["dep"] - dep <= GAP_MAX
+
+
+def xfer_min(q):
+    lk = q["leg_stops"]
+    return [XFER.get((lk[i][1], lk[i + 1][0]), 2) for i in range(len(lk) - 1)]
 
 
 def fmt(m):
     return "" if m is None else f"{m // 60:02d}:{m % 60:02d}"
 
 
-def one(q, A, B):
+def one(q, A, B, G):
     o = {k: q.get(k) for k in ("id", "bundle", "unit", "cand", "date", "kind", "why", "ours_verdict", "ours_code",
                                  "ours_internal", "ours_reason")}
     o["path"] = " → ".join(f"{l[0]} {l[1]}→{l[2]}" for l in q.get("legs") or [])
@@ -152,61 +166,95 @@ def one(q, A, B):
     if q["unit"] == "leg":
         for tag, base in (("", A), ("_noest", B)):
             hit, seen, err = search(base, q, dep, False)
+            if hit and not (hit["dep"] < DAY_END):       # 다음 날 편은 이 운행일의 답이 아니다(GPT 대조 4번)
+                o["m_note" + tag] = f"운행일 안에 없음(다음 날 편 {fmt(hit['dep'])})"; hit = None
+            elif not hit:
+                o["m_note" + tag] = err or "같은 경로가 응답 4쪽 안에 없음"
             o["m_board" + tag] = fmt(hit["dep"]) if hit else ""
             o["m_arrive" + tag] = fmt(hit["arr"]) if hit else ""
             if hit:
                 o["d_board" + tag] = hit["dep"] - q["ours_board_min"]
                 o["d_arrive" + tag] = hit["arr"] - q["ours_arrive_min"]
-            else:
-                o["m_note" + tag] = err or ("같은 경로 없음 · MOTIS 첫 여정 " + (" / ".join(f"{p[0]} {p[1]}→{p[2]}" for p in seen[0]["path"]) if seen else "0개"))
+                if not tag: o["m_rejoin"] = hit.get("rejoin", 0)
+        g = G.leg(q["date"], q["from_stop"], q["to_stop"], dep * 60) if G else None
+        if g:
+            o["g_board"] = fmt(g[0] // 60); o["g_arrive"] = fmt(g[1] // 60); o["g_arrive_sec"] = g[1] % 60
         o["ours_board"] = fmt(q["ours_board_min"])
         return o
-    if q.get("free"):                       # multi 케이스: MOTIS 자유 탐색의 가장 이른 도착 ↔ 우리 후보 중 가장 이른 도착
+    if q.get("free"):                       # multi 케이스: MOTIS **자유 탐색**(첫 쪽 6개) ↔ 우리 후보 중 가장 이른 도착
         _, seen, err = search(A, q, dep, False, free=True)
-        ok = [i for i in seen if i["dep"] - dep <= GAP_MAX and i["dep"] < DAY_END]
-        best = min(ok, key=lambda i: (i["arr"], i["tr"])) if ok else None
+        cand = [i for i in seen if dep <= i["dep"] < DAY_END and i["dep"] - dep <= GAP_MAX]
+        best = min(cand, key=lambda i: (i["arr"], i["tr"])) if cand else None
+        o["m_status"] = "feasible" if best else ("query_error" if err else "search_exhausted")
         o["m_verdict"] = "feasible" if best else "infeasible"
         if best:
             o["m_arrive"] = fmt(best["arr"]); o["m_depart"] = fmt(best["dep"]); o["m_transfers"] = best["tr"]
             o["m_path"] = " → ".join(f"{p[0]} {p[1]}→{p[2]}" for p in best["path"])
-            o["m_same_path"] = int(same(best, q["legs"]))
+            o["m_same_path"] = int(same(best, q["legs"])); o["m_rejoin"] = best.get("rejoin", 0)
             if q.get("ours_arrive_min") is not None: o["d_arrive"] = best["arr"] - q["ours_arrive_min"]
         return o
-    # ── AB: 도착 목표 시각까지 ─────────────────────────────────────────────
     ours_ok = q["ours_verdict"] == "feasible"
-    if q.get("arrive_by_min") is not None:
-        target, tkind = q["arrive_by_min"], "arrive_by"
-    elif ours_ok and q.get("ours_arrive_min") is not None:
-        target, tkind = q["ours_arrive_min"] + TOL, "우리 예정 도착+1"
-    else:
-        target, tkind = DAY_END, "운행일 끝"
-    o["ab_target"] = fmt(target); o["ab_target_kind"] = tkind
+    by, at = q.get("arrive_by_min"), q.get("ours_margin_min")
+    xm = xfer_min(q)
     for tag, base in (("", A), ("_noest", B)):
-        hit, seen, err = chain(base, q, target, True), [], None
-        o["ab_depart" + tag] = fmt(hit["dep"]) if hit else ""
-        o["ab_arrive" + tag] = fmt(hit["arr"]) if hit else ""
-        o["m_verdict" + tag] = "feasible" if hit and hit["dep"] >= dep else "infeasible"
-        if hit and hit["off_table"] and not tag: o["m_off_table_xfer"] = hit["off_table"]
-        # arrive_by 가 있으면 우리 @(여유 폭)를 뺀 목표로도 한 번 — 판정 층(@)을 걷어낸 비교
-        if tkind == "arrive_by" and q.get("ours_margin_min") is not None:
-            h2 = chain(base, q, target - q["ours_margin_min"], True)
-            o["ab_depart_at" + tag] = fmt(h2["dep"]) if h2 else ""
-            o["m_verdict_at" + tag] = "feasible" if h2 and h2["dep"] >= dep else "infeasible"
-        # ── FWD: 출발 시각부터 — 도착 시각 차 ────────────────────────────
+        # ── FWD: 출발 시각부터 같은 경로 — 존재(성립/불가)와 도착 시각. 두 엔진에 같은 조건(GPT 대조 3번):
+        #    출발 뒤 GAP_MAX 분 안 · 운행일 안. 도착 목표가 있으면 그 시각까지 닿아야 성립.
         f = chain(base, q, dep, False)
-        _, fseen, _ = search(base, q, dep, False, free=True) if not tag else (None, [], None)
-        if f:
+        if in_day(f, dep):
+            st = "feasible" if (by is None or f["arr"] <= by) else "late_for_target"
+        elif ok(f):
+            st = "no_service_in_day"                 # 같은 경로가 있긴 하나 그 운행일 밖(다음 날 편)·공백 상한 밖
+        else:
+            st = "query_error" if f["st"] == "error" else "search_exhausted"
+        if st in ("no_service_in_day", "search_exhausted") and G and not tag:
+            g = G.chain(q["date"], q["leg_stops"], dep, xm)      # MOTIS 밖에서 같은 GTFS 를 직접 읽어 확인
+            if g is None or not (g["dep"] // 60 < DAY_END and g["dep"] // 60 - dep <= GAP_MAX):
+                st = "no_service_confirmed"
+            o["g_depart"] = fmt(g["dep"] // 60) if g else ""; o["g_arrive"] = fmt(g["arr"] // 60) if g else ""
+        o["m_status" + tag] = st
+        o["m_verdict" + tag] = "feasible" if st == "feasible" else ("infeasible" if st in ("no_service_confirmed", "no_service_in_day", "late_for_target") else "unknown")
+        if in_day(f, dep):
             o["m_depart" + tag] = fmt(f["dep"]); o["m_arrive" + tag] = fmt(f["arr"])
             if ours_ok and q.get("ours_arrive_min") is not None:
                 o["d_arrive" + tag] = f["arr"] - q["ours_arrive_min"]
-        if fseen and not tag:
-            fb = min(fseen, key=lambda i: (i["arr"], i["tr"]))
-            o["m_free_arrive"] = fmt(fb["arr"]); o["m_free_path"] = " → ".join(f"{p[0]} {p[1]}→{p[2]}" for p in fb["path"])
-        # ── LAST: 막차 ───────────────────────────────────────────────────
-        #   도착 목표가 있는 케이스의 우리 「늦어도 출발」은 목표−@ 로 역산한 값이다 → 같은 목표로 역산한 MOTIS 값과 댄다
-        l = h2 if tkind == "arrive_by" and q.get("ours_margin_min") is not None else chain(base, q, DAY_END, True)
-        o["m_last" + tag] = fmt(l["dep"]) if l else ""
-        if l and q.get("ours_last_depart_min") is not None:
+            if not tag:
+                o["m_rejoin"] = f["rejoin"]
+                if f["off_table"]: o["m_off_table_xfer"] = f["off_table"]
+        if not tag:
+            # 같은 GTFS 를 초 단위로 직접 읽은 값(정합성 · GPT 대조 2·7번)
+            if G and in_day(f, dep):
+                g = G.chain(q["date"], q["leg_stops"], dep, xm)
+                if g: o["g_depart"] = fmt(g["dep"] // 60); o["g_arrive"] = fmt(g["arr"] // 60); o["g_arrive_sec"] = g["arr"] % 60
+            # 환승 시간만 우리 값으로 맞춘 재실행(GPT 대조 6번) — 환승이 있는 경로만
+            if len(q["legs"]) > 1 and all(x is not None for x in q.get("ours_xfer") or [None]):
+                fo = chain(base, q, dep, False, xfer=q["ours_xfer"])
+                if in_day(fo, dep):
+                    o["m_arrive_ox"] = fmt(fo["arr"])
+                    if ours_ok and q.get("ours_arrive_min") is not None: o["d_arrive_ox"] = fo["arr"] - q["ours_arrive_min"]
+            _, fseen, _ = search(base, q, dep, False, free=True)
+            fseen = [i for i in fseen if dep <= i["dep"] < DAY_END]
+            if fseen:
+                fb = min(fseen, key=lambda i: (i["arr"], i["tr"]))
+                o["m_free_arrive"] = fmt(fb["arr"]); o["m_free_path"] = " → ".join(f"{p[0]} {p[1]}→{p[2]}" for p in fb["path"])
+        # ── 마지막 출발 셋(GPT 대조 4번) ─────────────────────────────────
+        #   L1 운행일 마지막 출발: 28:00 까지 도착하는 가장 늦은 출발(이 GTFS 의 마지막 시각은 25:14:30 — 잘리는 편 없음)
+        #   L2 목표까지 닿는 마지막 출발(arrive_by) · L3 우리 @ 까지 뺀 목표로(arrive_by − @)
+        l1 = chain(base, q, DAY_END, True)
+        o["m_last_day" + tag] = fmt(l1["dep"]) if ok(l1) else ""
+        if not tag and ok(l1): o["m_rejoin_last"] = l1["rejoin"]
+        l3 = None
+        if by is not None:
+            l2 = chain(base, q, by, True)
+            o["m_last_by" + tag] = fmt(l2["dep"]) if ok(l2) else ""
+            if at is not None:
+                l3 = chain(base, q, by - at, True)
+                o["m_last_by_at" + tag] = fmt(l3["dep"]) if ok(l3) else ""
+                o["m_verdict_at" + tag] = "feasible" if ok(l3) and l3["dep"] >= dep else "infeasible"
+        # 우리 「늦어도 출발」과 같은 뜻의 것끼리: 목표가 있으면 L3, 없으면 L1
+        l = l3 if (by is not None and at is not None) else (l1 if by is None else None)
+        o["last_kind"] = "L3 목표−@" if (by is not None and at is not None) else ("L1 운행일" if by is None else "")
+        o["m_last" + tag] = fmt(l["dep"]) if ok(l) else ""
+        if ok(l) and q.get("ours_last_depart_min") is not None:
             o["d_last" + tag] = l["dep"] - q["ours_last_depart_min"]
     return o
 
@@ -216,6 +264,7 @@ def main():
     ap.add_argument("--out", default=r"C:\final_project\exp\x2_compare")
     ap.add_argument("--a", default="http://127.0.0.1:8080")   # localhost 는 윈도우에서 ::1 을 먼저 두드려 질의마다 약 2초를 잃는다
     ap.add_argument("--b", default="http://127.0.0.1:8081")
+    ap.add_argument("--gtfs", default=r"C:\final_project\exp\x1_gtfs\out\gtfs_subway_x1.zip", help="직접 계산용(빈 값이면 건너뜀)")
     ap.add_argument("--transfers", default=r"C:\final_project\exp\x1_gtfs\out\gtfs\transfers.txt")
     a = ap.parse_args()
     out = Path(a.out)
@@ -224,7 +273,17 @@ def main():
     plan(a.a, "2026-10-14", "x1_L2_222", "x1_L2_239", 540)      # 첫 질의(적재 뒤 느림)는 따로 잰다
     first_ms = LAT.pop() if LAT else None
     plan(a.b, "2026-10-14", "x1_L2_222", "x1_L2_239", 540); LAT.clear()
-    rows = [one(q, a.a, a.b) for q in qs]
+    G = None
+    if a.gtfs:
+        from x2_gtfs import Gtfs
+        G = Gtfs(a.gtfs)
+    rows = []
+    for q in qs:
+        n0 = len(LAT)
+        r = one(q, a.a, a.b, G)
+        if q["kind"] == "비교":
+            r["n_queries"] = len(LAT) - n0; r["unit_ms"] = round(sum(LAT[n0:]), 1)   # 이 단위가 쓴 MOTIS 질의 시간 합
+        rows.append(r)
     cols = []
     for r in rows:
         for k in r:
@@ -232,7 +291,11 @@ def main():
     with open(out / "compare.csv", "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols); w.writeheader(); w.writerows(rows)
     lat = sorted(LAT)
-    timing = {"n_queries": len(lat), "first_ms": round(first_ms, 1) if first_ms else None,
+    cu = sorted(r["unit_ms"] for r in rows if r.get("unit") == "case" and r.get("unit_ms") is not None)
+    err = sum(1 for r in rows if "error" in str(r.get("m_status", "")) or "error" in str(r.get("m_status_noest", "")))
+    timing = {"case_n": len(cu), "case_median_ms": round(statistics.median(cu), 1), "case_p95_ms": round(cu[int(len(cu) * 0.95)], 1),
+              "case_max_ms": round(cu[-1], 1), "case_queries_median": statistics.median(r["n_queries"] for r in rows if r.get("unit") == "case" and r.get("n_queries") is not None),
+              "query_errors": err, "n_queries": len(lat), "first_ms": round(first_ms, 1) if first_ms else None,
               "median_ms": round(statistics.median(lat), 1), "p95_ms": round(lat[int(len(lat) * 0.95)], 1),
               "max_ms": round(lat[-1], 1), "total_s": round(sum(lat) / 1000, 2)}
     (out / "timing.json").write_text(json.dumps(timing, ensure_ascii=False, indent=1), encoding="utf-8")

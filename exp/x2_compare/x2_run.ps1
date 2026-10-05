@@ -65,7 +65,7 @@ try {
   $sa.Refresh(); "MOTIS A 서버 메모리(질의 전): {0:N0} MB" -f ($sa.WorkingSet64 / 1MB)
   # 3) 변환 - 대조 - 요약
   python "$Here\x2_build.py"   --out $Out --lookup "$X1\out\stop_lookup.csv"
-  python "$Here\x2_compare.py" --out $Out --transfers "$X1\out\gtfs\transfers.txt" --a http://127.0.0.1:8080 --b http://127.0.0.1:8081
+  python "$Here\x2_compare.py" --out $Out --transfers "$X1\out\gtfs\transfers.txt" --a http://127.0.0.1:8080 --b http://127.0.0.1:8081 --gtfs "$X1\out\gtfs_subway_x1.zip"
   $sa.Refresh(); "MOTIS A 서버 메모리(질의 뒤): {0:N0} MB - 최대 {1:N0} MB" -f ($sa.WorkingSet64 / 1MB), ($sa.PeakWorkingSet64 / 1MB)
   python "$Here\x2_report.py"  --out $Out
 } finally {
