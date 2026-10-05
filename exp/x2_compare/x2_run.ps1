@@ -68,6 +68,10 @@ try {
   python "$Here\x2_compare.py" --out $Out --transfers "$X1\out\gtfs\transfers.txt" --a http://127.0.0.1:8080 --b http://127.0.0.1:8081 --gtfs "$X1\out\gtfs_subway_x1.zip"
   $sa.Refresh(); "MOTIS A 서버 메모리(질의 뒤): {0:N0} MB - 최대 {1:N0} MB" -f ($sa.WorkingSet64 / 1MB), ($sa.PeakWorkingSet64 / 1MB)
   python "$Here\x2_report.py"  --out $Out
+  # 4) 실측(티머니 태그 여정) 세 값 표 - 파일이 있을 때만. 개인 이동 기록이라 저장소 밖에만 둔다
+  if (Test-Path "$Out\gt\field_legs_v1.json") {
+    python "$Here\x2_gt.py" --out $Out --lookup "$X1\out\stop_lookup.csv" --transfers "$X1\out\gtfs\transfers.txt"
+  } else { "실측 파일 없음($Out\gt\field_legs_v1.json) - 4) 건너뜀" }
 } finally {
   Stop-Process -Id $sa.Id -ErrorAction SilentlyContinue
   Stop-Process -Id $sb.Id -ErrorAction SilentlyContinue

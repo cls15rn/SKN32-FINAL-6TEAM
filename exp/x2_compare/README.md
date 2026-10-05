@@ -10,6 +10,7 @@
 | `x2_build.py` | ① 회귀 199건 → 질의 목록 `queries.jsonl` (케이스 · multi 후보 · 지하철 구간) |
 | `x2_compare.py` | ② MOTIS 질의(AB 도착 목표까지 · FWD 출발부터 · LAST 막차) ↔ 우리 판정 → `compare.csv` · `timing.json` |
 | `x2_gtfs.py` | 같은 GTFS 를 MOTIS 없이 초 단위로 직접 읽는 계산기 — 「편 없음」 확인 · 정합성 |
+| `x2_gt.py` | ④ 실측(티머니 태그 여정)의 지하철 단위: MOTIS 쪽 · 우리 예정 · 실측 도착 세 값 → `gt_compare.csv` (실측 파일은 저장소 밖 `gt\`) |
 | `x2_report.py` | ③ 세 축(성립/불가 · 도착 · 막차) 집계 + 분류표 맞춤 검사 → `summary.md` |
 | `classify_manual.csv` | 어긋남 분류(①변환 ②MOTIS ③우리 ④층 · 미확정 · 경계)와 근거 — 원천 시간표 행을 보고 붙인 것 |
 
