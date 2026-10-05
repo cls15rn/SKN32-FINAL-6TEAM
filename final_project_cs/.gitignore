@@ -28,6 +28,9 @@ knowledge/raw/
 *.dump
 *.sqlite3
 
+# Docker
+docker/
+
 # OS
 Thumbs.db
 .DS_Store

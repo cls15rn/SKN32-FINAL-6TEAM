@@ -14,10 +14,13 @@
      "candidates": [<origin 과 같은 모양의 행>, ...],
      "source": "place_catalog:tour_api+oliveyoung+...", "confirmed_at": "..."}
 
-★후보 풀은 `lclsSystm1` **또는** `sigungucode` 가 원래 장소와 같은 행까지만
-  좁힌다. 두 선호도(활동 중요·위치 중요)의 고정값이라 폴백이 필드를 하나씩
-  풀어도 결과가 안 바뀐다. 그보다 더 좁히지 않는다.
+★`[2026-10-02]` 후보 풀은 원래 장소 좌표 기준 **최대 반경(`RADIUS_MAX_KM`)의 바운딩 박스**
+  안의 행까지만 좁힌다(거리 계산 1단계 — 사각형이라 인덱스 범위 비교로 끝난다). 정확한
+  거리(하버사인)와 반경 넓히기는 `alternatives.py` 가 한다. 분류로는 좁히지 않는다 —
+  이동 중요는 대분류까지 풀 수 있어야 한다. 좌표가 없는 행은 범위 비교에서 빠진다.
 ★원래 장소를 카탈로그에서 못 찾으면 `None`(모름) — 유사도를 잴 기준이 없다.
+★원래 장소 좌표가 없으면 박스를 그릴 수 없어 후보를 읽지 않고 빈 목록을 준다 —
+  `alternatives.rank_alternatives` 가 `origin_no_coordinates` 로 답한다.
 ★좌표는 컬럼(`latitude`·`longitude`) 값을 쓴다. 적재 때 서울 밖 자리표시 좌표는
   NULL 로 넣었으므로 `raw_json` 의 원본 `mapx`·`mapy` 를 되살리지 않는다.
 ★`confirmed_at` 은 풀에 든 행 중 **가장 오래된** `fetched_at` 이다 — 우리가
@@ -27,6 +30,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Callable
+
+from ..alternatives import RADIUS_MAX_KM, bounding_box
 
 #: 후보 풀에 넣는 출처 전부. `scripts/load_place_catalog_csv.py --source` 로 적재한 값과 같아야 한다.
 #: ★브랜드 매장(올리브영·다이소·아트박스·무신사)도 같은 카탈로그의 한 출처다 —
@@ -42,7 +47,7 @@ _SELECT = ("SELECT content_id, content_type_id, title, latitude, longitude, "
 
 ORIGIN_SQL = _SELECT + "AND content_id=%s ORDER BY source LIMIT 1"
 POOL_SQL = (_SELECT + "AND content_id <> %s "
-            "AND (large_class_code = %s OR raw_json->>'sigungucode' = %s) "
+            "AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s "
             "ORDER BY content_id")
 
 
@@ -93,9 +98,12 @@ def find_place_candidates(connection_factory: Callable[[], Any], tenant_id: str,
                 return None
             origin_record = dict(zip(_COLUMNS, row))
             origin = to_candidate(origin_record)
-            cur.execute(POOL_SQL, (tenant_id, list(sources), content_id,
-                                   origin["lclsSystm1"], origin["sigungucode"]))
-            records = [dict(zip(_COLUMNS, r)) for r in cur.fetchall()]
+            lat, lng = origin_record.get("latitude"), origin_record.get("longitude")
+            records: list[dict[str, Any]] = []
+            if lat is not None and lng is not None:
+                cur.execute(POOL_SQL, (tenant_id, list(sources), content_id,
+                                       *bounding_box(float(lat), float(lng), RADIUS_MAX_KM)))
+                records = [dict(zip(_COLUMNS, r)) for r in cur.fetchall()]
     return {"origin": origin,
             "candidates": [to_candidate(r) for r in records],
             "source": "place_catalog:" + "+".join(sources),

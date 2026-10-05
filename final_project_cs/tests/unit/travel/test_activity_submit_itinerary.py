@@ -41,7 +41,7 @@ def _task(*, state=None):
 
 
 def _found(**overrides):
-    base = {"content_id": "126508", "content_type_id": "12",
+    base = {"status": "found", "via": "place_catalog", "content_id": "126508", "content_type_id": "12",
             "matched_title": "경복궁", "latitude": 37.5760, "longitude": 126.9767}
     base.update(overrides)
     return base
@@ -92,7 +92,7 @@ def test_select_capability_propose_change_via_registry():
 async def test_execute_never_calls_read_booking_for_this_capability():
     """★핵심 회귀 가드. 이 capability가 `read.booking`을 부르면 예약이 없어서
     바로 escalate 되던 옛 버그로 되돌아간 것이다."""
-    tools = FakeTools({"read.place_search": _found()})
+    tools = FakeTools({"read.place_lookup": _found()})
     result = await ActivityTeam(tools).execute(_task(state={
         "requested_place_name": "경복궁", "requested_activity_time": REQUESTED_AT}))
 
@@ -130,7 +130,7 @@ async def test_unparseable_activity_time_escalates_as_unknown():
 
 @pytest.mark.asyncio
 async def test_resolved_place_creates_a_low_risk_proposal_not_a_write():
-    tools = FakeTools({"read.place_search": _found()})
+    tools = FakeTools({"read.place_lookup": _found()})
     result = await ActivityTeam(tools).execute(_task(state={
         "requested_place_name": "경복궁", "requested_activity_time": REQUESTED_AT}))
 
@@ -147,12 +147,12 @@ async def test_resolved_place_creates_a_low_risk_proposal_not_a_write():
 
 
 @pytest.mark.asyncio
-async def test_place_search_is_called_with_the_customer_supplied_name():
-    """`read.place_search`가 고객이 준 이름 그대로 불리는지 — 조용히 안 바꾼다."""
-    tools = FakeTools({"read.place_search": _found()})
+async def test_place_lookup_is_called_with_the_customer_supplied_name():
+    """`read.place_lookup`가 고객이 준 이름 그대로 불리는지 — 조용히 안 바꾼다."""
+    tools = FakeTools({"read.place_lookup": _found()})
     await ActivityTeam(tools).execute(_task(state={
         "requested_place_name": "경복궁", "requested_activity_time": REQUESTED_AT}))
-    arguments = dict(tools.calls)["read.place_search"]
+    arguments = dict(tools.calls)["read.place_lookup"]
     assert arguments["name"] == "경복궁"
 
 
@@ -160,9 +160,9 @@ async def test_place_search_is_called_with_the_customer_supplied_name():
 
 @pytest.mark.asyncio
 async def test_unmatched_place_asks_the_customer_instead_of_escalating():
-    """★애매함도 「모름」이다(`read.place_search` → `None`). 사람에게 넘기는
+    """★애매함도 「모름」이다(`read.place_lookup` → `not_found`). 사람에게 넘기는
     escalate가 아니라 고객에게 되묻는 WAIT_FOR_INPUT으로 보낸다."""
-    tools = FakeTools({"read.place_search": None})
+    tools = FakeTools({"read.place_lookup": {"status": "not_found", "via": "place_catalog"}})
     result = await ActivityTeam(tools).execute(_task(state={
         "requested_place_name": "듣도보도못한곳", "requested_activity_time": REQUESTED_AT}))
 
@@ -179,7 +179,7 @@ async def test_unmatched_place_still_carries_evidence():
     evidence 가 비었다"는 계약 검증(TeamResult)에서 ValidationError가 난다
     (2026-09-20 구현 중 실제로 이 오류를 만나서 고쳤다).
     """
-    tools = FakeTools({"read.place_search": None})
+    tools = FakeTools({"read.place_lookup": {"status": "not_found", "via": "place_catalog"}})
     result = await ActivityTeam(tools).execute(_task(state={
         "requested_place_name": "듣도보도못한곳", "requested_activity_time": REQUESTED_AT}))
     assert len(result.evidence) >= 1

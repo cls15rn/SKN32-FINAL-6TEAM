@@ -10,7 +10,7 @@ domain: travel
 
 # Activity Team
 
-`[2026-09-28]` **코드 위치가 다시 폴더 안으로 바뀌었다** — 본체는 `app/modules/travel_ops/activity/team.py`, `__init__.py`는 재수출만 한다. 두는 규칙은 [code-layout.md](code-layout.md). 아래에 날짜와 함께 적힌 `activity.py`·`activity/__init__.py` 경로·줄 번호는 각각 그때 기록이다.
+`[2026-09-28]` **코드 위치가 다시 폴더 안으로 바뀌었다** — 본체는 `app/modules/travel_ops/activity/team.py`, `__init__.py`는 재수출만 한다. 두는 규칙은 [code-layout.md](code-layout.md). `[정정 2026-10-02]` commit `80522d3`으로 `team.py`(778줄 → 278줄)를 책임별 믹스인으로 나눴다 — 성립 판정 `feasibility.py`·취소/변경 `cancellation.py`·날씨 `weather.py`·대체 장소 `replacement.py`. `ActivityTeam`이 상속하므로 import 경로·메서드 이름은 그대로이고 동작도 같다(메서드 22개를 AST로 비교). 아래에 날짜와 함께 적힌 `activity.py`·`activity/__init__.py` 경로·줄 번호는 각각 그때 기록이다.
 
 `[실측 2026-09-10]` **코드가 붙었다** — `app/modules/travel_ops/activity.py` **274줄**, capability 셋(`activity.check_cancelable`·`check_feasible`·`propose_change`), `knowledge_scope` 넷(`activity`·`cancellation`·`refund`·`weather`). 이 문서의 명세와 코드가 어긋나면 **코드를 고친다**(명세가 정본이다). `[정정 2026-09-10]` **「지금 어떻게 돼 있나」의 정본은 코드다** — 명세는 「무엇을 만들려 하나」의 정본이다. 어긋나면 어느 쪽이 틀렸는지부터 가린다. 이 문서도 manifest 절(`accepted_case_types`·`allowed_tools`)을 코드에 맞춰 고쳤다. `[정정 2026-09-24]` **이 경로는 낡았다.** commit `1bc9d51`(`refactor(activity): travel_ops/activity/ 패키지로 분리`)로 `app/modules/travel_ops/activity.py`는 `app/modules/travel_ops/activity/__init__.py`(패키지, 621줄)로 쪼개졌다. 이 문서 안의 `activity.py:NN` 인용을 전부 이 경로·라인 번호로 갱신했다.
 
@@ -123,6 +123,15 @@ Team 이 셋을 다 알고 있고 **항목이 어느 것에 걸리는지를 판�
 | `place`(장소) — `None` | **escalate 안 함.** `feasible: True` 유지, `place_confirmed: False`로만 표시하고 계속 진행 |
 | `party_size`·`capacity` | 정원 초과 검사만 건너뛰고 계속 진행 |
 
+★`[정정 2026-10-02]` commit `048f3cc` — **`check_feasible`에 한해** 위 표의 두 줄이 바뀌었다. 취소·변경(`check_cancelable`·`propose_change`)은 그대로 escalate로 멈춘다. 테스트 기대값도 맞춰 고쳤다(`test_activity_input_validation.py`, 지금 20건).
+
+| 없는 값 | `check_feasible`의 지금 결과 |
+|---|---|
+| `policy`(규정) | **막지 않는다** — 성립 판정은 취소·환급 규정을 쓰지 않는다 |
+| `starts_at`(시각) | escalate 대신 `feasible: False` · `status: "insufficient_info"` · `reason: "time_unknown"`(RESPOND). 휴무·운영시간·재난·기상을 잴 수 없으니 「모름」을 「성립」으로 읽지 않고, 대체 장소도 찾지 않는다 |
+
+정원 초과는 시각을 몰라도 확인되므로 `insufficient_info`보다 **먼저** `problem`으로 나간다.
+
 ★**경계 케이스 하나를 있는 그대로 고정해 뒀다** — `place`가 `None`이 아니라 **빈 dict `{}`**면 `place_confirmed: True`로 찍힌다(`place is not None`만 보는 코드라서). 필드가 하나도 없어도 "확인됨"으로 잡히는 셈이다. 옳고 그름을 판정하지 않고 **지금 이렇게 동작한다**는 사실만 테스트로 남겼다 — 스키마를 더 엄격히 검사할지는 별도 결정이다.
 
 ### `weather_sensitive` — DB가 모르면 장소명으로 추정한다
@@ -198,6 +207,8 @@ Team 이 셋을 다 알고 있고 **항목이 어느 것에 걸리는지를 판�
 | 이동 중요 | `sigungucode` > `lclsSystm1` > `lclsSystm2` > `lclsSystm3` > `contenttypeid` |
 | 활동 중요 | `lclsSystm1` > `sigungucode` > `lclsSystm2` > `lclsSystm3` > `contenttypeid` |
 
+★`[정정 2026-10-02]` 위 표·아래 다이어그램의 `sigungucode`(시군구) 자리는 **반경(km)**으로 바뀌었다 — 이동 중요는 「가까운 반경 고정」, 활동 중요는 「같은 분류에서 반경을 먼저 넓힘」. 지금 규칙의 정본은 [반경·노출 규칙](#대체-장소-반경노출-규칙-구현-2026-10-02)이다.
+
 ★`[정정 2026-09-24 추가]` `contenttypeid`가 ②단계(대안 유사도)의 5개 필드 중 하나인데도 원래 우선순위표엔 빠져 있었다. **최하위(5번째)로 추가한다** — 신분류체계 연계 정의서 대조 결과, `contenttypeid`는 `lclsSystm1`보다 거친(coarse) 구분류다. 예: 역사관광(HS)·체험관광(EX)이라는 서로 다른 대분류가 `contenttypeid`에서는 똑같이 "12 관광지"로 묶인다(AC05 캠핑처럼 같은 대분류 안에서도 소분류에 따라 값이 갈리는 예외도 있어 일관성도 낮다). `lclsSystm1~3`이 이미 더 세밀하게 갈라주므로 `contenttypeid`는 추가 판별력이 거의 없고, 아래 "폴백" 규칙에도 **가장 먼저 빠지는 게 합리적이다.**
 
 `[팀원 제공 2026-09-24, 다이어그램]` 우선순위 결정 흐름을 도식화하면 아래와 같다. 이동 1순위·액티비티 1순위 각각 **고정값(항상 유지되는 필드)**을 먼저 못박고, 그다음 어떤 필드부터 제외할지를 순서로 정한다.
@@ -221,6 +232,15 @@ flowchart LR
 
 **폴백**: ②(또는 ③ 반영 후)의 유형 필터링 결과가 **0건**이면, 우선순위가 **가장 낮은 필드부터 하나씩 제거**하며 다시 필터링한다. `[정정 2026-09-24]` 위 우선순위표 기준으로는 `contenttypeid`가 최하위이므로 **가장 먼저** 빠진다 — 예: 활동 중요 타입에서 0건이면 `contenttypeid`를 먼저 빼고 재시도, 그래도 0건이면 `lclsSystm3`을, 그래도 0건이면 `lclsSystm2`까지 뺀다.
 
+★`[정정 2026-10-01, 팀 합의]` **위 폴백 순서(타입이 가장 먼저 빠진다)는 낡았다.** 지금 코드(`alternatives.py`의 `FALLBACK_DROPS`)는 `contenttypeid`를 **대분류와 한 묶음**으로 본다(관광타입 38=쇼핑, 15=행사, 14=문화시설처럼 대분류와 거의 1:1이라 따로 풀 이유가 없다). 풀어야 한다면 대분류와 함께 맨 마지막에 푼다.
+
+| 선호도 | 고정 | 0건이면 앞에서부터 한 단계씩 뺀다 |
+|---|---|---|
+| 이동 중요 | 시군구 | ① 소분류 → ② 중분류 → ③ 대분류+타입 |
+| 활동 중요 | 대분류+타입 | ① 소분류 → ② 중분류 → ③ 시군구 |
+
+★`[정정 2026-10-02]` **시군구를 빼고 반경(km)으로 바꿨다** → [반경·노출 규칙](#대체-장소-반경노출-규칙-구현-2026-10-02). 시군구로 재면 같은 구의 먼 곳이 옆 구의 가까운 곳보다 앞서고(경계 문제), 구마다 넓이가 달라 넓히는 기준이 일정하지 않다.
+
 ### 대안 순위 산출 — `[제안 2026-09-24, 미확보]`
 
 ★`[정정 2026-09-24]` **이 절은 "## 셋을 갖는다"의 넷째 항목이 아니다.** 위 [대안 생성 규칙](#대안-생성-규칙--사용자-제공-2026-09-24) 표의 ④단계를 풀어 쓴 것뿐이고, "대안 생성 규칙" 전체가 [③ 재계획 후보](#-재계획-후보)의 하위 절차다. v11 §5가 모든 여행 Team에 못박은 "셋"(검증 규칙·감시 소스·재계획 후보)은 그대로다.
@@ -235,6 +255,8 @@ flowchart LR
 | 가격대 유사성 | Google Places API(`priceLevel`) | 미확보 |
 
 **1차 구현(확정하기 쉬운 범위):** 좌표 거리만으로 오름차순 정렬해 1·2·3위 출력.
+
+★`[정정 2026-10-02]` 지금은 거리만이 아니다 — 영업 확인 → 반경 1km 안 같은 브랜드 → (이동 중요) 거리·분류 가까움 / (그 밖) 분류 가까움·거리 순이고, 같은 브랜드 체인은 1곳만, 화면 3곳 + 「더보기」 10곳까지다 → [반경·노출 규칙](#대체-장소-반경노출-규칙-구현-2026-10-02).
 
 ★`[구현 2026-09-26]` **1차 구현이 코드로 들어갔다** — `app/modules/travel_ops/activity/alternatives.py`의 `rank_alternatives()`. 좌표 직선거리(haversine) 오름차순이고, 확장안(가중합)은 아직 없다. 상세는 [구현 현황 — 작업자 B](#구현-현황--작업자-b-구현-2026-09-26) 참고.
 
@@ -256,7 +278,7 @@ flowchart LR
 
 ★`[미확보 2026-09-24]` **①의 두 필드는 아직 판정 가능한 자리에 없다.** `place_catalog`는 지금 `business_hours`·`closed_days`를 구조화 컬럼이 아니라 `raw_json`에만 담는다(`scripts/load_place_catalog_csv.py:62~64` — CSV의 보강 컬럼은 `raw`로 들어갈 뿐 별도 컬럼이 아니다). 판정 경로가 실제로 쓰는 것은 [휴무 요일 대조](#휴무-요일-대조--유일한-예외)의 `restdate_text`(자연어 원문, `places` 테이블)다. `business_hours`/`closed_days`가 이 `restdate_text`/`usetime_text`와 같은 원본을 가리키는 이름인지, 아니면 카탈로그에 별도로 승격해야 하는 필드인지는 안 정해졌다.
 
-★`[미확보 2026-09-24]` `sigungucode`도 지금 `place_catalog`엔 안 실린다(`to_row()`가 `area_code`를 서울 고정값 `"1"`로만 넣는다 — 시군구 단위는 없다). 유사도·우선순위 판정에 쓰려면 `place_catalog`에 컬럼을 추가하거나 `raw_json`에서 읽어야 한다.
+★`[미확보 2026-09-24]` `sigungucode`도 지금 `place_catalog`엔 안 실린다(`to_row()`가 `area_code`를 서울 고정값 `"1"`로만 넣는다 — 시군구 단위는 없다). 유사도·우선순위 판정에 쓰려면 `place_catalog`에 컬럼을 추가하거나 `raw_json`에서 읽어야 한다. `[닫힘 2026-10-02]` 판정에 더는 시군구를 쓰지 않는다(반경으로 교체) — 이 미확보는 필요 없어졌다.
 
 ★**②·③은 후보 생성 이후의 필터이지 ①(판정)을 대신하지 않는다.** 유사도로 골라낸 후보도 통지 전에 [①검증 규칙](#-검증-규칙--코드가-판정한다)을 다시 통과해야 한다 — 위 원칙 그대로다.
 
@@ -287,6 +309,36 @@ flowchart LR
 ★**회귀로 걸린 것 하나**: 장소를 못 찾으면 `read.place_search`가 `None`을 줘서 `_evidence()`가 근거를 안 쌓는데, `WAIT_FOR_INPUT`은 `answer`가 있으면 근거가 최소 1건 있어야 한다(계약 검증). 고객이 실제로 제출한 값(`requested_place_name`·`requested_activity_time`) 자체를 `case.current_state` 근거로 남겨서 해결 — "검색이 실패했다고 근거까지 사라지면 안 된다."
 
 `[실측 2026-09-20]` **정식 테스트** — `tests/unit/travel/test_activity_submit_itinerary.py`(11건): 라우팅 훅 3건, `read.booking` 미호출 회귀 가드 1건, 필수값 누락 3건, 정상 제안 2건, 장소 미매칭 2건(위 근거 회귀 가드 포함).
+
+### 장소 이름 조회 — `read.place_lookup` `[구현 2026-10-02]`
+
+★`[정정 2026-10-02]` commit `048f3cc` — **위 `read.place_search`는 일정 제출에서 더 쓰지 않는다.** `allowed_tools`와 `_submit_itinerary()`가 `read.place_lookup`으로 바뀌었다(`read.place_search` 도구 자체는 `ReadToolbox`에 남아 있다). `place_search`는 못 찾으면 `None` 하나라서 「없음」과 「못 물어봄」을 가르지 못했다.
+
+본체는 `activity/place_lookup.py`의 `lookup_place()`, 도구는 `read_tools.py`의 `place_lookup()`이다.
+
+```
+① place_catalog 이름 조회 (db_search/place_by_name.py)
+     found · ambiguous → 그대로
+     not_found         → ②
+② 카카오 키워드 검색 — 실재하는지만 본다
+     이름이 맞는 곳 있음        → exists_unregistered
+     맞는 이름 없음             → not_found
+     못 물음(키 없음·예산·시간 초과) → unknown   ← 「없음」이 아니다
+```
+
+| `status` | `_submit_itinerary()`의 처리 | 실패 코드 |
+|---|---|---|
+| `found` | `activity.submit` 제안 → `WAIT_FOR_APPROVAL` | — |
+| `ambiguous` | 후보 이름(최대 몇 곳)과 개수를 보여 주고 고객에게 고르게 한다(`WAIT_FOR_INPUT`) | `place_ambiguous` |
+| `exists_unregistered` | 실재하지만 지원 목록에 없어 일정을 만들지 않고 되묻는다(`WAIT_FOR_INPUT`) | `place_exists_unregistered` |
+| `not_found` | 더 정확한 이름을 되묻는다(`WAIT_FOR_INPUT`) | `place_not_found` |
+| `unknown` | **고객에게 되묻지 않고 사람에게 넘긴다**(`_unknown()` escalate) | `place_lookup_blocked` |
+
+★★**카카오 응답은 어디에도 저장하지 않는다**(카카오 운영정책 제5조). 결과는 Case 근거로 저장되므로 카카오가 준 이름·좌표·주소·id를 싣지 않고 「있다/없다/못 물었다」 판정만 싣는다. 그래서 실재해도 카탈로그에 없는 곳은 일정 제안을 만들 수 없다. 없는 곳을 DB에 올리는 방법은 아직 정하지 않았다.
+
+★이름 일치는 `intake.places._kakao_match`와 같은 규칙이다 — 같은 이름이거나 질의로 시작하는 이름이 **하나뿐**일 때만 「있다」. 카카오 1위가 아무 가게여도 「있다」고 하지 않는다. 카탈로그 조회는 공백·기호를 뺀 이름으로 비교하고, 2글자 미만이면 카카오까지 가지 않고 `not_found`(`name_too_short`)다.
+
+공용 파일 변경: `read_tools.py`에 `kakao` 필드와 도구 추가, `composition.py`에서 카카오 클라이언트 생성을 분리해 `ReadToolbox`에 주입. 시험 `tests/unit/travel/test_activity_place_lookup.py`(16건) + `tests/integration/db/test_place_by_name_db.py`(8건, 실 PostgreSQL).
 
 ## TourAPI · 재난문자API 연동 (확정)
 
@@ -424,6 +476,8 @@ EMRG_STEP_NM in {"위급재난"}  →  True (막는다)
 
 ★위 둘은 층이 다르다 — "하루 기준 감지 시점"의 재난문자API 5분 간격은 **기본 폴링 주기**이고, "검토 주기 원칙"의 3시간은 **그 폴링을 언제부터 활동에 적용하는지**를 좁힌다. `due_activities()`(`watch.py`)가 이 3시간 필터를 쿼리에 직접 반영해 구현했다.
 
+★`[구현 2026-10-02]` commit `8f6ac65` — **5분 간격도 쿼리가 지킨다.** 두 값이 `watch.py`의 상수 `ACTIVITY_WINDOW_HOURS = 3.0`·`ACTIVITY_GAP_MINUTES = 5.0`과 `due_activities()`/`tick_activities()`의 인자(`within_hours`·`min_gap_minutes`)로 빠졌다. 마지막 관측이 5분 안인 활동은 SQL(`HAVING max(observed_at) <= now() - 5분`)에서 건너뛰므로, 스케줄러가 몇 분마다 부르든 활동마다 간격이 지켜진다. 실행 배선은 아래 [재난문자 감시 러너](#재난문자-감시-러너--run_sweepers-구현-2026-10-02) 참고.
+
 **확정**: 재난문자 API는 이벤트 푸시(웹훅)를 지원하지 않는다. 5분 폴링이 유일한 방식이고, 웹훅 대체는 더 이상 검토 대상이 아니다.
 
 ### 사용 필드 · DB 연계
@@ -560,6 +614,21 @@ default_capability    = "activity.check_feasible"
 FK는 걸지 않는다 — `payload`(jsonb)에 원본을 담고, 필요하면 그 안의 `SN`으로 `disaster` 테이블을 대조한다(TourAPI 관측이 `place_catalog`에 FK 안 거는 것과 같은 패턴).
 
 ★`[실측 2026-09-20]` **`due_activities()`·`tick_activities()`가 생겼다** — `app/modules/travel_ops/watch.py`. `due_places()`와 같은 구조(가장 오래전에 본 것부터, NULLS FIRST)이되, 재검토 주기 결정(3시간 이내)과 `place_id` 해소 여부를 쿼리에 직접 반영했다. `tick_activities()`는 `self.sources.disaster`에 duck-typed로 의존한다 — `source.name`·`source.near(lat, lng, *, within=activity_time)` 인터페이스만 정했고, **실제 재난문자API 클라이언트는 여전히 없다**(코드 0줄, 위 「알려진 결함」 참고). 라이브 DB에 대고 SQL 실행을 확인했다(빈 테이블에서 정상적으로 빈 결과).
+
+#### 재난문자 감시 러너 — `run_sweepers` `[구현 2026-10-02]`
+
+★`[정정 2026-10-02]` **위 「배선」은 함수까지였다 — `tick_activities()`를 부르는 곳이 없어 재난문자 감시는 실제로 돌지 않았다.** commit `8f6ac65`가 `scripts/run_sweepers.py`에 `activity_disaster` 회차를 붙였다(`--only activity_disaster`로 단독 실행 가능).
+
+| | |
+|---|---|
+| 껍질 | `activity/watch_runner.py`의 `run_activity_disaster()` — `TravelWatcher.tick_activities()`를 한 번 부른다 |
+| 세는 칸 | `checked` · `changes` · `unknown` · `no_source`(재난문자 소스 없음 — 조용히 넘기지 않는다) · `fatal`(예외. 삼키지 않고 로그를 남기고 센다 → `run_sweepers`가 stderr·exit 1로 알린다. 다른 되잡기 작업은 막지 않는다) |
+| 간격 | 스케줄러 호출 주기와 무관하다 — 3시간·5분은 `watch.py` 상수와 쿼리가 지킨다(위 「검토 주기 원칙」) |
+| 입력 | `activities` 테이블. 여기에 쓰는 경로(승인된 `activity.submit` 반영)가 아직 없어 운영에서는 비어 있을 수 있다 — 그때는 `checked=0` |
+
+★`[임시]` 감시 구조(몇 시간 전부터·몇 분 간격·무엇을 기준으로)는 멘토 검토 중이라 바뀔 수 있다. 바꿀 때는 `watch_runner.py`와 `watch.py` 상수 두 개만 고치면 되도록 모아 뒀다.
+
+시험 `tests/unit/travel/test_activity_watch_runner.py`(7건) + `tests/integration/db/test_activity_watch_db.py`(4건, 실 PostgreSQL).
 
 `[미확보]` `affected_bookings`를 채우는 일은 안 했다 — 무예약 활동은 예약이 없고, 예약이 있는 경우 장소·시각으로 역추적하는 방법이 정해지지 않았다.
 
@@ -716,7 +785,7 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 |---|---|
 | 기타지도API | 어떤 서비스인지(Google Places/네이버/카카오) 확정 필요 |
 | DB적재 트리거 | 기타지도API로 새로 찾은 장소 정보가 `tour` 테이블에 영구 반영되는지, 임시 캐시인지 |
-| "정보 부족" 판정 기준 | `[부분 닫힘 2026-09-26]` 1차 기준을 코드에 넣었다 — **장소 정보(`read.place`)를 못 받았을 때**만 `insufficient_info`다(알려진 결함 1의 수정과 같은 조건). 예약·규정·시각·기상을 모를 때는 지금처럼 `_unknown()` escalate로 끝나 3분기까지 오지 않는다. 둘을 하나로 합칠지(escalate도 `insufficient_info`로 볼지)는 아직 미정 → [구현 현황](#구현-현황--작업자-b-구현-2026-09-26) |
+| "정보 부족" 판정 기준 | `[부분 닫힘 2026-09-26]` 1차 기준을 코드에 넣었다 — **장소 정보(`read.place`)를 못 받았을 때**만 `insufficient_info`다(알려진 결함 1의 수정과 같은 조건). 예약·규정·시각·기상을 모를 때는 지금처럼 `_unknown()` escalate로 끝나 3분기까지 오지 않는다. 둘을 하나로 합칠지(escalate도 `insufficient_info`로 볼지)는 아직 미정. `[확장 2026-10-02]` **시각을 모를 때도 `insufficient_info`(`time_unknown`)로 넓혔고, 규정은 `check_feasible`이 아예 요구하지 않게 됐다.** 예약 자체가 없을 때만 여전히 escalate → [구현 현황](#구현-현황--작업자-b-구현-2026-09-26) |
 | 확인 필요로 표시 → 사용자에게 알림 | 다이어그램상 두 노드 사이가 점선(미확정) — 순서가 "알림 먼저"인지 "확인필요 표시가 곧 알림"인지 |
 | 회의 결정 항목 | 영업시간·휴무·예약·매진·날씨 중 "적용 항목"을 어디에 저장할지(설정 테이블 필요 여부) |
 
@@ -731,10 +800,10 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 | `status` | 조건 |
 |---|---|
 | `problem` | 이미 시작됨 · 정원 초과 · 휴무 요일 일치 · 위급재난 |
-| `insufficient_info` | 장소 정보(`read.place`)를 못 받음 |
+| `insufficient_info` | 장소 정보(`read.place`)를 못 받음 · `[2026-10-02]` 예약 시각을 모름(`reason: "time_unknown"`) |
 | `ok` | 그 외 |
 
-★**막힘이 확인되면 장소를 몰라도 `problem`이 먼저다** — 이미 아는 불가 사유를 「모름」으로 덮지 않는다(`ActivityTeam._feasibility_status`). 예약·규정·시각·기상을 모르는 갈래는 `_unknown()` escalate로 끝나 여기까지 오지 않는다.
+★**막힘이 확인되면 장소를 몰라도 `problem`이 먼저다** — 이미 아는 불가 사유를 「모름」으로 덮지 않는다(`ActivityTeam._feasibility_status`). 예약·규정·시각·기상을 모르는 갈래는 `_unknown()` escalate로 끝나 여기까지 오지 않는다. `[정정 2026-10-02]` 지금은 **예약을 모를 때만** escalate다 — 규정은 성립 판정에 안 쓰고, 시각을 모르면 정원 확인 뒤 `insufficient_info`로 답한다([입력 검증 절](#-검증-규칙--코드가-판정한다)).
 
 #### 4단계 — 대체 장소 후보 (`activity/alternatives.py`)
 
@@ -749,9 +818,49 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 
 ★**모르는 것을 숨기지 않는다.** 휴무가 확인된(`True`) 후보만 빼고, 모름(`None`)은 남기되 `availability: "unconfirmed"`로 표시해 확인된 후보 **뒤로** 보낸다. 좌표가 없는 후보도 뒤로 간다. 결과에 `matched_fields`·`dropped_fields`(폴백으로 푼 조건)를 함께 낸다.
 
-★**`business_hours`(운영시간)는 파싱하지 않았다** — 판정 경로에서 `usetime_text`를 안 보는 원칙을 그대로 따랐고, 원문만 결과에 실어 보낸다. 순위 확장안의 「영업시간 여유도」는 이 파싱이 생긴 뒤의 일이다.
+★`[정정 2026-10-02]` 위 표의 ②③④는 바뀌었다 — ② 유사도 필드는 `sigungucode`를 뺀 4개, ③ 폴백은 반경 1→10km와 섞인 `search_steps()` 순서, ④는 점수 정렬·브랜드 다양성·화면 3곳/더보기 10곳이다. **좌표가 없는 후보는 이제 뒤로 가는 게 아니라 빠진다**(근처인지 모른다). → [반경·노출 규칙](#대체-장소-반경노출-규칙-구현-2026-10-02)
+
+★`[정정 2026-10-01]` **`business_hours`(운영시간)를 이제 읽는다** — `alternatives.py`의 `open_at(business_hours, at)`(시각은 KST). 「상시·24시간」, 「HH:MM~HH:MM」(여러 구간·자정 넘김), 구간 앞 요일 라벨(평일·주말·월~일)만 읽고 그 밖(점포별 상이·브레이크·계절·층별·빈 값)은 `None`(모름)이다. **명백히 닫힌 곳(`False`)만** 후보에서 빼고 휴무일(`closed_on`)과 함께 유사도보다 **먼저** 적용한다. 판정 경로(`check_feasible`)의 `usetime_text` 원칙은 그대로다 — 이 파싱은 후보 거르기에만 쓴다. 순위는 **같은 브랜드·같은 시군구 → 거리** 순이다(브랜드 매장이 같은 브랜드를 가장 비슷한 대체로 본다; `[정정 2026-10-02]` 「같은 시군구」는 「반경 1km 안」으로 바뀌었다). 순위 확장안의 「영업시간 여유도」 점수는 아직 없다.
 
 `[실측 2026-09-26]` 실 CSV(`scripts/activities_candidates_seoul_enriched.csv`)로 확인 — 창경궁(126511, 매주 월요일 휴무)을 월요일·활동 중요로 넣으면 `contenttypeid`·`lclsSystm3`을 빼고 15건이 매칭되고, 1~3위는 율곡로(0.28km)·성균관 명륜당(0.81km)·북촌한옥마을(0.86km)이다. 선호도 `None`이면 0건(폴백 없음 — 규칙대로). ※경복궁(126508)은 이 CSV에 없다.
+
+#### 대체 장소 반경·노출 규칙 `[구현 2026-10-02]`
+
+결론: **근처는 시군구가 아니라 원래 장소에서의 반경(km)으로 잰다.** `sigungucode`는 유사도 필드(`SIMILARITY_FIELDS`)와 폴백에서 빠졌다(행에는 그대로 실린다). 본체는 `alternatives.py`, 숫자는 같은 파일의 상수다.
+
+**거리 계산 2단계**
+
+| 단계 | 어디서 | 하는 일 |
+|---|---|---|
+| ① 바운딩 박스 | `db_search/place_candidates.py`의 `POOL_SQL` | 원래 장소 좌표 기준 **최대 반경(10km) 사각형** 안의 행만 읽는다. 서울 기준 1km ≈ 위도 0.009°·경도 0.0113°(`bounding_box()`). 분류로는 좁히지 않는다. 좌표 없는 행은 빠진다 |
+| ② 하버사인 | `alternatives.distance_km()` | 남은 후보만 정확한 직선거리를 잰다 |
+
+**반경 확장** — 1km에서 시작해 1km씩(1→2→…→10km). 하드 필터를 통과한 후보가 **10곳 이상**(같은 브랜드는 1곳으로 센다) 남으면 멈추고, 모자라면 넓힌다. `[정정 2026-10-03]` 처음엔 3곳에서 멈췄는데, 그러면 화면 3곳만 차고 「더보기」가 비어서 「더보기」까지 채울 10곳(`KEEP`)으로 올렸다. **최대 10km**에서 멈추고, 그래도 0곳이면 「근처(반경 10km)에 조건에 맞는 장소가 없습니다」라고 안내한다(`reason: "none_within_max_radius"`, 실패 코드 `alternatives_none`). 1~9곳이면 가장 느슨한 단계에서 찾은 만큼 낸다.
+
+선호도와 합치는 순서(`search_steps()`):
+
+| 선호도 | 바깥 고리 | 안쪽 고리 | 뜻 |
+|---|---|---|---|
+| 이동 중요 | 반경 1→10km | 소분류 → 중분류 → 대분류+타입 순으로 뺀다 | 가까운 곳을 지키고 분류를 먼저 푼다 |
+| 활동 중요 | 분류(전부 → 소분류 뺌 → 중분류 뺌) | 반경 1→10km | 대분류+타입은 끝까지 고정, 같은 분류에서 반경을 먼저 넓힌다 |
+| 없음(`None`) | — | 반경 1→10km | 화면 3곳은 분류를 풀지 않는다(선호를 짐작하지 않는다). 반경은 넓힌다. `[2026-10-03]` 10곳이 안 차면 **「더보기」에만** 소분류를 푼 곳을 반경 1→10km로 더 채운다(`MORE_ONLY_DROPS`) |
+
+★`[2026-10-03]` **선호도 없음의 「더보기」 채우기.** 정확한 분류(4개 필드 모두 같음)만 쓰면 촘촘한 분류일수록 후보가 적어 「더보기」가 자주 비었다(창경궁: 10km 안에 3곳 → 더보기 0곳). 그래서 화면 칸은 그대로 정확한 분류만 쓰고(모자라도 느슨한 곳으로 채우지 않는다), 「더보기」에 한해 소분류만 푼다. 중분류 이상은 풀지 않는다. 정확한 분류에서 이미 나온 브랜드 체인은 다시 넣지 않는다. 결과의 `more_dropped_fields`가 「더보기에만 푼 조건」이고, 경고(「더보기 후보 일부는 유사 조건(lclsSystm3)을 풀어서 찾았다」)로도 밝힌다. 정확한 분류가 0곳이면 안내문은 「근처에 조건에 맞는 장소가 없습니다. 비슷한 분류의 장소 N곳은 더보기에 있습니다.」다. 창경궁 실데이터: 화면 경복궁·청와대칠궁·독립관, 더보기 7곳(서울 경모궁지·율곡로·서울 문묘와 성균관 …).
+
+**결과가 많을 때 거르는 순서**
+
+1. **하드 필터** — 휴무일·영업시간 외(`closed_on`·`open_at`), 이미 일정에 있는 곳(`exclude_ids`), 좌표 없음·10km 밖
+2. **점수 정렬** — 영업 확인된 곳 → 반경 1km 안의 같은 브랜드(`same_brand_nearby`) → 이동 중요는 `거리 → 분류 가까움`, 그 밖은 `분류 가까움 → 거리`. 분류 가까움(`category_level`)은 같은 소분류 0 · 중분류 1 · 대분류 2 · 다름 3
+3. **다양성** — 같은 브랜드 체인은 가장 가까운 1곳만(`one_per_brand`)
+4. **상위 N 자르기** — 화면에 **3곳**(`alternatives`), 「더보기」용으로 **10곳까지** 보관(`more_alternatives`, 4~10위)
+
+**추천 이유 한 줄**(`reason_line`) — 장소마다 잰 값만으로 만든다. 예: `0.3km · 같은 소분류 · 같은 브랜드(올리브영) · 휴무일 아님`. 안내문은 화면 3곳을 `- 이름: 이유`로 한 줄씩 싣고, 「더보기」는 재검증된 곳의 수만 말한다.
+
+원래 장소 좌표가 없으면 근처를 잴 수 없다 — 「근처에 없음」이 아니라 `status: "unknown"` · `reason: "origin_no_coordinates"`(실패 코드 `alternatives_no_coordinates`)다.
+
+★`[미연결]` **「이미 일정에 있는 곳」은 함수만 받는다**(`rank_alternatives(exclude_ids=...)`). `check_feasible` 경로에는 `trip_id`가 없고, 일정 항목(`read.itinerary`)은 TourAPI `contentid`가 아니라 내부 `place_id`만 들고 있어 지금 Team이 넘길 값이 없다. 선호도(`current_state`)와 같은 처지다 — 코어가 일정의 장소 식별자를 넘겨 주면 그때 잇는다.
+
+시험: `test_activity_alternatives.py`(반경 단계·10km 상한·10곳에서 멈춤·앞 단계 결과 유지·다양성·제외·노출 개수·점수·이유 한 줄), `test_activity_alternatives_flow.py`·`test_activity_status_alternatives_wiring.py`(안내문·더보기·좌표 없음), `test_db_search_place_candidates.py`·`tests/integration/db/test_place_candidates_db.py`(바운딩 박스 SQL).
 
 #### Team 연결 — `read.place_candidates` 계약 `[구현 2026-09-27]`
 
@@ -763,13 +872,14 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 |---|---|
 | `content_id` = `read.place`의 `source_content_id` | `{"origin": 행, "candidates": [행...], "source", "confirmed_at"}`. 행은 CSV·TourAPI 컬럼명 그대로다. 원래 장소 행을 모르면 `None` |
 
-★후보 풀은 유사도 필드로 **미리 좁히지 않는다**. 폴백이 필드를 하나씩 풀 수 있어야 하기 때문이다. 좁혀도 결과가 안 바뀌는 한계는 「`lclsSystm1` **또는** `sigungucode`가 같은 행까지」다. 두 선호도의 고정값이 이 둘이다.
+★후보 풀은 유사도 필드로 **미리 좁히지 않는다**. 폴백이 필드를 하나씩 풀 수 있어야 하기 때문이다. 좁혀도 결과가 안 바뀌는 한계는 「`lclsSystm1` **또는** `sigungucode`가 같은 행까지」다. 두 선호도의 고정값이 이 둘이다. `[정정 2026-10-02]` 지금 한계는 **원래 장소 좌표 기준 10km 바운딩 박스**다 — 10km 밖은 어느 단계에서도 후보가 될 수 없다.
 
 | `alternatives.status` | 언제 | 안내문 |
 |---|---|---|
 | `ranked` | 풀을 받아 ①~④를 돌렸을 때 | 재검증을 통과한 후보만 나열한다. 0건이면 「찾지 못했습니다」 |
 | `unknown` · `pool_unavailable` | 도구가 `None`을 줄 때. **지금 실제 경로가 이 갈래다** | 「조회하지 못했습니다」. 「대안 없음」으로 읽지 않는다 |
 | `unknown` · `no_content_id` | 원래 장소에 `source_content_id`가 없을 때. 도구를 부르지 않는다 | 「식별 정보가 없어 찾지 못했습니다」 |
+| `unknown` · `origin_no_coordinates` `[2026-10-02]` | 원래 장소 좌표가 없어 반경을 잴 수 없을 때 | 「좌표가 없어 근처 대체 장소를 찾지 못했습니다」. 「근처에 없음」으로 읽지 않는다 |
 | `withheld` · `disaster_blocks` | 위급재난으로 막혔을 때. 도구를 부르지 않는다 | 대체 장소를 안내하지 않는다 |
 
 **① 재검증(v11 §5) — 도구를 더 부르지 않는다.** 가장 긴 경로가 예약·규정·장소·기상·재난·후보로 6회이고, 이게 `max_steps`와 딱 맞는다. 그래서 재검증은 이미 읽은 값으로만 한다.
@@ -777,20 +887,62 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 | ① 항목 | 후보에 대해 |
 |---|---|
 | 시각 | 원래 예약과 같은 시각이고, 여기까지 왔다면 아직 안 지났다 → 통과 |
-| 휴무 요일 | `closed_on`이 `False`를 준 후보만 `revalidated: True`다. 모름(`None`)인 후보는 `decisions`에만 남고 **안내문에는 안 싣는다** |
+| 휴무 요일·운영시간 | `closed_on`이 `False`이거나 `open_at`이 `True`인 후보만 `revalidated: True`다(`availability`가 `open_weekday`·`open_at_time`). 둘 다 모름인 후보(`unconfirmed`)는 `decisions`에만 남고 **안내문에는 안 싣는다** — 빠진 곳 수는 경고로 남긴다 `[구현 2026-10-01]` |
 | 재난문자 | `disaster_msg.near()`는 좌표를 쓰지 않고 **전국 목록**을 준다. 그래서 원래 장소의 판정이 곧 후보의 판정이다. 위급재난이면 후보 전부 같은 판정이라 `withheld`다 |
-| 정원·운영시간 | 후보 쪽 값이 없다 → **확인하지 않았다**. 안내문과 `revalidation.not_checked`에 이 사실을 밝힌다 |
+| 정원 | 후보 쪽 값이 없다 → **확인하지 않았다**. 안내문(「정원은 확인하지 않았습니다」)과 `revalidation.not_checked: ["capacity"]`에 이 사실을 밝힌다 `[정정 2026-10-01]` 운영시간은 위 줄처럼 읽게 돼 여기서 빠졌다 |
 
-**선호도**는 `current_state["activity_preference"]`(`"mobility"`·`"activity"`)에서 읽는다. 값이 없으면 `None`이다. 모르는 값이면 경고를 남기고 `None`으로 처리한다. 추측하지 않는다. 설문이 실제로 이 키를 채우는 경로는 아직 없다.
+**선호도**는 `current_state["activity_preference"]`(`"mobility"`·`"activity"`)에서 읽는다. 값이 없으면 설문(`current_state["survey"]` 또는 `["constraints"]["survey"]`)의 `priority`에서 먼저 나오는 `activity`·`mobility`를 읽는다(`food`는 이 팀 몫이 아니라 건너뜀). 둘 다 없으면 `None`이다. `activity_preference`에 모르는 값이 있으면 경고를 남기고 `None`으로 처리한다. 추측하지 않는다. `[구현 2026-10-01]` `ActivityTeam._preference`.
+
+`[2026-10-01]` 위 연결을 이 절의 규칙(`withheld`·재검증·선호도)에 맞춰 코드를 고쳤다 — [리포트](../records/reports/2026-10-01_1345_Activity_대체장소_문서규칙_정렬_리포트.md).
+
+#### 인원·예약 확인용 컬럼 — TourAPI 상세 수집 `[구현 2026-10-01]`
+
+결론: `activity_total_data.csv` 에 컬럼 6개를 맨 뒤에 더해 받는다 — **`detailIntro2` 응답에서 꺼낼 수 있는 것만**(`homepage` 는 `detailCommon2` 라 호출이 늘어 제외). 타입마다 `detailIntro2` 필드 이름이 달라서 **컬럼 이름은 하나로 통일**했다. 원문 그대로 옮기고 파싱하지 않는다.
+
+| 컬럼 | 뜻 | 12 관광지 | 14 문화시설 | 15 행사 | 28 레포츠 | 38 쇼핑 |
+|---|---|---|---|---|---|---|
+| `info_center` | 문의처 | `infocenter` | `infocenterculture` | `sponsor1tel` / `sponsor2tel`(주최자 연락처, ` / ` 로 이음) | `infocenterleports` | `infocentershopping` |
+| `reservation` | 예약처·예약 안내·예약 링크 | — | — | `bookingplace` / `eventhomepage`(행사 홈페이지) | `reservation` | — |
+| `capacity` | 수용 인원 | `accomcount` | `accomcountculture` | — | `accomcountleports` | — |
+| `spend_time` | 소요 시간 | — | `spendtime` | `spendtimefestival` | — | — |
+| `age_limit` | 연령 제한(체험 가능 연령 포함) | `expagerange` | — | `agelimit` | `expagerangeleports` | — |
+| `experience_guide` | 체험 안내(자유 문장 — 예약·인원이 섞일 수 있다) | `expguide` | — | — | — | — |
+
+필드 이름은 실제 응답으로 확인했다(12·14 는 캐시, 15·28·38 은 1건씩 호출). 요청 목록의 `spendtumefestival` 은 오타이고 실제 이름은 `spendtimefestival` 이다. 숙박(32)의 `reservationlodging`·`accomcountlodging` 은 이 CSV 에 숙박 행이 없고(AC 는 Activity 범위 밖) `commocountlodging` 은 확인하지 못해 넣지 않았다. 요청 목록에 없었지만 같은 개념이라 더한 것: `infocenterleports`(레포츠 문의처), `expagerange`·`expagerangeleports`(체험 가능 연령 → `age_limit`), `spendtime`(문화시설 소요 시간 → `spend_time`), `sponsor1tel`·`sponsor2tel`(행사 주최자 연락처 → `info_center`). 모두 이미 받는 `detailIntro2` 응답에 있어 호출이 늘지 않는다. 같은 뜻으로 볼 수 있지만 **넣지 않은 것**(호출이 늘거나 뜻이 달라 결정이 필요하다)은 리포트에 적었다.
+
+실행은 `fill_tourapi_details.py` 다(`--types 12 14 28 15` 로 쇼핑을 빼고 받을 수 있다). 상세가 이미 채워진 행은 `detailIntro2` 한 번만 더 부른다. 남은 호출 9,522건 중 쇼핑(38)이 7,770건이다 — 새 5칸 때문이 아니라 **쇼핑 3,778곳의 기존 상세(개요·영업시간·휴무)가 비어 있어서**다(쇼핑 응답에는 예약·인원 필드가 없고 새 칸은 `info_center` 하나뿐). 그래서 나머지 네 타입(1,752건)을 먼저 받고 쇼핑은 뒤로 미룬다 — 안 받는 것이 아니다(쇼핑 영업시간·휴무는 대체 장소의 운영 판정에 쓰인다). 아직 수집은 돌리지 않았다 — 지금 CSV 에는 새 칸이 없다.
+
+#### 실패·예외 코드와 로그 `[구현 2026-10-01]`
+
+결론: 사람에게 넘기지 않고 정상 응답으로 끝나는 실패와 도구(API·DB) 예외에 코드를 붙이고 한 줄 JSON 로그로 남긴다. 사람에게 넘기는(escalate) 실패와 분류 실패는 코어가 이미 `failure_code` 와 함께 이벤트로 남기므로 다시 만들지 않았다(`app/application/controller.py` `GUARDRAIL_ESCALATED`, `classification.py`).
+
+코드 목록과 뜻은 `activity/failure_codes.py` 한 곳이다(시험이 목록과 설명이 맞는지 본다). 결과에는 `decisions[].failure_code` 로, 로그에는 `acop.activity.failure` 에 한 줄 JSON(`event`·`code`·`team`·`case_id`·`capability` + 짧은 메타)으로 나간다. 어디에 쓸지(파일·수집기)는 운영 logging 설정이 정한다 — 경로를 코드에 박지 않는다.
+
+| 상황 | 코드 | 결과에 싣는 곳 |
+|---|---|---|
+| 정기휴무 요일 | `closed_weekday` | `decisions[].failure_code` |
+| 위급재난(휴무와 겹치면 이쪽이 앞선다) | `disaster_blocks` | 같음 |
+| 이미 시작됨 · 정원 초과 | `already_started` · `party_over_capacity` | 같음 |
+| 예약의 장소·운영 정보를 못 읽음 | `place_unknown` | 같음 |
+| 예약 시각을 못 읽음(`check_feasible`) `[2026-10-02]` | `time_unknown` | 같음 |
+| 일정 제출에서 장소를 하나로 못 찾음 | `place_not_found` | 같음(고객에게 되묻는다) |
+| 일정 제출: 이름이 카탈로그의 여러 곳을 가리킴 `[2026-10-02]` | `place_ambiguous` | 같음(고객에게 고르게 한다) |
+| 일정 제출: 실재하지만 카탈로그에 없음 `[2026-10-02]` | `place_exists_unregistered` | 같음(저장하지 않고 되묻는다) |
+| 일정 제출: 장소 조회 자체를 못 함(카카오 키 없음·막힘) `[2026-10-02]` | `place_lookup_blocked` | 로그에만 — escalate로 사람에게 넘긴다(「없음」이 아니다) |
+| 대체 후보: 위급재난 · 식별자 없음 · 원래 장소 좌표 없음(`[2026-10-02]`) · 풀 조회 실패 · 반경 10km 안에 없음 · 모두 운영 미확인 | `alternatives_withheld` · `alternatives_no_content_id` · `alternatives_no_coordinates` · `alternatives_pool_unavailable` · `alternatives_none` · `alternatives_unconfirmed` | **로그에만**(결과의 `alternatives` 모양은 `status`·`reason` 그대로) |
+| 읽기 도구가 예외를 냄 | `tool_error` | 로그에만 — **다시 던진다**(삼켜서 「모름」으로 바꾸지 않는다, RULE §3.2) |
+
+★로그에는 좌표·장소명·고객 문장·예외 문구를 싣지 않는다 — Case id·capability·코드와 도구 이름·예외 종류만. 시험: `tests/unit/travel/test_activity_failure_codes.py`(12건, 기록을 끈 변형에서 2건이 실패하는 것을 확인).
 
 #### 아직 안 한 것
 
 | 항목 | 이유 |
 |---|---|
 | ~~`read.place_candidates` 실구현~~ | **닫힘 — `[구현 2026-09-28]`** `db_search/place_candidates.py`로 실구현됨 → [아래 절](#read_place_candidates-실구현--db_search-구현-2026-09-28) |
-| `sigungucode`·`closed_days`의 카탈로그 출처 | `place_catalog`에 구조화 컬럼이 없다(아래 「걸리는 것」). 실구현 때 `raw_json`을 풀어 행에 싣거나 컬럼으로 승격해야 한다 |
+| `sigungucode`·`closed_days`의 카탈로그 출처 | `place_catalog`에 구조화 컬럼이 없다(아래 「걸리는 것」). 실구현 때 `raw_json`을 풀어 행에 싣거나 컬럼으로 승격해야 한다. `[2026-10-02]` `sigungucode`는 판정에 안 쓰게 돼 `closed_days`만 남았다(`raw_json`에서 읽는다) |
+| 「이미 일정에 있는 곳」 제외 연결 | `[미연결 2026-10-02]` `rank_alternatives(exclude_ids=...)`는 받지만 Team이 넘길 값이 없다 — `check_feasible` 경로에 `trip_id`가 없고, 일정 항목은 TourAPI `contentid`가 아니라 내부 `place_id`만 든다 → [반경·노출 규칙](#대체-장소-반경노출-규칙-구현-2026-10-02) |
 | 재난문자 지역 관련성 | 역지오코딩으로 `rgnNm`을 거르게 되면, 「위급재난 → 후보 전부 `withheld`」 규칙을 다시 봐야 한다. 그때는 다른 지역 후보가 통과할 수 있다 |
-| `activity_preference`를 채우는 설문 경로 | 설문 자체가 아직 없다 |
+| 코어가 설문·선호도를 `current_state`로 넘기는 경로 | `[확인 2026-10-01]` 코어(`app/application/controller.py:87` `TEAM_STATE_KEYS`)는 `subject_ref`·`trigger_source`·`trigger`·`interpretation` 넷만 넘긴다 — origin/develop 도 같다. 설문은 여행의 `constraints.survey`(`TripSurvey.priority`)에 저장돼 있지만 활동 팀까지 오지 않아, **실제 흐름에서는 선호도가 항상 `None`**이다(시험은 `current_state`에 직접 넣어 검증). Activity 는 **받는 쪽만** 구현했다(`ActivityTeam._preference`: `activity_preference` → `survey` → `constraints.survey`). 코어가 키를 넘겨 주는 쪽은 코어 담당 몫이라 비워 뒀다 |
 
 #### `read.place_candidates` 실구현 — `db_search` `[구현 2026-09-28]`
 
@@ -798,7 +950,7 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 
 | | |
 |---|---|
-| 좁히는 기준 | `lclsSystm1` **또는** `sigungucode`가 원래 장소와 같은 행까지만(계약대로, 더 좁히지 않는다) |
+| 좁히는 기준 | ~~`lclsSystm1` **또는** `sigungucode`가 원래 장소와 같은 행까지만~~ `[정정 2026-10-02]` 원래 장소 좌표 기준 **10km 바운딩 박스**(`latitude`·`longitude` 범위 비교, 1km ≈ 위도 0.009°·경도 0.0113°) 안의 행만. 분류로는 좁히지 않는다. 원래 장소 좌표가 없으면 후보를 읽지 않는다 |
 | 좌표 | 적재 때 NULL로 넣은 좌표를 `raw_json` 원본 자리표시값으로 되살리지 않는다 |
 | `confirmed_at` | 풀에 든 행 중 가장 오래된 `fetched_at` |
 | 테넌트 격리 | `WHERE tenant_id=%s`로 확인(`test_unknown_origin_and_other_tenant_are_unknown`) |
@@ -850,7 +1002,7 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 | ~~제안 DB 스키마 vs 실제 마이그레이션~~ | **닫힘 — `[실측 2026-09-20]`** `014_activity_tour_disaster.sql`로 반영, 재실행 안전 확인 → [데이터 저장 — Activity 전용 스키마](#데이터-저장--activity-전용-스키마) |
 | ~~`activities`↔`places` 관계~~ | **닫힘 — `[결정 2026-09-20]`** `activities.place_id`(nullable FK)가 canonical 링크. `015_activities_place_link.sql` → [관계 절](#activities--places-관계--결정) |
 | ~~`activities.disaster_api_content_id`를 정적 FK로 둘지 관측으로 다룰지~~ | **닫힘 — `[결정 2026-09-20]`** `watch_observations`(`target_kind='activity'`)로. `016_activities_disaster_to_watch.sql` → [재난문자 관련성 절](#재난문자-관련성--watch_observations로-결정) |
-| ~~`due_activities()`(watch.py 감시 루프 배선)~~ | **닫힘 — `[실측 2026-09-20]`** `due_activities()`·`tick_activities()` 구현됨 → [재난문자 관련성 절](#재난문자-관련성--watch_observations로-결정) |
+| ~~`due_activities()`(watch.py 감시 루프 배선)~~ | **닫힘 — `[실측 2026-09-20]`** `due_activities()`·`tick_activities()` 구현됨 → [재난문자 관련성 절](#재난문자-관련성--watch_observations로-결정). `[정정 2026-10-02]` 부르는 곳이 없어 실제로는 안 돌았다 — `run_sweepers`의 `activity_disaster` 회차로 붙였다 → [감시 러너 절](#재난문자-감시-러너--run_sweepers-구현-2026-10-02) |
 | ~~재난문자API 실제 클라이언트~~ | **부분 닫힘 — `[구현 2026-09-20]`** `app/infrastructure/travel/disaster_msg.py` 작성·조립 완료. **단 실 키로 검증 안 됨**(키 발급 못 받음) → [재난문자 등급 대조 절](#재난문자-등급-대조--check_feasible-배선) |
 | ~~재난문자 키가 공통 키(`data_go_kr_key`)로 되는지~~ | **닫힘 — `[확인 2026-09-21]`** data.go.kr 공통 키와 **별개다.** safetydata.go.kr 에 별도 가입·신청해서 발급받아야 한다. `ACOP_DISASTER_API_KEY` 설정 완료 |
 | 재난문자 날짜·오류 봉투 파라미터/모양 추정치 | `[부분 닫힘 2026-09-21]` 실 키로 live 테스트 5/5 통과, 응답 구조·필드명·CRT_DT 포맷 확인 완료. **오류 봉투 모양**과 **서버 날짜 필터 파라미터**는 아직 미검증 — 정상 응답만 봤고 오류 케이스는 못 봤다 |
@@ -861,12 +1013,12 @@ subject = str(arguments.get("booking_id") or arguments.get("trip_id") or task.ca
 | ~~`itinerary_submit`이 100% escalate 되던 문제~~ | **닫힘 — `[구현 2026-09-20]`** `activity.submit_itinerary` + `select_capability` 훅 → [일정 제출 절](#일정-제출--예약-없이-시작하는-capability) |
 | ~~Phase 2 — 승인된 `activity.submit` 제안을 실제로 `activities`/`places`에 반영하는 실행기~~ | **비전으로 등록 — `[결정 2026-09-20]`** 사용자가 "나중에 별도로 설계하자"고 명시적으로 미뤘다. Activity 하나의 범위를 넘는 시스템 전체(action_type dispatcher) 설계라 `wiki/records/vision/TODO_VISION.md`에 등록(RULE.md §4.4) |
 | ~~`activity.propose_change`의 라우팅 미도달~~ | **닫힘 — `[구현 2026-09-21]`** `select_capability`에 `intent="adjust_reject"` → `activity.propose_change` 분기 추가. 테스트 2건(`test_activity_submit_itinerary.py`) |
-| 대안 생성 규칙의 `business_hours`·`closed_days`·`sigungucode` 소스 | `[미확보 2026-09-24]` 세 필드 모두 `place_catalog` 구조화 컬럼이 아니다(`raw_json`뿐이거나 아예 안 실림) — [대안 생성 규칙 절](#대안-생성-규칙--사용자-제공-2026-09-24) 참고. 카탈로그 컬럼 승격이 먼저 필요할 수 있다. `[2026-09-26]` `alternatives.py`는 CSV 컬럼명을 그대로 받는 순수 함수라, 승격 전에도 CSV나 `raw_json`을 풀어 넘기면 돈다 — 출처 결정이 구현을 막지는 않는다 |
+| 대안 생성 규칙의 `business_hours`·`closed_days`·`sigungucode` 소스 | `[미확보 2026-09-24]` 세 필드 모두 `place_catalog` 구조화 컬럼이 아니다(`raw_json`뿐이거나 아예 안 실림) — [대안 생성 규칙 절](#대안-생성-규칙--사용자-제공-2026-09-24) 참고. 카탈로그 컬럼 승격이 먼저 필요할 수 있다. `[2026-09-26]` `alternatives.py`는 CSV 컬럼명을 그대로 받는 순수 함수라, 승격 전에도 CSV나 `raw_json`을 풀어 넘기면 돈다 — 출처 결정이 구현을 막지는 않는다. `[2026-10-02]` `sigungucode`는 반경으로 바뀌어 대상에서 빠졌다 |
 | ~~`weather_sensitive`가 실 데이터에서 검증 불가~~ | **완화 — `[구현 2026-09-20]`** `_weather_sensitive_from_title()`로 이름 단서 추정(추정 사실은 항상 공개). **완전히 닫힌 건 아니다** — 키워드에 안 걸리는 장소(예: "경복궁")는 여전히 `None`이고, 근본 원인(프로덕션에 `places` 쓰기 경로 자체가 없음)은 그대로다 → [`weather_sensitive` 절](#weather_sensitive--db가-모르면-장소명으로-추정한다) |
 | ~~`read.place_candidates` 실구현~~ | **닫힘 — `[구현 2026-09-28]`** `db_search/place_candidates.py`로 실구현, `app/modules/travel_ops/activity/db_search/`에 있다 → [실구현 절](#read_place_candidates-실구현--db_search-구현-2026-09-28) |
 | ~~다이소를 최종 후보 CSV에 병합~~ | **닫힘 — `[실측 2026-09-28]`** 수기 큐레이션(`tourapi_daiso_seoul_enriched.csv` 폐점 1건 확인, `03_daiso_seoul_all_branches.csv`와 이름·주소 대조)으로 `activity_total_data.csv`에 반영 완료 — tour_api 53건(폐점 제외) + daiso 신규 151건 |
 | 무신사·아트박스를 최종 후보 CSV에 병합 | `[미확보 2026-09-28]` `02_musinsa_seoul_all_branches.csv`(원본 매장 리스트)가 있지만 TourAPI 매칭·enrich를 거치지 않았고, 최종 병합본(`activity_total_data.csv`)에도 아직 없다. 아트박스는 TourAPI enrich(`tourapi_artbox_seoul_enriched.csv`)까지는 끝났지만 병합 코드가 아직 없다 — 다이소를 병합한 것과 같은 방식(이름·주소 대조 후 중복 제외)을 쓰면 된다 |
-| `data_processing/` 옛 작업 파일 12개 | **삭제됨 — `[결정 2026-09-29]`** 최종 데이터가 `activity_total_data.csv`(6,345행)로 확정돼 더 쓰지 않는다. 브랜드 원본 목록(`01_올리브영`·`02_무신사`·`03_다이소`·`04_아트박스`), 올리브영·다이소·아트박스 매칭·큐레이션 중간 산출물, `filter_tourapi_seoul.py`, `merge_oliveyoung_activities.py`(다시 돌리면 수기 큐레이션한 최종 CSV를 덮어써서 위험). 필요하면 git 이력에서 되살린다. **새 수집은 `scripts/fetch_tourapi_list.py`(서울 주소 기준 전체 목록) → `scripts/merge_tourapi_new.py`(이름·주소 비교 후 추가) → 상세는 `fetch_tourapi_details.py`.** TourAPI는 서울 주소여도 `areaCode`가 빈 행이 87%라 `areaCode=1`로 받으면 800건 안팎만 나온다 |
+| `data_processing/` 옛 작업 파일 12개 | **삭제됨 — `[결정 2026-09-29]`** 최종 데이터가 `activity_total_data.csv`(6,345행)로 확정돼 더 쓰지 않는다. 브랜드 원본 목록(`01_올리브영`·`02_무신사`·`03_다이소`·`04_아트박스`), 올리브영·다이소·아트박스 매칭·큐레이션 중간 산출물, `filter_tourapi_seoul.py`, `merge_oliveyoung_activities.py`(다시 돌리면 수기 큐레이션한 최종 CSV를 덮어써서 위험). 필요하면 git 이력에서 되살린다. **새 수집은 `scripts/fetch_tourapi_list.py`(서울 주소 기준 전체 목록) → `scripts/merge_tourapi_new.py`(이름·주소 비교 후 추가) → 상세는 `fill_tourapi_details.py`.** `[정정 2026-10-02]` 여기 있던 `fetch_tourapi_details.py`(올리브영·다이소·아트박스 검색 결과에 상세를 붙이던 도구)는 결과가 `activity_total_data.csv`에 반영이 끝나 commit `80522d3`에서 삭제했다. `fill_tourapi_details.py`가 쓰던 키 읽기·캐시·호출은 `data_processing/tourapi_client.py`로 옮겼다. TourAPI는 서울 주소여도 `areaCode`가 빈 행이 87%라 `areaCode=1`로 받으면 800건 안팎만 나온다 |
 | `build_final_dataset.py` | **삭제됨 — `[결정 2026-09-28]`** 필요 입력(`scripts/activities_candidates_seoul_enriched.csv` 805건 베이스, `tourapi_oliveyoung_seoul_enriched.csv`)이 리팩터로 없어지거나 애초에 만들어진 적이 없어 실행 불가 상태였다. 올리브영 368건 전량을 태그만 붙여 병합하는 `merge_oliveyoung_activities.py` 방식을 그대로 쓰기로 하고 삭제했다. **추가 DB 적재 코드가 필요해지면 그때 새로 만든다** |
 | `scripts/load_place_catalog_csv.py` | **복원됨 — `[실측 2026-09-28]`** 리팩터 커밋(`58a03c8`, "낡은 파일 — 새 적재 코드로 대체 예정")에서 삭제됐다가, 대체 코드가 실제로는 아직 없어서(`db_search`는 조회 전용이지 적재가 아니다) 로컬에 복원했다. `data_source` 필터(`--source tour_api`/`oliveyoung`으로 병합 CSV의 출처만 골라 넣는 기능) 포함. **팀 공유 전 확인 필요** — 담당자가 별도로 대체 코드를 작업 중인지 확인 안 됨 |
 | ~~`DisasterMsgApi`/`Csv`에 `near()` 없어 `read.disaster` · `tick_activities()` AttributeError~~ | **닫힘 — `[수정 2026-09-28]`** `develop` 병합으로 `DisasterMsgSource`가 `DisasterMsgApi`/`DisasterMsgCsv`로 교체됐는데 두 클래스에 `.near()` 가 없었다. `read_tools.disaster()`(`read_tools.py:438`)와 `watch.tick_activities()`(`watch.py:285`) 둘 다 `.near()`를 호출해 실행 시 `AttributeError`. `disaster_msg.py` 두 클래스에 `near(lat, lng, *, at=, within=)` 래퍼 추가 — 좌표를 무시하고 `active(region="서울", at=...)` 에 위임한다(`base.py:291` 미확보 닫힘) |

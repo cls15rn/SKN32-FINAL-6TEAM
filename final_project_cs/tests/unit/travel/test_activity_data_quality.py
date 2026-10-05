@@ -44,8 +44,14 @@ def _is_brand(row: dict[str, str]) -> bool:
 
 # ── CSV 형식 ────────────────────────────────────────────────────
 
+#: `[2026-10-01]` 인원·예약 확인용 칸 — `fill_tourapi_details` 가 맨 뒤에 붙인다. 아직 안 돌렸으면 없어도 된다.
+EXTRA_COLUMNS = ["info_center", "reservation", "capacity", "spend_time", "age_limit", "experience_guide"]
+
+
 def test_columns_are_exactly_the_expected_ones(rows):
-    assert list(rows[0].keys()) == COLUMNS
+    keys = list(rows[0].keys())
+    assert keys[:len(COLUMNS)] == COLUMNS
+    assert keys[len(COLUMNS):] in ([], EXTRA_COLUMNS)      # 일부만 있는 헤더는 허용하지 않는다
 
 
 def test_every_row_has_id_and_title(rows):

@@ -34,7 +34,9 @@ _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 #: 제목으로 쓰지 않는 첫 줄 — 일차 머리줄
 _DAY_HEADING = re.compile(r"^\s*(\d+\s*일\s*차|day\s*\d+)", re.IGNORECASE)
 #: 외부 서비스에서 온 장소 — 등록할 때 그 여행 전용 행이 된다(`trip_api.EXTERNAL_PLACE_SOURCES`)
-_SOURCE_ATTRS = {"tour_api": "source_content_id"}
+_SOURCE_ATTRS = {"tour_api": "source_content_id",
+                 # ★요식 원장도 관광공사 ID 를 싣는다 — 판정 때 그 ID 로 원장 가게와 다시 잇는다(220)
+                 "dining_ledger": "source_content_id"}
 #: 원문 줄의 끼니 말 → 시각. 우리가 고른 값(planner 의 LUNCH_FROM · DINNER_FROM 과 같다)
 _MEAL_TIMES = (("아침", "08:00"), ("조식", "08:00"), ("점심", "12:00"), ("중식", "12:00"),
                ("저녁", "18:00"), ("석식", "18:00"))
@@ -231,7 +233,7 @@ def _plan_basis(trip, rows, sources, first_day) -> dict[str, Any]:
 def _place_in(key: str, place: dict[str, Any], kind: str) -> dict[str, Any]:
     source = str(place.get("source") or "")
     attributes: dict[str, Any] = {}
-    if source in ("tour_api", "kakao"):
+    if source in ("tour_api", "kakao", "dining_ledger"):
         attributes["source"] = source
         if source in _SOURCE_ATTRS and place.get("content_id"):
             attributes[_SOURCE_ATTRS[source]] = str(place["content_id"])

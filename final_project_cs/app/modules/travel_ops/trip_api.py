@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import html
 import json
+import logging
 from typing import Any, Callable, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -127,6 +128,23 @@ class _CsvFallbackTour:
         return result
 
 
+def _dining_lookup(ctx: _PlaceCtx | None = None) -> Any:
+    """일정 접수의 요식 원장 자리(`intake/places.py` — 식사는 원장이 먼저). 액티비티 CSV 자리와 따로 둔다.
+
+    ctx 가 있으면 원장에서 찾은 식당 좌표도 다음 조회의 near 힌트로 넘긴다(액티비티 CSV · 카카오와 같은 힌트).
+    """
+    from .dining.place_lookup import LedgerPlaceLookup
+
+    def found(place: dict[str, Any]) -> None:
+        if ctx is not None:
+            try:
+                ctx.add(float(place["latitude"]), float(place["longitude"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+
+    return LedgerPlaceLookup(get_connection, on_found=found)
+
+
 class _KakaoNearHint:
     """Kakao 검색에 확정된 장소 좌표를 near 힌트로 자동 주입하는 래퍼."""
 
@@ -142,6 +160,7 @@ class _KakaoNearHint:
 
 #: ★대상 도시는 서울 하나다(v11 §1). 시간대 없이 온 시각은 서울 시각으로 읽는다.
 KST = ZoneInfo("Asia/Seoul")
+logger = logging.getLogger(__name__)
 
 CheckFactory = Callable[[], Callable[..., dict[str, Any]]]
 
@@ -159,7 +178,9 @@ class PlaceIn(BaseModel):
 
 #: ★외부 서비스에서 받은 장소 — 공용 장소 표에 쌓지 않고 **그 여행 전용 행**으로 넣는다(마이그레이션 029).
 #:  `places[].attributes.source` 로 가린다. 일정 생성기의 관광공사 후보도 이 값을 단다(`planner.py`).
-EXTERNAL_PLACE_SOURCES = frozenset({"tour_api", "kakao", "google_places"})
+#: ★`[2026-10-01]` 요식 원장(`dining_ledger`)에서 찾은 가게도 여행 전용 행이다 — 공용 표에 쌓으면 일정 접수의
+#:  이름 찾기 · 오타 교정이 그 이름들을 먼저 보게 된다(액티비티 항목까지 영향)
+EXTERNAL_PLACE_SOURCES = frozenset({"tour_api", "kakao", "google_places", "dining_ledger"})
 
 
 class ItemIn(BaseModel):
@@ -312,6 +333,29 @@ def _place_view(key: str | None, places: list[Any]) -> dict[str, Any] | None:
     return None
 
 
+def _ledger_verdicts(slots: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """등록 판정용 요식 원장 조회 — 원장 가게(또는 관광공사 ID) · 방문 시각 → 그 시각에 여는가(`dining.ledger.slot_verdicts`).
+
+    ★못 읽으면 남기고 다시 던진다 — 받는 쪽(`with_ledger`)이 판정 없이(모름) 등록을 잇는다. 조용히 넘기면 원장이 죽어도
+      아무도 모른 채 식당 판정이 꺼진다.
+    """
+    from .dining.ledger import slot_verdicts
+
+    try:
+        with get_connection() as conn:
+            return slot_verdicts(conn, slots)
+    except Exception:
+        logger.warning("요식 원장 판정을 읽지 못해 식당 영업 판정 없이 등록을 판정한다", exc_info=True)
+        raise
+
+
+def _planner_ledger(conn) -> Any:
+    """일정 생성기의 식사 후보 · 판정은 요식 원장으로(`[2026-10-02]` 사용자 결정 — 식당은 관광공사를 실시간으로 부르지 않는다)."""
+    from .dining.ledger import PlannerLedger
+
+    return PlannerLedger(conn)
+
+
 # ★`status` 를 **위치 전용**(`/`)으로 받는다 — `**extra` 에 상세로 `status` 가 들어오면(예: 아직 등록할 수 없는 접수의 현재 상태
 #   `IntakeConflict(..., status=...)`) 같은 이름이 둘이라 `TypeError: got multiple values for argument 'status'` 로 409 가 서버 오류(500)가 됐다.
 def _error(status: int, code: str, message: str, /, **extra: Any) -> HTTPException:
@@ -328,7 +372,7 @@ def _seoul(moment: datetime | None) -> datetime | None:
 # ★`[2026-09-20]` 구현은 `plan_link.py` 로 옮겼다 — 통지·안내를 만드는 쪽이 FastAPI 를 끌고 오지
 #   않고 링크를 붙일 수 있게. 여기서 다시 내보내므로 부르는 쪽은 안 바뀐다.
 from .change_link import change_token, change_url, change_view, render_change  # noqa: E402
-from .itinerary_checks import Part, check_itinerary, parts_from_items
+from .itinerary_checks import Part, check_itinerary, parts_from_items, with_ledger
 from .density import measure_density
 from .plan_link import plan_token, plan_url        # noqa: E402  (자리를 지켜 읽기 쉽게 둔다)
 from .route_uses import route_problems  # noqa: E402
@@ -533,12 +577,14 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
                          "그 구간의 운행·통제 사건을 대조하지 못한다", problems=bad_uses)
         # ★`[2026-09-21]` 받을 때 **코드로 판정**한다(v11 §12 DoD-2). 불가능하면 이유와 완화 조건을
         #   붙여 거절한다(DoD-3) — 전에는 참조·순서만 보고 그대로 받아 감시가 뒤에서 고쳤다.
+        # ★`[2026-10-02]` 식당은 요식 원장의 그 시각 판정을 붙여 본다(`with_ledger`) — 전에는 원장에서 찾기만 하고
+        #   영업 정보를 안 넘겨, 휴무 · 브레이크 · 영업 종료 뒤 식당이 등록을 통과했다. 원장을 못 읽으면 예전 그대로
         violations = check_itinerary(
-            [Part(seq=it.seq, kind=it.kind, title=it.title, starts_at=_seoul(it.starts_at),
-                  ends_at=_seoul(it.ends_at),
-                  place=_place_view(it.place, request.places), route=request.routes.get(str(it.route)),
-                  detail=it.detail)
-             for it in request.items],
+            with_ledger([Part(seq=it.seq, kind=it.kind, title=it.title, starts_at=_seoul(it.starts_at),
+                              ends_at=_seoul(it.ends_at),
+                              place=_place_view(it.place, request.places), route=request.routes.get(str(it.route)),
+                              detail=it.detail)
+                         for it in request.items], _ledger_verdicts),
             constraints=request.constraints, party_size=request.party_size)
         if violations:
             raise _error(422, "itinerary_infeasible",
@@ -603,6 +649,12 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
                         (tenant, place.name, place.kind, place.lat, place.lon, place.weather_sensitive,
                          json.dumps(place.attributes, ensure_ascii=False)))
                 ids[place.key] = cur.fetchone()[0]
+                # ★`[2026-10-02]` 원장에서 고른 식당은 원장 가게와 바로 잇는다 — 새벽 확인 · 하루 점검이 코어 장소로
+                #   원장을 찾는다(`dining.ledger.resolve_place`). 관광공사 ID 가 없는 원장 가게는 이렇게만 이어진다
+                if place.attributes.get("dining_place_uid"):
+                    from .dining.ledger import link_core_place_to
+
+                    link_core_place_to(conn, tenant, str(ids[place.key]), str(place.attributes["dining_place_uid"]))
         items = [Item(item_id=uuid4(), seq=it.seq, kind=it.kind, title=it.title,
                       place_id=ids.get(it.place) if it.place else None,
                       starts_at=_seoul(it.starts_at), ends_at=_seoul(it.ends_at),
@@ -651,7 +703,8 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
             with get_connection() as conn:
                 outcome = planner_module.plan_trip(conn=conn, tenant_id=tenant, request=ask,
                                                    chat=_lazy("chat", chat_factory),
-                                                   tour_api=_lazy("place", place_factory))
+                                                   tour_api=_lazy("place", place_factory),
+                                                   ledger=_planner_ledger(conn))
         except planner_module.PlanRefused as refused:
             raise _error(422, refused.code, refused.message, **refused.detail) from None
         result: dict[str, Any] = {"status": "drafted", **outcome.as_dict()}
@@ -874,7 +927,8 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
                             see=getattr(chat, "see", None),
                             chat=chat if hasattr(chat, "json") else None,
                             tour=_CsvFallbackTour(_lazy("place", place_factory), _csv_places, _ctx),
-                            kakao=_KakaoNearHint(_kakao_raw, _ctx) if _kakao_raw is not None else None)
+                            kakao=_KakaoNearHint(_kakao_raw, _ctx) if _kakao_raw is not None else None,
+                            dining=_dining_lookup(_ctx))
         return {"intake_id": str(intake_id), "status": "reading", "stage": "received"}
 
     @router.get("/v1/web/trip-intakes/{intake_id}")
@@ -902,7 +956,8 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
                 edit(conn, tenant_id=tenant, customer_id=customer, intake_id=intake_id, revision=request.revision,
                      edits=[e.model_dump() for e in request.edits],
                      tour=_CsvFallbackTour(_lazy("place", place_factory), _csv_places, _ctx),
-                     kakao=_KakaoNearHint(_kakao_raw, _ctx) if _kakao_raw is not None else None)
+                     kakao=_KakaoNearHint(_kakao_raw, _ctx) if _kakao_raw is not None else None,
+                     dining=_dining_lookup(_ctx))
                 return view(conn, tenant_id=tenant, customer_id=customer, intake_id=intake_id)
         except LookupError:
             raise _error(404, "not_found", "resource not found") from None
@@ -994,7 +1049,8 @@ def build_trip_router(*, check_factory: CheckFactory | None = None,
                 outcome = planner_module.plan_trip(
                     conn=conn, tenant_id=tenant, request=ask, chat=_lazy("chat", chat_factory),
                     tour_api=_lazy("place", place_factory),
-                    exclude_names=[p["name"] for p in built.body["places"]] if keep else ())
+                    exclude_names=[p["name"] for p in built.body["places"]] if keep else (),
+                    ledger=_planner_ledger(conn))
         except planner_module.PlanRefused as refused:
             raise _error(422, refused.code, refused.message, **refused.detail) from None
         draft, merged = outcome.draft, []

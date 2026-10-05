@@ -81,6 +81,9 @@ class ReadToolbox:
     route_events: Any | None = None
     #: 고객 문장에서 신고 내용(늦음·휴무·품절·재요청)을 뽑는 함수. 없으면 「모름」.
     report_extractor: Callable[[str], dict[str, Any] | None] | None = None
+    #: 카카오 로컬(키워드 검색). ★`read.place_lookup` 의 **존재 확인**에만 쓰고 응답은 저장하지 않는다.
+    #:  없으면(`None`) 존재를 못 물은 것이라 「없음」이 아니라 「모름」으로 답한다.
+    kakao: Any | None = None
     #: ★`[2026-09-30]` 구글 장소(`GooglePlaces`) — 식당 가격(`read.place_price`)만 쓴다. 없으면 「모름」.
     google_places: Any | None = None
 
@@ -142,9 +145,11 @@ class ReadToolbox:
             "read.place":    self.place,
             "read.place_search": self.place_search,
             "read.place_candidates": self.place_candidates,
+            "read.place_lookup": self.place_lookup,
             # ★요식 원장. `read.place` 와 달리 **시각을 받는다** —
             #   「그 시각에 여는가」는 시각이 있어야 답할 수 있다.
             "read.dining_state": self.dining_state,
+            "read.dining_states": self.dining_states,
             # ★`[2026-09-30]` 식당 가격(구글 1인당 범위 · 가격대) — 대안을 세울 때만. 값은 비교에만 쓰고 버린다(구글 약관)
             "read.place_price": self.place_price,
             "read.weather":  self.weather,
@@ -303,6 +308,14 @@ class ReadToolbox:
         with self.connection_factory() as conn:
             return dining_state(conn, scope.tenant_id, place_id, at, until)
 
+    def dining_states(self, scope: ToolContext, *, slots: list[dict[str, Any]],
+                      **_: Any) -> dict[str, dict[str, Any] | None]:
+        """대체 식당들의 방문 시간대를 한 번에 읽는다. 테넌트는 검증된 scope에서만 받는다."""
+        from app.modules.travel_ops.dining.ledger import dining_states
+
+        with self.connection_factory() as conn:
+            return dining_states(conn, scope.tenant_id, slots)
+
     def place_price(self, scope: ToolContext, *, place_ids: list[str] | None = None,
                     **_: Any) -> dict[str, dict[str, int | None] | None] | None:
         """장소들의 구글 가격 {place_id: {"level", "low", "high"} 또는 None}. 구글이 꺼져 있으면 `None`(모름).
@@ -374,6 +387,21 @@ class ReadToolbox:
         return self.travel.place.find(
             name.strip(), content_type_id=narrow, allowed_types=allowed or None)
 
+    def place_lookup(self, scope: ToolContext, *, name: str | None = None,
+                     **_: Any) -> dict[str, Any] | None:
+        """고객이 말한 장소 이름 → 우리 카탈로그, 없으면 카카오로 **존재만** 확인한다.
+
+        반환 `status`: `found` · `ambiguous` · `exists_unregistered` · `not_found` · `unknown`.
+        ★`read.place_search` 와 달리 「없음」과 「못 물어봄」을 가른다(`not_found` ≠ `unknown`).
+        ★카카오 응답(이름·좌표·주소)은 결과에 싣지 않는다 — 결과는 Case 근거로 저장되기 때문이다.
+        이름이 비면 `None`(모름). 본체는 `activity/place_lookup.py`.
+        """
+        if not name or not name.strip():
+            return None
+        from app.modules.travel_ops.activity.place_lookup import lookup_place
+
+        return lookup_place(self.connection_factory, scope.tenant_id, name, self.kakao)
+
     def place_candidates(self, scope: ToolContext, *, content_id: str | None = None,
                          **_: Any) -> dict[str, Any] | None:
         """대체 장소 후보 풀. `place_catalog`(TourAPI 적재분)를 읽는다.
@@ -395,9 +423,8 @@ class ReadToolbox:
              "source": "...", "confirmed_at": "..."}
 
         ★후보 풀을 유사도 필드로 **미리 좁히지 않는다** — 폴백이 필드를
-          하나씩 풀 수 있어야 한다. 좁힌다면 `lclsSystm1` **또는**
-          `sigungucode` 가 원래 장소와 같은 행까지만(두 선호도의 고정값)
-          좁혀도 결과가 안 바뀐다.
+          하나씩 풀 수 있어야 한다. 원래 장소 좌표 기준 최대 반경(10km)의
+          바운딩 박스로만 좁힌다(`[2026-10-02]` 시군구 대신 반경).
         ★원래 장소 행(`origin`)을 모르면 `None` — 유사도를 잴 기준이 없다.
         """
         if not content_id:

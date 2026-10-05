@@ -451,7 +451,8 @@ def test_tour_api_is_called_only_when_the_catalog_is_empty(api, monkeypatch):
     body = api["ask"](request_id="p-tour", tour=tour).json()
     assert tour.calls == 1 and body["calls"]["tour_api"] == 1
     assert body["candidates"]["by_source"].get("tour_api", 0) >= 0     # 순위에 따라 뽑힐 수도 아닐 수도
-    assert body["candidates"]["pool"] == len(ACTIVITIES) + len(DINING) + 2
+    # ★`[2026-10-02]` 받아온 둘 중 **미술관만** 후보다 — 식당은 관광공사에서 받지 않는다(사용자 결정, 요식 원장에서 고른다)
+    assert body["candidates"]["pool"] == len(ACTIVITIES) + len(DINING) + 1
 
     # ★카탈로그에 한 행이라도 있으면 바깥에 나가지 않는다.
     _cache_one_row(api)

@@ -10,6 +10,7 @@ ledger.py 자체는 psycopg 도 import 하지 않으므로 경로로 읽는 편�
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,8 @@ class FakeCursor:
         self.asked.append(sql)
         if "dn_core_place_link" in sql:
             self._row = self.plan.get("link")
+        elif "link_core_place" in sql:                   # 판정 때 잇기(220) — 정해둔 답이 없으면 못 이음
+            self._row = self.plan.get("auto_link", (None,))
         elif "core_place_state" in sql:
             self._row = self.plan.get("state")
         elif "meets_condition" in sql:
@@ -66,6 +69,9 @@ class FakeConn:
 
     def cursor(self):
         return self.cursor_obj
+
+    def transaction(self):
+        return contextlib.nullcontext()
 
 
 def linked(state=None, conditions=None) -> FakeConn:
@@ -143,6 +149,13 @@ def test_규칙이_없으면_모름():
 
 
 # ── 조건 ────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("accepted", [True, False, None])
+def test_card_payment_keeps_the_ledgers_three_valued_verdict(accepted):
+    got = ledger.dining_state(linked(OPEN_STATE, {"card_payment": accepted}), "demo", CORE_ID,
+                              "2026-09-22 12:00+09:00")
+    assert got["card_payment"] is accepted
+
 
 def test_모르는_조건은_어느_목록에도_넣지_않는다():
     conn = linked(OPEN_STATE, {"halal": None, "vegetarian_menu": True,

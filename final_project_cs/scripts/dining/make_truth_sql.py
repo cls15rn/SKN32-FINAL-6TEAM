@@ -22,6 +22,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import sys
 import uuid
 
@@ -80,6 +81,11 @@ def main() -> None:
     for row in rows:
         name = (row.get("상호") or "").strip()
         cids = by_name.get(name, [])
+        if len(cids) > 1:
+            # 같은 상호의 다른 지점이 목록에 생기면(법정동으로 다시 받자 참숯골 · 부부횟집이 둘이 됐다)
+            # 대조표에 옮겨 적은 원문과 같은 가게로 좁힌다. 그래도 둘이면 넣지 않는다.
+            text = re.sub(r"\s+", "", row.get("원문(영업시간)") or "")
+            cids = [c for c in cids if text and re.sub(r"\s+", "", parsed[c].get("hours_text") or "") == text]
         if len(cids) != 1:
             # 상호가 없거나 겹치면 넣지 않는다. 엉뚱한 집에 정답을 붙이면 되돌리기 어렵다.
             skipped.append((row.get("번호"), name, "상호를 특정하지 못함"))

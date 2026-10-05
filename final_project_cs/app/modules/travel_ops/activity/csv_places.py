@@ -69,6 +69,15 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _distance_to(row: dict[str, str], near: tuple[float, float]) -> float:
+    """`near`(위도, 경도)까지의 제곱거리 — 순서만 비교하므로 제곱근은 안 구한다. 좌표가 없으면 무한대."""
+    lat = _to_float(row.get("mapy"))
+    lon = _to_float(row.get("mapx"))
+    if lat is None or lon is None:
+        return float("inf")
+    return (lat - near[0]) ** 2 + (lon - near[1]) ** 2
+
+
 class CsvPlaceLookup:
     """activity_total_data.csv 기반 장소 조회 — intake 의 tour= 자리에 주입한다."""
 
@@ -125,13 +134,7 @@ class CsvPlaceLookup:
         elif len(same_key) == 1:
             row = same_key[0]
         elif near is not None:
-            def _dist_exact(r: dict[str, str]) -> float:
-                lat = _to_float(r.get("mapy"))
-                lon = _to_float(r.get("mapx"))
-                if lat is None or lon is None:
-                    return float("inf")
-                return (lat - near[0]) ** 2 + (lon - near[1]) ** 2
-            row = min(same_key, key=_dist_exact)
+            row = min(same_key, key=lambda r: _distance_to(r, near))
         else:
             # 후보가 여럿인데 near 없음 → 임의 선택 대신 미룸(파이프라인이 재시도)
             self.misses["deferred_no_near"] = self.misses.get("deferred_no_near", 0) + 1
@@ -145,13 +148,7 @@ class CsvPlaceLookup:
                 row = prefix[0]
             elif len(prefix) > 1:
                 if near is not None:
-                    def _dist(r: dict[str, str]) -> float:
-                        lat = _to_float(r.get("mapy"))
-                        lon = _to_float(r.get("mapx"))
-                        if lat is None or lon is None:
-                            return float("inf")
-                        return (lat - near[0]) ** 2 + (lon - near[1]) ** 2
-                    row = min(prefix, key=_dist)
+                    row = min(prefix, key=lambda r: _distance_to(r, near))
                 else:
                     self.misses["deferred_no_near"] = self.misses.get("deferred_no_near", 0) + 1
                     return None
@@ -174,13 +171,7 @@ class CsvPlaceLookup:
                 if len(with_loc) == 1:
                     row = with_loc[0]
                 elif near is not None:
-                    def _dist_loc(r: dict[str, str]) -> float:
-                        lat = _to_float(r.get("mapy"))
-                        lon = _to_float(r.get("mapx"))
-                        if lat is None or lon is None:
-                            return float("inf")
-                        return (lat - near[0]) ** 2 + (lon - near[1]) ** 2
-                    row = min(with_loc, key=_dist_loc)
+                    row = min(with_loc, key=lambda r: _distance_to(r, near))
                 else:
                     row = with_loc[0]
                 break

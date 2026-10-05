@@ -23,12 +23,15 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol
 from uuid import UUID
 
 from app.core.transition import transition_case
 from app.domain.events import EventType
 from app.presentation.security import masked
+
+logger = logging.getLogger(__name__)
 
 #: 분류기가 반드시 채워야 하는 라벨. ★기본값으로 메우지 않는다 — 하나라도 없으면
 #:  실패로 친다(`CLAUDE.md` §1, 조용한 분류 성공 위장 금지).
@@ -60,7 +63,9 @@ def classify_case(conn: Any, *, tenant_id: str, case_id: UUID, text: str,
     알아야 하고, 그걸 다시 DB 에 물어보게 하지 않는다.
     """
     try:
-        result = classifier(masked(text)) if classifier else None
+        if classifier is None:
+            raise ValueError("classifier is not configured")
+        result = classifier(masked(text))
         # ★**키가 있는지가 아니라 값이 있는지를 본다.** 전에는
         #   `label in result` 로 키 존재만 봐서 `""`·`"  "`·`None` 이 전부
         #   통과했다(2026-09-01 발견,
@@ -73,7 +78,11 @@ def classify_case(conn: Any, *, tenant_id: str, case_id: UUID, text: str,
             raise ValueError("classifier returned no usable labels")
         event: EventType = EventType.CLASSIFIED
         payload: dict[str, Any] = dict(result)
-    except Exception:
+    except Exception as exc:
+        # ★원인을 남긴다. 여기서 삼키면 키 오류(401)도 「분류하지 못했다」 한 줄로만 보여 원인을 못 찾는다.
+        #   문의 원문은 남기지 않는다 — 원인 종류와 메시지만.
+        logger.warning("분류 실패: tenant=%s case=%s 원인=%s: %s",
+                       tenant_id, case_id, type(exc).__name__, exc)
         event, payload = EventType.CLASSIFICATION_FAILED, {"failure_code": FAILURE_CODE}
     if state_patch:
         # ★`[2026-09-17]` 분류와 **같은 이벤트**로 기록한다 — Case 상태는 한 문으로만 바뀐다.

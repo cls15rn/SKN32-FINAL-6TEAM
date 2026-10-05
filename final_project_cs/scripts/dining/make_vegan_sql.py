@@ -285,11 +285,15 @@ def parse_extra_closure(cell: str) -> tuple[str, list[dict]]:
 
 def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: str = "vegan",
               scope: str = "서울 비건 식당 영업시간 검수",
-              folder: str = "vegan") -> tuple[list[str], dict]:
+              folder: str = "vegan", place_records: dict[str, str] | None = None) -> tuple[list[str], dict]:
     """검수 시트 → 영업·휴무 규칙 SQL. 두 번째 값은 센 수.
 
     같은 형식의 시트(미쉐린 등)도 이것으로 넣는다. tag 로 id 와 적재 묶음을 가른다 —
     한 시트를 다시 넣을 때 다른 시트의 규칙을 지우지 않게.
+    place_records를 주면 해당 출처 행에서 SQL이 확정한 장소를 참조한다.
+    관광공사·비건 등 기존 출처를 Python에서 다시 매칭하지 않는다.
+    이 모드의 검수 값은 적힌 요일·정기휴무 외 항목의 기존 수동 규칙도 교체한다.
+    빈 항목에서는 다른 검수 시트의 활성 규칙을 물러나게 하지 않는다.
     """
     load_id = str(uuid.uuid5(NS, f"load:{tag}-hours:operator_check"))
     body = [
@@ -307,6 +311,9 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
         if label not in place_of:
             raise ValueError(f"목록에 없는 식당: {label!r}")
         place_uid = place_of[label]
+        record = (place_records or {}).get(label)
+        place_sql = (f"(SELECT place_uid FROM dining.dn_source_record WHERE record_id = {q(record)})"
+                     if record else q(place_uid))
         days = [parse_day(row[d]) for d in DAYS]
         extra_state, extra_rules = parse_extra_closure(row["정기휴무 외"])
 
@@ -315,7 +322,7 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
         body.append(
             "INSERT INTO dining.dn_source_record (record_id, load_id, source_code, external_id, "
             "place_uid, match_status, raw_json) VALUES ("
-            f"'{rec_id}', '{load_id}', 'operator_check', {q('hours:' + label)}, '{place_uid}', "
+            f"'{rec_id}', '{load_id}', 'operator_check', {q('hours:' + label)}, {place_sql}, "
             f"'confirmed', {jq(raw)}) ON CONFLICT (record_id) DO NOTHING;")
         n["식당"] += 1
         text = " / ".join(f"{d} {row[d].strip()}" for d in DAYS if row[d].strip())
@@ -323,19 +330,26 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
         for weekday, (coverage, spans) in enumerate(days, 1):
             if not coverage:
                 continue
-            if place_uid in existing:
-                # 관광공사 규칙을 지우지 않고 물러나게 한다. 두 겹이면 day_intervals 가 엉킨다.
+            if place_uid in existing or record:
+                # 기존 출처의 규칙을 물러나게 한다. 새 장소라면 갱신할 기존 규칙이 없다.
+                exclude_manual = "" if record else "AND source_code <> 'operator_check' "
                 body.append(
                     "UPDATE dining.dn_hours_rule SET retired_at = now() "
-                    f"WHERE place_uid = '{place_uid}' AND rule_kind = 'weekly' AND weekday = {weekday} "
-                    "AND source_code <> 'operator_check' AND retired_at IS NULL;")
+                    f"WHERE place_uid = {place_sql} AND rule_kind = 'weekly' AND weekday = {weekday} "
+                    f"{exclude_manual}AND retired_at IS NULL;")
                 n["물러난 관광공사 규칙"] += 1
+            if record:
+                # 새 시트가 여는 날이라고 확인했는데 이전 시트의 주간 휴무가 남으면 모순이다.
+                body.append(
+                    "UPDATE dining.dn_closure_rule SET retired_at = now() "
+                    f"WHERE place_uid = {place_sql} AND pattern_kind = 'weekly' AND weekday = {weekday} "
+                    "AND retired_at IS NULL;")
             rule_id = str(uuid.uuid5(NS, f"rule:{tag}-hours:{label}:{weekday}"))
             brk = ("present" if len(spans) > 1 else "none") if coverage == "intervals" else "unknown"
             body.append(
                 "INSERT INTO dining.dn_hours_rule (rule_id, place_uid, source_code, record_id, rule_kind, "
                 "weekday, coverage, break_state, source_text, extract_method, rules_version, valid_from) "
-                f"VALUES ('{rule_id}', '{place_uid}', 'operator_check', '{rec_id}', 'weekly', {weekday}, "
+                f"VALUES ('{rule_id}', {place_sql}, 'operator_check', '{rec_id}', 'weekly', {weekday}, "
                 f"'{coverage}', '{brk}', {q(text[:900])}, 'manual', '{tag}-sheet-v1', '{checked}');")
             n["영업 규칙"] += 1
             if coverage != "intervals":
@@ -351,6 +365,11 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
                     f"{lo if lo is not None else 'NULL'}, '{state}');")
                 n["구간"] += 1
 
+        if record and extra_state:
+            # 정기휴무 외 칸도 새 검수 값으로 교체한다. 빈칸이면 이전 지식을 유지한다.
+            body.append(
+                "UPDATE dining.dn_closure_rule SET retired_at = now() "
+                f"WHERE place_uid = {place_sql} AND pattern_kind <> 'weekly' AND retired_at IS NULL;")
         # 휴무 — 요일 칸의 「휴무」는 매주 쉬는 날이다. is_closed_on 은 휴무 규칙을 본다.
         closures = [{"pattern_kind": "weekly", "weekday": wd}
                     for wd, (cov, _) in enumerate(days, 1) if cov == "closed"] + extra_rules
@@ -362,7 +381,7 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
                 "INSERT INTO dining.dn_closure_rule (closure_id, place_uid, source_code, record_id, "
                 "pattern_kind, weekday, nth, holiday_name, holiday_scope, closed_date, source_text, "
                 "extract_method, valid_from) VALUES ("
-                f"'{closure_id}', '{place_uid}', 'operator_check', '{rec_id}', '{c['pattern_kind']}', "
+                f"'{closure_id}', {place_sql}, 'operator_check', '{rec_id}', '{c['pattern_kind']}', "
                 f"{c.get('weekday') or 'NULL'}, {nth_sql}, {q(c.get('holiday_name'))}, "
                 f"{q(c.get('holiday_scope'))}, {q(c.get('closed_date'))}, "
                 f"{q(row['정기휴무 외'].strip() or None)}, 'manual', '{checked}');")
@@ -376,13 +395,17 @@ def hours_sql(place_of: dict[str, str], existing: set[str], sheet: str, *, tag: 
             state = "none"
         else:
             state = "unknown"
+        preserve_known = (
+            " WHERE dining.dn_closure_coverage.retired_at IS NOT NULL"
+            " OR dining.dn_closure_coverage.state = 'unknown' OR EXCLUDED.state <> 'unknown'"
+            if record and not extra_state else "")
         body.append(
             "INSERT INTO dining.dn_closure_coverage (place_uid, source_code, record_id, state, "
-            f"source_text, valid_from) VALUES ('{place_uid}', 'operator_check', '{rec_id}', "
+            f"source_text, valid_from) VALUES ({place_sql}, 'operator_check', '{rec_id}', "
             f"'{state}', {q(row['정기휴무 외'].strip() or None)}, '{checked}')"
             " ON CONFLICT (place_uid, source_code) DO UPDATE SET record_id = EXCLUDED.record_id,"
             " state = EXCLUDED.state, source_text = EXCLUDED.source_text, valid_from = EXCLUDED.valid_from,"
-            " retired_at = NULL;")
+            f" retired_at = NULL{preserve_known};")
 
     head = ("INSERT INTO dining.dn_load_meta (load_id, source_code, fetched_at, schema_version, scope, "
             f"row_count, raw_uri, status) VALUES ('{load_id}', 'operator_check', now(), '{tag}-sheet-v1', "

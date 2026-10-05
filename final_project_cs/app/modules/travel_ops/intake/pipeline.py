@@ -80,7 +80,7 @@ def open_intake(conn, *, tenant_id: str, customer_id: UUID, text: str | None,
 
 def process(connect: Callable[[], Any], *, tenant_id: str, intake_id: UUID, blobs: dict[int, bytes],
             see: Callable[[str, bytes], str] | None, chat: Any = None, tour: Any = None, kakao: Any = None,
-            today: date | None = None) -> str:
+            today: date | None = None, dining: Any = None) -> str:
     """뒤에서 한 건을 읽는다. 돌려주는 값은 마지막 상태(review · fatal). `blobs` = {position: 바이트}.
 
     ★2주차(2026-09-27): 규칙 → 남은 줄은 모델이 **가리키기만**(`chat`) → 날짜 해석 → 장소 찾기(`tour` 관광공사 ·
@@ -110,7 +110,7 @@ def process(connect: Callable[[], Any], *, tenant_id: str, intake_id: UUID, blob
         rows_by_source = []
         for source in sources:
             rows_by_source.append((source, read_source(source["transcript"] or "", chat=chat, tour=tour, kakao=kakao,
-                                                       our_places=our_places, aliases=aliases,
+                                                       our_places=our_places, aliases=aliases, dining=dining,
                                                        today=today or datetime.now(KST).date())))
         with connect() as conn, conn.transaction(), conn.cursor() as cur:
             cur.execute("DELETE FROM intake_claims WHERE tenant_id=%s AND intake_id=%s AND revision=1 "
@@ -200,7 +200,7 @@ class IntakeConflict(ValueError):
 
 
 def edit(conn, *, tenant_id: str, customer_id: UUID, intake_id: UUID, revision: int,
-         edits: list[dict[str, Any]], tour: Any = None, kakao: Any = None) -> int:
+         edits: list[dict[str, Any]], tour: Any = None, kakao: Any = None, dining: Any = None) -> int:
     """고객이 고친 값 → **새 판**(revision + 1). 앞 판의 값은 그대로 남는다(근거를 지우지 않는다, 설계서 §5).
 
     `edits` = [{"source_id", "field", "value"}]. 장소는 `{"name": "…"}` 로 받아 **다시 찾고**, 찾은 곳 하나를
@@ -232,7 +232,9 @@ def edit(conn, *, tenant_id: str, customer_id: UUID, intake_id: UUID, revision: 
                 if our_places is None:
                     our_places = _our_places(conn, tenant_id)
                 typed = str(value["name"]).strip()
-                value, evidence, note = _typed_place(value, our_places, tour, kakao)
+                kind = _item_kind(cur, tenant_id, intake_id, current, source_id, field_name, edits)
+                value, evidence, note = _typed_place(value, our_places, tour, kakao, dining,
+                                                     kind_hint="dining" if kind == "dining" else None)
                 # 원래 읽은 이름 → 고객이 고친 이름을 별칭으로 쌓는다(다음 고객은 안 고쳐도 되게)
                 cur.execute("SELECT value_json FROM intake_claims WHERE tenant_id=%s AND intake_id=%s AND revision=%s "
                             "AND source_id=%s AND field=%s ORDER BY created_at DESC LIMIT 1",
@@ -342,12 +344,26 @@ def _iso_date(field_name: str, value: Any) -> None:
         raise IntakeRejected("invalid_value", f"{field_name}: 날짜는 YYYY-MM-DD 입니다") from None
 
 
-def _typed_place(value: dict[str, Any], our_places, tour, kakao):
+def _item_kind(cur, tenant_id: str, intake_id: UUID, revision: int, source_id: str, place_field: str,
+               edits: list[dict[str, Any]]) -> str | None:
+    """장소를 고치는 항목의 종류 — 같은 요청에서 함께 고친 값이 먼저, 없으면 지금 판의 값. 식사면 요식 원장부터 찾는다."""
+    kind_field = place_field[:-len("place")] + "kind"
+    for entry in edits:
+        if str(entry.get("source_id") or "") == source_id and entry.get("field") == kind_field:
+            return entry.get("value")
+    cur.execute("SELECT value_json FROM intake_claims WHERE tenant_id=%s AND intake_id=%s AND revision=%s "
+                "AND source_id=%s AND field=%s ORDER BY created_at DESC LIMIT 1",
+                (tenant_id, intake_id, revision, source_id, kind_field))
+    row = cur.fetchone()
+    return row[0] if row and isinstance(row[0], str) else None
+
+
+def _typed_place(value: dict[str, Any], our_places, tour, kakao, dining=None, kind_hint: str | None = None):
     """고객이 적은 장소 이름 → 다시 찾아 **하나**. 못 찾으면 받지 않는다(지어내지 않는다)."""
     from .places import resolve
 
     name = str(value["name"]).strip()[:80]
-    found = resolve(name, our_places=our_places, tour=tour, kakao=kakao)
+    found = resolve(name, our_places=our_places, tour=tour, kakao=kakao, dining=dining, kind_hint=kind_hint)
     if found.status != "resolved":
         raise IntakeRejected("place_not_found", f"「{name}」: {found.note}")
     resolved = {"name": found.name, "kind": found.kind, "latitude": found.latitude, "longitude": found.longitude,
@@ -358,7 +374,7 @@ def _typed_place(value: dict[str, Any], our_places, tour, kakao):
 # ── 한 원본 읽기: 규칙 → 남은 줄 → 날짜 → 장소 ─────────────────────
 def read_source(text: str, *, chat: Any = None, tour: Any = None, kakao: Any = None,
                 our_places: list[dict[str, Any]] | None = None, today: date,
-                aliases: dict[str, str] | None = None) -> list[dict[str, Any]]:
+                aliases: dict[str, str] | None = None, dining: Any = None) -> list[dict[str, Any]]:
     """읽은 값 줄들(`intake_claims` 한 행 = 한 dict). ★값마다 방법(rule·llm_span·lookup)과 근거가 붙는다."""
     from .dates import resolve_dates
     from .llm_spans import label_lines
@@ -437,7 +453,8 @@ def read_source(text: str, *, chat: Any = None, tour: Any = None, kakao: Any = N
                 dt_str = f"{date_val}T{starts_at}" if date_val and starts_at else date_val
                 tour.set_current_date(dt_str)
             resolved[index] = resolve(item["title"], our_places=our_places or [], tour=tour, kakao=kakao,
-                                      kind_hint="dining" if item["meal"] else None, aliases=aliases)
+                                      kind_hint="dining" if item["meal"] else None, aliases=aliases,
+                                      dining=dining)
     # 두 번째 패스 — near 없이 미뤄진 항목을 다른 장소가 확정된 뒤 재시도한다(한 번만)
     # kakao 로 resolved 된 항목도 재시도 대상에 포함한다:
     # places.py normalize()가 점포 접미사를 제거하므로 "올리브영 홍대사거리점" → "올리브영" exact match →
@@ -456,7 +473,8 @@ def read_source(text: str, *, chat: Any = None, tour: Any = None, kakao: Any = N
                     dt_str = f"{date_val}T{starts_at}" if date_val and starts_at else date_val
                     tour.set_current_date(dt_str)
                 resolved[index] = resolve(item["title"], our_places=our_places or [], tour=tour, kakao=kakao,
-                                          kind_hint="dining" if item["meal"] else None, aliases=aliases)
+                                          kind_hint="dining" if item["meal"] else None, aliases=aliases,
+                                          dining=dining)
     for index, found in resolved.items():
         evidence = found.evidence()
         value = None

@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     #   전까지 쌓지도 읽지도 않는다. 장소는 필요할 때 실시간으로 조회한다(`TourApiPlace.find`·`area_page`).
     tour_catalog_enabled: bool = False
     google_maps_api_key: str = ""            # 구글 Maps Platform(Places) console.cloud.google.com
+    # ★`[2026-10-01]` 네이버 검색(블로그 · 카페글) — 대체 후보에 후기 몇 건을 곁들인다. 비어 있으면 부르지 않는다.
+    #   NAVER API HUB(네이버 클라우드) 「검색」 키 — 2026-07-31 부터 개발자센터 신규 발급이 끝나 HUB 로 옮겨 갔다.
+    #   주소 naverapihub.apigw.ntruss.com/search/v1/{blog,cafearticle}, 헤더 X-NCP-APIGW-API-KEY-ID · X-NCP-APIGW-API-KEY.
+    #   네이버 지도 키(웹 NEXT_PUBLIC_NAVER_MAP_CLIENT_ID)와 다른 키다.
+    #   결과는 저장하지 않는다(보여 줄 때만 불러온다).
+    naver_search_client_id: str = ""
+    naver_search_client_secret: str = ""
     # ── 이동 계산기(app/modules/travel_ops/mobility/engine) — `[2026-09-29 이동 계산기 문제목록 #48]` ──
     #   계산기가 저장소 맨 위 `.env` 를 import 때 직접 읽던 것을 여기로 모은다. 서버는 기동 때 이 값을 계산기에 넘긴다.
     #: 시간표·역 순서·환승 거리 등 가공 자료가 있는 폴더(이동 담당의 DATA_DIR · git 밖 · 약 195MB).
@@ -220,6 +227,7 @@ class Settings(BaseSettings):
     rate_utic_per_day: int = 1000            # 미확인 - 보수적(UTIC 한도 문서 못 봄)
     rate_odsay_per_day: int = 1000           # 미확인 - 무료 구간 한도 못 찾음
     rate_kakao_per_day: int = 1000            # 미확인 - 보수적
+    rate_naver_search_per_day: int = 12500   # 확인: API HUB 검색 월 775,000건(2026-10 무료) — 블로그 · 카페글 합쳐 절반 아래(하루 12,500 × 31 ≈ 39만)
     #: 국가유산청은 키가 없고 공개된 한도도 못 찾았다. 그래도 스스로 조인다 -
     #: 한도를 모른다는 것이 마음껏 두들겨도 된다는 뜻은 아니다.
     rate_heritage_khs_per_day: int = 1000
@@ -265,6 +273,7 @@ class Settings(BaseSettings):
             "utic": self.rate_utic_per_day,
             "odsay": self.rate_odsay_per_day,
             "kakao": self.rate_kakao_per_day,
+            "naver_search": self.rate_naver_search_per_day,
             "google_places": self.rate_google_places_per_day,
             "google_routes": self.rate_google_routes_per_day,
         }

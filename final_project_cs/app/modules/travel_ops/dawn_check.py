@@ -32,7 +32,8 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from .itinerary import Item, TripStore, visible_to
-from .itinerary_changes import NoChange, plan_activity_closed_on_day, plan_closed_on_day
+from .dining.ledger import dining_states
+from .itinerary_changes import ItineraryChange, NoChange, plan_activity_closed_on_day, plan_closed_on_day
 from .pending import apply_or_ask
 
 KST = ZoneInfo("Asia/Seoul")
@@ -150,10 +151,21 @@ class DawnCheck:
                                                    detail=detail, checked_at=checked_at,
                                                    exclude=self._closed_places(conn, day))
             else:
-                plan = plan_closed_on_day(trip=trip, items=items, places=places, meal=meal, source=PROVIDER,
-                                          detail=detail, checked_at=checked_at,
-                                          exclude=self._closed_places(conn, day),
-                                          price_lookup=self._price_lookup())
+                def replan(candidates):
+                    return plan_closed_on_day(trip=trip, items=items, places=candidates, meal=meal, source=PROVIDER,
+                                              detail=detail, checked_at=checked_at,
+                                              exclude=self._closed_places(conn, day),
+                                              price_lookup=self._price_lookup(),
+                                              state_lookup=lambda slots: dining_states(conn, self.store.tenant_id,
+                                                                                       slots))
+                plan = replan(places)
+                # ★`[2026-10-01]` 대체 후보가 코어 장소에서만 나와 비던 것 — 근처 원장 가게를 그 여행 전용으로 들여놓고 다시
+                if isinstance(plan, ItineraryChange) or (isinstance(plan, NoChange) and plan.status == "unresolved"):
+                    from .dining import nearby
+
+                    more = nearby.add_nearby(conn, self.store, trip_id, [meal], places)
+                    if more != places:
+                        plan = replan(more)
             self._insert_check(conn, trip_id, meal, day, "closed", detail)
             if isinstance(plan, NoChange):
                 result.unresolved.append({**entry, "status": plan.status})

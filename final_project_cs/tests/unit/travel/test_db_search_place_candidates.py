@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.tools.read_tools import ReadToolbox, ToolContext
+from app.modules.travel_ops.activity.alternatives import RADIUS_MAX_KM, bounding_box
 from app.modules.travel_ops.activity.db_search.place_candidates import (
     DEFAULT_SOURCES, ORIGIN_SQL, POOL_SQL, find_place_candidates)
 
@@ -103,13 +104,20 @@ def test_confirmed_at_is_the_oldest_fetch():
     assert find_place_candidates(lambda: conn, "t1", "126511")["confirmed_at"] == OLD.isoformat()
 
 
-def test_pool_is_narrowed_by_large_class_or_sigungu_of_the_origin():
+def test_pool_is_narrowed_by_the_max_radius_bounding_box():
+    """★거리 1단계 — SQL 은 원래 장소 좌표 기준 10km 사각형으로만 거른다(분류·시군구로 좁히지 않는다)."""
     conn = FakeConnection([ORIGIN], [])
     find_place_candidates(lambda: conn, "t1", "126511")
     (sql1, p1), (sql2, p2) = conn.executed
     assert (sql1, p1) == (ORIGIN_SQL, ("t1", list(DEFAULT_SOURCES), "126511"))
-    assert sql2 == POOL_SQL
-    assert p2 == ("t1", list(DEFAULT_SOURCES), "126511", "HS", "23")
+    assert sql2 == POOL_SQL and "sigungucode" not in POOL_SQL
+    assert p2 == ("t1", list(DEFAULT_SOURCES), "126511", *bounding_box(37.58, 126.98, RADIUS_MAX_KM))
+
+
+def test_origin_without_coordinates_reads_no_pool():
+    conn = FakeConnection([_record("126511", title="창경궁", lon=None, lat=None)], [NEAR])
+    pool = find_place_candidates(lambda: conn, "t1", "126511")
+    assert pool["candidates"] == [] and len(conn.executed) == 1
 
 
 def test_pool_reads_brand_sources_too():

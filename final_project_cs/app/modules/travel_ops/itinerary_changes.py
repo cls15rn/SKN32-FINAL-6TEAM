@@ -25,7 +25,7 @@ from typing import Any, Callable
 from uuid import UUID
 
 from .itinerary import Item
-from .replan import (SEATING_BUFFER_MIN, WALK_M_PER_MIN, activity_candidates, alternate_record,
+from .replan import (SEATING_BUFFER_MIN, WALK_M_PER_MIN, DiningStateLookup, activity_candidates, alternate_record,
                      apply_google_prices, change_notice, choose, dining_candidates, dining_fits, dining_notice,
                      route_candidates, route_notice, store_candidates)
 
@@ -204,7 +204,9 @@ def applied_record(item: Item) -> dict[str, Any]:
             "option_label": option_label(item) if mobility else None,
             "starts_at": item.starts_at.isoformat(),
             "ends_at": item.ends_at.isoformat() if item.ends_at else None,
-            "walk_min": None}
+            "walk_min": None,
+            **({"card_payment": item.detail["card_payment"]} if item.detail.get("card_payment") is not None else {}),
+            **({"warnings": list(item.detail["warnings"])} if item.detail.get("warnings") else {})}
 
 
 def title_for(item: Item, name: str) -> str:
@@ -362,6 +364,8 @@ def _dining_change(meal: Item, best, alternates, notice: dict[str, Any], *,
         detail={"other_options": notice["other_options"],
                 **({"customer_reported": True} if reason == "customer_report" else {}),
                 **({"price_compare": best.price_compare} if best.price_compare else {}),
+                **({"warnings": list(best.warnings)} if best.warnings else {}),
+                **({"card_payment": best.card_payment} if best.card_payment is not None else {}),
                 "alternates": [alternate_record(c) for c in alternates]})
     # ★가격은 비교 결과만(`won` · `same_or_lower` · `higher` · `unknown`) — 구글 가격대 원값은 남기지 않는다
     summary = {"to": best.name, **({"price": best.price_compare} if best.price_compare else {}),
@@ -372,23 +376,33 @@ def _dining_change(meal: Item, best, alternates, notice: dict[str, Any], *,
 
 def plan_delay(*, trip: dict[str, Any], items: list[Item], places: list[dict[str, Any]],
                at: datetime, minutes: int, message: str, request_id: str | None,
-               price_lookup: PriceLookup | None = None) -> Plan:
+               price_lookup: PriceLookup | None = None, state_lookup: DiningStateLookup | None = None) -> Plan:
     """「N분 늦는다」. 다음 식사 항목이 그 도착 시각에 성립하는지 보고, 안 되면 바꾼다."""
     meal = next((i for i in items if i.kind == "dining" and i.starts_at >= at), None)
     if meal is None or meal.place is None:
         return NoChange("no_meal", {"message": "늦어지는 시각 뒤에 식사 일정이 없다"})
     arrival = meal.starts_at + timedelta(minutes=minutes)
     duration = minutes_between(meal.starts_at, meal.ends_at)
-    fits, why = dining_fits(meal.place, arrival, duration)
+    place_id = str(meal.place["place_id"])
+    states = (state_lookup([{"place_id": place_id, "at": arrival,
+                             "until": arrival + timedelta(minutes=duration)}]) if state_lookup else None) or {}
+    fits, why = dining_fits(meal.place, arrival, duration, state=states.get(place_id))
     cause = with_request({"category": "customer_report", "type": "delay", "minutes": minutes,
                           "message": message, "evidence": "고객 신고"}, request_id)
     if fits is True:
         return NoChange("still_fits", {"arrival": arrival.isoformat()})
+    if fits is None:
+        # 확인하지 못했다는 이유만으로 이미 정한 식당을 바꾸지 않는다.
+        return NoChange("needs_check", {
+            "arrival": arrival.isoformat(),
+            "message": f"{meal.place['name']}의 {arrival:%H:%M} 도착 시 영업 여부는 확인이 필요해요. "
+                       "기존 일정은 바꾸지 않았어요.",
+            "warnings": [why]})
     following = next((i for i in items if i.seq > meal.seq), None)
     candidates = dining_candidates(
         original=meal.place, places=places, arrival=arrival, minutes=duration,
         constraints=trip.get("constraints") or {}, radius_m=DINING_RADIUS_M,
-        next_start=following.starts_at if following else None)
+        next_start=following.starts_at if following else None, state_lookup=state_lookup)
     if price_lookup is not None:
         apply_google_prices(candidates, original=meal.place, lookup=price_lookup)
     best, alternates, rejected = choose(candidates)
@@ -404,7 +418,7 @@ def plan_delay(*, trip: dict[str, Any], items: list[Item], places: list[dict[str
 
 def plan_closed(*, trip: dict[str, Any], items: list[Item], places: list[dict[str, Any]],
                 at: datetime, message: str, request_id: str | None,
-                price_lookup: PriceLookup | None = None) -> Plan:
+                price_lookup: PriceLookup | None = None, state_lookup: DiningStateLookup | None = None) -> Plan:
     """「오늘 임시휴무」. 지금 식사 항목을 걸어갈 수 있는 대체 식당으로 바꾼다."""
     meal = next((i for i in items if i.kind == "dining"
                  and i.starts_at <= at < (i.ends_at or i.starts_at + timedelta(hours=1))), None)
@@ -416,22 +430,11 @@ def plan_closed(*, trip: dict[str, Any], items: list[Item], places: list[dict[st
                           "message": message, "evidence": "고객 신고 — 현장 안내문"},
                          request_id)
     # 후보마다 도보 시간이 달라 입장 시각도 다르다 — 먼저 거리로 입장 시각을 잡는다.
-    candidates = []
-    for place in places:
-        if place.get("kind") != "dining" or place["place_id"] == meal.place["place_id"]:
-            continue
-        probe = dining_candidates(
-            original=meal.place, places=[place], arrival=at, minutes=duration,
-            constraints=trip.get("constraints") or {}, radius_m=DINING_RADIUS_M,
-            next_start=None)
-        if not probe:
-            continue
-        walk = probe[0].walk_min or 0
-        arrival = round_up_5(at + timedelta(minutes=walk + SEATING_BUFFER_MIN))
-        candidates += dining_candidates(
-            original=meal.place, places=[place], arrival=arrival, minutes=duration,
-            constraints=trip.get("constraints") or {}, radius_m=DINING_RADIUS_M,
-            next_start=following.starts_at if following else None)
+    candidates = dining_candidates(
+        original=meal.place, places=places, arrival=at, minutes=duration,
+        constraints=trip.get("constraints") or {}, radius_m=DINING_RADIUS_M,
+        next_start=following.starts_at if following else None, state_lookup=state_lookup,
+        arrival_for=lambda walk: round_up_5(at + timedelta(minutes=walk + SEATING_BUFFER_MIN)))
     if price_lookup is not None:
         apply_google_prices(candidates, original=meal.place, lookup=price_lookup)
     best, alternates, rejected = choose(candidates)
@@ -453,7 +456,8 @@ def plan_closed(*, trip: dict[str, Any], items: list[Item], places: list[dict[st
 # ── 새벽 확인 — 그날 그 시각에 안 연다 (D-020, 2026-09-25) ──────────
 def plan_closed_on_day(*, trip: dict[str, Any], items: list[Item], places: list[dict[str, Any]],
                        meal: Item, source: str, detail: str, checked_at: datetime,
-                       exclude: set[str] = frozenset(), price_lookup: PriceLookup | None = None) -> Plan:
+                       exclude: set[str] = frozenset(), price_lookup: PriceLookup | None = None,
+                       state_lookup: DiningStateLookup | None = None) -> Plan:
     """새벽 확인에서 **계획한 시각에 안 여는** 식당 — 같은 시각에 근처 대체 식당으로 바꾼다.
 
     ★고객 신고(`plan_closed`)와 다르다 — 그쪽은 고객이 **지금 가게 앞에** 있어 걸어갈 시간만큼 입장을
@@ -470,7 +474,7 @@ def plan_closed_on_day(*, trip: dict[str, Any], items: list[Item], places: list[
     candidates = dining_candidates(
         original=meal.place, places=places, arrival=meal.starts_at, minutes=duration,
         constraints=trip.get("constraints") or {}, radius_m=DINING_RADIUS_M,
-        next_start=following.starts_at if following else None, exclude=set(exclude))
+        next_start=following.starts_at if following else None, exclude=set(exclude), state_lookup=state_lookup)
     if price_lookup is not None:
         apply_google_prices(candidates, original=meal.place, lookup=price_lookup)
     best, alternates, rejected = choose(candidates)
@@ -601,6 +605,9 @@ def plan_swap(*, trip_version: int, base_version: int, items: list[Item],
     name = pick.get("option_label") or pick["name"]
     detail = {**current.detail, "alternates": remaining,
               "other_options": [a["name"] for a in remaining], "customer_requested": True}
+    detail.pop("warnings", None)
+    if pick.get("warnings"):
+        detail["warnings"] = list(pick["warnings"])
     if current.kind == "mobility":
         detail["option"] = pick.get("option") or pick["key"]
     cause = with_request({"category": "customer_request", "type": "alternate",
@@ -608,9 +615,13 @@ def plan_swap(*, trip_version: int, base_version: int, items: list[Item],
                          request_id)
     text = (f"요청하신 대로 {applied['name']} 대신 {name}(으)로 바꿨습니다"
             f"({starts:%H:%M} 시작).")
+    warnings = [f"{name}: {warning}" for warning in pick.get("warnings") or []]
+    if warnings:
+        text += " " + " ".join(warnings)
     notice = {"text": text, "language": "ko", "causes": [cause],
               "changed": {"from": applied["name"], "to": name, "at": starts.isoformat()},
-              "other_options": [a["name"] for a in remaining], "replay": False}
+              "other_options": [a["name"] for a in remaining], "replay": False,
+              **({"warnings": warnings} if warnings else {})}
     replacement = current.replaced_by(place=place, title=title_for(current, name),
                                       detail=detail, starts_at=starts, ends_at=ends)
     return ItineraryChange(reason="customer_request", causes=[cause], notice=notice,

@@ -11,6 +11,7 @@
     이동 시간   이동 항목이 들고 온 경로 정의(`route_def`)의 계획 수단 `eta_min` 만 본다.
                 이동 항목이 없는 구간은 **간격이 0 일 때만** 걸린다 — 몇 분 걸리는지 모르기 때문이다.
     영업시간    장소 속성의 `hours`·`break` 가 있을 때만 본다. 없으면 모른다(통과시킨다).
+                식당은 요식 원장의 그 시각 판정(`place["ledger"]`)도 본다 — 붙이는 것은 부르는 쪽(`with_ledger`)이다.
     결제·예산   여행 제약(`constraints.payment`·`budget_krw`)이 있을 때만 본다.
 
 ★**거절은 「무엇이·왜·무엇을 바꾸면 되는지」를 같이 낸다.** 완화 조건(`remedy`)이 없는 위반은
@@ -21,9 +22,9 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,14 @@ def _place_violations(part: Part) -> list[Violation]:
     attributes = dict((part.place or {}).get("attributes") or {})
     brk = attributes.get("break")
     found: list[Violation] = []
+    # ★`[2026-10-02]` 식당은 요식 원장의 그 시각 판정(`with_ledger`)이 있으면 그것을 본다. None 은 모름 — 거르지 않는다
+    ledger = (part.place or {}).get("ledger") or {}
+    if ledger.get("open_at_slot") is False:
+        when = f"{part.starts_at:%m월 %d일} {_hm(part.starts_at)}"
+        found.append(Violation("dining_closed_at_slot", (part.seq,),
+                               f"{part.title}: 폐업한 곳이다(요식 원장)" if ledger.get("closed") else
+                               f"{part.title}: {when} 에는 영업하지 않는다(요식 원장 — 휴무 · 브레이크 · 영업시간)",
+                               "그 시각에 여는 다른 식당으로 바꾸거나 영업하는 시각으로 옮긴다"))
     # ★`[2026-09-28]` 그날의 영업시간 — 요일별 칸(`hours_week`, 관광공사 원문을 옮긴 것)이 먼저, 없으면 하루 한 칸
     #   (`hours`). 전에는 하루 한 칸만 봐서 **쉬는 요일**을 몰랐다(월요일 휴무인 곳이 월요일에 들어갔다)
     today = hours_on(attributes, part.starts_at.date())
@@ -201,4 +210,38 @@ def parts_from_items(items: Iterable[Any], routes: Mapping[str, Any] | None = No
     return parts
 
 
-__all__ = ["Part", "Violation", "check_itinerary", "parts_from_items"]
+def with_ledger(parts: Iterable[Part],
+                lookup: Callable[[list[dict[str, Any]]], Mapping[int, Mapping[str, Any]]]) -> list[Part]:
+    """식사 항목에 요식 원장의 그 시각 판정을 붙인다(`place["ledger"]`). `[2026-10-02]`
+
+    ★일정 접수는 원장에서 식당을 **찾기만** 하고 영업 정보는 넘기지 않는다(attributes 에 출처 · 관광공사 ID 뿐).
+      그래서 등록 판정이 휴무 · 브레이크 · 영업 종료 뒤 식당을 통과시켰다. 원장의 판정은 휴무 · 명절 · 자정 넘김 ·
+      폐업까지 이미 본 값이라 영업시간 문자열을 다시 맞추지 않고 그대로 쓴다.
+    ★DB 는 부르는 쪽(`lookup`)이 본다 — 이 파일은 여전히 바깥을 모른다. 못 읽으면 원래 일정 그대로(모름).
+    ★원장 가게 ID(`dining_place_uid`)가 먼저다 — 관광공사 ID 가 없는 원장 가게(미쉐린 · 비건 · 할랄 큐레이션)도 본다.
+      없으면 일정 접수가 싣는 관광공사 ID(`source_content_id`)로 찾는다.
+    """
+    parts = list(parts)
+    slots = [{"seq": part.seq, **key, "at": part.starts_at, "until": part.ends_at}
+             for part in parts if part.kind == "dining" and (key := _ledger_key(part))]
+    if not slots:
+        return parts
+    try:
+        verdicts = lookup(slots)
+    except Exception:   # noqa: BLE001 — 요식 표가 없는 DB · 연결 실패. 판정하지 않는다(모름)
+        return parts
+    return [replace(part, place={**part.place, "ledger": dict(verdicts[part.seq])})
+            if part.seq in verdicts and part.place else part
+            for part in parts]
+
+
+def _ledger_key(part: Part) -> dict[str, str] | None:
+    attributes = (part.place or {}).get("attributes") or {}
+    if attributes.get("dining_place_uid"):
+        return {"place_uid": str(attributes["dining_place_uid"])}
+    if attributes.get("source_content_id"):
+        return {"content_id": str(attributes["source_content_id"])}
+    return None
+
+
+__all__ = ["Part", "Violation", "check_itinerary", "parts_from_items", "with_ledger"]

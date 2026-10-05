@@ -230,6 +230,27 @@ class TripStore:
                     for row in cur.fetchall()]
 
     # ── 쓰기 ────────────────────────────────────────────────────
+    def adopt_places(self, conn, trip_id: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """장소들을 **그 여행 전용 행**으로 넣고(이미 있으면 그대로) 그 행들을 돌려준다. `[2026-10-01]`
+
+        ★대체 후보를 바깥(요식 원장 등)에서 들여올 때 쓴다 — 일정 항목은 코어 장소 id 만 가리킬 수 있다.
+        ★공용 행은 만들지 않는다 — 공용 목록(일정 접수 · 일정 생성기 · 다른 여행)에 섞이지 않게(029).
+        ★같은 여행 안에서 (이름, 종류)가 같으면 새로 만들지 않고 있는 행을 쓴다.
+        `rows` = [{"name", "kind", "latitude", "longitude", "attributes"}].
+        """
+        if not rows:
+            return []
+        with conn.cursor() as cur:
+            for row in rows:
+                cur.execute("INSERT INTO places (tenant_id, name, kind, latitude, longitude, attributes, trip_scope) "
+                            "VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT DO NOTHING",
+                            (self.tenant_id, row["name"], row["kind"], row["latitude"], row["longitude"],
+                             json.dumps(row.get("attributes") or {}, ensure_ascii=False), str(trip_id)))
+            cur.execute("SELECT " + ", ".join(PLACE_COLUMNS) + ", trip_scope FROM places "
+                        "WHERE tenant_id=%s AND trip_scope=%s AND name = ANY(%s)",
+                        (self.tenant_id, str(trip_id), [row["name"] for row in rows]))
+            return [{**_place(found[:-1]), "trip_scope": str(found[-1])} for found in cur.fetchall()]
+
     def append_version(self, conn, *, trip_id: UUID, base_version: int, items: list[Item],
                        reason: str, causes: list[dict[str, Any]],
                        case_id: UUID | None = None) -> int:

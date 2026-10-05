@@ -168,6 +168,22 @@ def build_report_extractor():
     return lambda text: extract(text, chat)
 
 
+def build_kakao_local() -> Any | None:
+    """카카오 로컬(키워드 검색). 키가 없으면 `None` — 그 단계만 건너뛴다(「없음」이 아니라 「모름」).
+
+    ★**장소 이름 찾기·존재 확인** 전용이다(`intake/places.py` · `read.place_lookup`). 응답은 저장하지 않는다.
+    호출 예산이 필수다(무료 한도 초과 사용은 약관 위반) — `travel.kakao_budget`.
+    """
+    from app.infrastructure.travel.call_budget import CallBudget, kakao_caps
+    from app.infrastructure.travel.kakao_local import KakaoLocal
+
+    # ★설정 객체에 키 필드가 없으면(시험용 설정) 키가 없는 것과 같다 — 조립을 깨지 않는다
+    key = getattr(get_settings(), "kakao_rest_api_key", "")
+    if not key:
+        return None
+    return KakaoLocal(api_key=key, budget=CallBudget(connection_factory=get_connection, caps=kakao_caps()))
+
+
 def build_registry(*, tools: ReadToolbox | None = None, llm: Any | None = None,
                    config_path: str | Path | None = None,
                    config: ProjectConfig | None = None) -> TeamRegistry:
@@ -184,6 +200,7 @@ def build_registry(*, tools: ReadToolbox | None = None, llm: Any | None = None,
         tools = ReadToolbox(get_connection, policy_search=search_policy,
                             travel=sources,
                             report_extractor=build_report_extractor(),
+                            kakao=build_kakao_local(),
                             google_places=build_google_places(limiter=sources.limiter))
         # ☆`[2026-09-29 이동 계산기 문제목록 #24·#31·#34]` 이동 계산기를 설정대로 켜거나 끈다 — 켜면 자료를 확인하고
         #   (없거나 판 명세와 다르면 기동을 멈춘다, 결정 15) 적재까지 한다(첫 고객 요청이 약 33초를 기다리지 않게).
@@ -340,17 +357,7 @@ def build_domain_routers() -> list:
 
         return build_travel_sources(get_settings()).place
 
-    def kakao_factory():
-        # ★계획 읽기의 **장소 이름 찾기** 전용(`intake/places.py`). 키가 없으면 None — 그 단계만 건너뛴다.
-        #   호출 예산이 필수다(무료 한도 초과 사용은 약관 위반) — `travel.kakao_budget`.
-        from app.core.settings import get_settings
-        from app.infrastructure.travel.call_budget import CallBudget, kakao_caps
-        from app.infrastructure.travel.kakao_local import KakaoLocal
-
-        key = get_settings().kakao_rest_api_key
-        if not key:
-            return None
-        return KakaoLocal(api_key=key, budget=CallBudget(connection_factory=get_connection, caps=kakao_caps()))
+    kakao_factory = build_kakao_local
 
     return [build_trip_router(check_factory=check_factory, classifier_factory=build_classifier,
                               chat_factory=chat_factory, place_factory=place_factory,

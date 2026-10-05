@@ -15,7 +15,7 @@
     잇는 가게마다 출처 레코드(michelin_guide) 하나와 속성 michelin = yes 하나.
     상세는 「1스타 (2026)」처럼 등급과 에디션. 가이드에 없는 곳은 행을 만들지 않는다.
 
-원장에 없는 가게(145곳)는 새로 만든다.
+상세 자료가 있는 145곳 중 원장에 없는 가게는 새로 만든다.
     datasets/dining/processed/michelin/미쉐린_서울_2026_가게.jsonl — 가이드 가게 페이지에서 옮긴 사실만
     (주소 · 우편번호 · 좌표 · 전화 · 요리 종류 · 가격대 · 편의시설 · 가족 동반). 소개 글은 없다.
     - 가게: 이름 · 도로명주소 · 좌표(coord_source=michelin_guide) · 자치구 · 전화. 권역(hub)은 비운다.
@@ -25,6 +25,7 @@
     - 영업시간은 가이드에서 옮기지 않는다. 가이드 페이지를 요약 도구로만 읽을 수 있었는데 점심·저녁이
       섞이거나 빠졌다(2026-09-28 확인). 대신 검수 시트(미쉐린_영업시간_검수.csv, 비건 시트와 같은 형식)에
       사람이 적은 행만 넣는다(make_vegan_sql.hours_sql). 채우기 전까지 이 가게들의 영업 판정은 「모름」이다.
+    - 검수 행의 장소는 SQL이 확정한 미쉐린 출처 행에서 읽는다. 다른 출처와도 연결 기준이 같다.
 
 사용법:  python scripts/dining/make_michelin_sql.py [--dry]
 출력:    datasets/dining/processed/_build/michelin.sql
@@ -66,6 +67,11 @@ ALIAS = {
 def norm(name: str | None) -> str:
     """한글·영문·숫자만 남긴다. SQL 쪽 regexp_replace 와 같은 규칙이다."""
     return re.sub(r"[^가-힣a-z0-9]", "", (name or "").lower())
+
+
+#: 가이드 좌표와 이 거리 안이어야 같은 가게로 본다. 구글 자동 일괄 확정과 같은 기준이다.
+#: 「소울」은 가이드가 용산구 신흥로, 관광공사가 종로구 자하문로 — 이름만 같고 4km 떨어진 다른 가게다.
+SAME_PLACE_M = 50
 
 
 #: 가이드 요리 종류 → 원장 대표 분류(034). 앞에서부터 처음 걸리는 것. 안 걸리면 기타.
@@ -126,8 +132,8 @@ def main() -> None:
     facts = {}
     if os.path.exists(FACTS):
         facts = {f["상호"]: f for f in (json.loads(line) for line in open(FACTS, encoding="utf-8"))}
-    created = 0
     place_of: dict[str, str] = {}
+    place_records: dict[str, str] = {}  # 검수 행도 SQL이 확정한 미쉐린 출처 행의 장소를 쓴다.
     load_id = str(uuid.uuid5(NS, f"load:michelin:{EDITION}"))
     lines = ["-- make_michelin_sql.py 결과. 생성 파일이므로 직접 고치지 않는다.",
              "BEGIN;", "",
@@ -149,7 +155,13 @@ def main() -> None:
                  f"{q(norm(name))} HAVING count(*) = 1)")
         fact = facts.get(name)
         if fact:
-            # 원장에 없던 가게 — 새로 만든다. 이미 같은 이름이 하나 있으면 그 가게를 쓴다.
+            # 원장에 없던 가게 — 새로 만든다. 이미 같은 이름이 하나 있고 가이드 좌표와 SAME_PLACE_M 안이면
+            # 그 가게를 쓴다. 이름만 같고 멀리 있는 가게는 다른 가게다.
+            match = ("(SELECT min(place_uid::text)::uuid FROM dining.dn_place "
+                     "WHERE regexp_replace(lower(name_ko), '[^가-힣a-z0-9]', '', 'g') = "
+                     f"{q(norm(name))} AND lat IS NOT NULL "
+                     f"AND dining.distance_m(lat, lng, {fact['위도']}, {fact['경도']}) <= {SAME_PLACE_M} "
+                     "HAVING count(*) = 1)")
             new_uid = str(uuid.uuid5(NS, f"place:michelin:{fact['url'].rsplit('/', 1)[-1]}"))
             lines.append(
                 "INSERT INTO dining.dn_place (place_uid, name_ko, road_address, lat, lng, coord_source, "
@@ -160,8 +172,9 @@ def main() -> None:
                 f"WHERE {match} IS NULL ON CONFLICT (place_uid) DO NOTHING;")
             match = f"coalesce({match}, '{new_uid}'::uuid)"
             place_of[name] = new_uid
-            created += 1
         rec_id = str(uuid.uuid5(NS, f"record:michelin:{EDITION}:{name}"))
+        if fact:
+            place_records[name] = rec_id
         attr_id = str(uuid.uuid5(NS, f"attr:michelin:{EDITION}:{name}"))
         raw = {"상호": name, "등급": grade, "에디션": EDITION,
                **({k: fact[k] for k in ("url", "주소", "우편번호", "전화", "요리", "가격대", "편의시설", "가족")}
@@ -197,11 +210,13 @@ def main() -> None:
         vegan = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(vegan)
         hours, counted = vegan.hours_sql(place_of, set(), HOURS_SHEET, tag="michelin",
-                                         scope="미쉐린 가게 영업시간 검수", folder="michelin")
+                                         scope="미쉐린 가게 영업시간 검수", folder="michelin",
+                                         place_records=place_records)
         lines += ["", "-- 영업시간·휴무 (검수 시트)"] + hours
     lines += ["", "COMMIT;", ""]
     print(f"영업시간 검수 {os.path.basename(HOURS_SHEET)}: {counted}")
-    print(f"미쉐린 가이드 서울 {EDITION}: {len(rows)}곳 (주소로 맞춘 별칭 {len(ALIAS)}곳, 새 가게 {created}곳)")
+    print(f"미쉐린 가이드 서울 {EDITION}: {len(rows)}곳 (주소로 맞춘 별칭 {len(ALIAS)}곳, "
+          f"상세 자료 {len(place_of)}곳 — 기존 장소 연결·생성은 SQL에서 판정)")
     if "--dry" in sys.argv:
         return
     os.makedirs(OUT, exist_ok=True)

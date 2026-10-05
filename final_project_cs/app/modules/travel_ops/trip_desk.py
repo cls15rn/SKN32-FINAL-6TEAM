@@ -31,7 +31,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from uuid import UUID
 
@@ -55,23 +55,55 @@ class TripDesk:
             places = self.store.places(conn, trip_id)
         return trip, items, places
 
+    def _with_nearby(self, trip_id: UUID, meal: Item | None, places: list[dict[str, Any]],
+                     plan: Callable[[list[dict[str, Any]]], Plan]) -> Plan:
+        """먼저 지금 장소로 계산하고, **바꿔야 할 때만** 그 식사 근처의 원장 가게를 들여놓고 다시 계산한다.
+
+        ★`[2026-10-01]` 대체 후보는 코어 `places` 에서만 나와, 공용 식당이 없는 DB 에서 「문 닫았어요」의 후보가 0개였다.
+          일정이 그대로 괜찮으면(`still_fits` 등) 원장을 읽지도, 장소를 들여놓지도 않는다.
+        """
+        first = plan(places)
+        if meal is None or not (isinstance(first, ItineraryChange)
+                                or (isinstance(first, NoChange) and first.status == "unresolved")):
+            return first
+        from .dining import nearby
+
+        with self._connect() as conn:
+            more = nearby.add_nearby(conn, self.store, trip_id, [meal], places)
+        return plan(more) if more != places else first
+
+    def _dining_states(self, slots):
+        from .dining.ledger import dining_states
+
+        with self._connect() as conn:
+            return dining_states(conn, self.store.tenant_id, slots)
+
     # ── 요식-P3 — 늦는다 ────────────────────────────────────────
     def report_delay(self, *, trip_id: UUID, at: datetime, minutes: int,
                      message: str, request_id: str | None = None) -> dict[str, Any]:
         """「N분 늦는다」. 다음 식사 항목이 그 도착 시각에 성립하는지 보고, 안 되면 바꾼다."""
         trip, items, places = self._read(trip_id)
-        plan = plan_delay(trip=trip, items=items, places=places, at=at, minutes=minutes,
-                          message=message, request_id=request_id)
-        return self._outcome(trip_id, trip["version"], items, plan, gate=True)
+
+        def plan(candidates):
+            return plan_delay(trip=trip, items=items, places=candidates, at=at, minutes=minutes,
+                              message=message, request_id=request_id, state_lookup=self._dining_states)
+        meal = next((i for i in items if i.kind == "dining" and i.starts_at >= at), None)   # plan_delay 와 같은 식사
+        return self._outcome(trip_id, trip["version"], items,
+                             self._with_nearby(trip_id, meal, places, plan), gate=True)
 
     # ── 요식-P7 — 도착했더니 휴무 ──────────────────────────────
     def report_closed(self, *, trip_id: UUID, at: datetime, message: str,
                       request_id: str | None = None) -> dict[str, Any]:
         """「오늘 임시휴무」. 지금 식사 항목을 걸어갈 수 있는 대체 식당으로 바꾼다."""
         trip, items, places = self._read(trip_id)
-        plan = plan_closed(trip=trip, items=items, places=places, at=at, message=message,
-                           request_id=request_id)
-        return self._outcome(trip_id, trip["version"], items, plan, gate=True)
+
+        def plan(candidates):
+            return plan_closed(trip=trip, items=items, places=candidates, at=at, message=message,
+                               request_id=request_id, state_lookup=self._dining_states)
+        meal = next((i for i in items if i.kind == "dining"                                # plan_closed 와 같은 식사
+                     and i.starts_at <= at < (i.ends_at or i.starts_at + timedelta(hours=1))), None)
+        return self._outcome(trip_id, trip["version"], items,
+                             self._with_nearby(trip_id, meal, places, plan), gate=True)
 
     # ── 액-08 — 품절, 근처 다른 곳? ────────────────────────────
     def ask_nearby_store(self, *, trip_id: UUID, at: datetime, products: list[str],

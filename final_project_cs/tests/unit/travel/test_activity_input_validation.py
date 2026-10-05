@@ -6,8 +6,9 @@ Activity 가 장소·일정 JSON의 **필수값이 빠졌을 때** 어떻게 반
 ★★**"없다"와 "모른다"를 같게 다루지 않는다.** `read.booking`·`read.place`는
   스키마를 강제하지 않는다 — DB 조회가 그냥 `None`을 주거나, 일부 필드가
   빠진 dict를 줄 수 있다. 이 파일은 그럴 때 Team이:
-    - 판정에 **꼭 필요한** 값(예약 자체, 시각, 규정)이 없으면 **확정 답을
-      만들지 않고 escalate** 하는지
+    - 판정에 **꼭 필요한** 값(예약 자체)이 없으면 **확정 답을 만들지 않고
+      escalate** 하는지. 시각·규정은 capability 마다 다르다 — 성립 판정(`check_feasible`)은
+      시각이 없으면 「정보 부족」, 규정은 아예 안 쓴다. 취소·변경은 둘 다 필요해서 그대로 escalate
     - **없어도 성립 판정 자체는 막지 않는** 값(장소 상세, 인원 정보)이
       없으면 "모름"을 달고도 계속 진행하는지
   를 검증한다. 코드: `app/modules/travel_ops/activity.py` `execute()`·
@@ -65,36 +66,84 @@ async def test_missing_booking_json_escalates_instead_of_guessing():
     assert result.failure_code == "unknown_예약 내역"
 
 
+def _assert_time_unknown(result):
+    """성립 판정은 시각을 모르면 사람에게 넘기지 않고 「정보 부족」으로 답한다(2026-10-02)."""
+    assert result.outcome == "completed"
+    decision = result.decisions[0]
+    assert decision["status"] == "insufficient_info" and decision["feasible"] is False
+    assert decision["reason"] == "time_unknown" and decision["failure_code"] == "time_unknown"
+    assert "alternatives" not in decision               # ★정보 부족이면 대체 장소를 찾지 않는다
+    assert "성립합니다" not in result.answer
+
+
 @pytest.mark.asyncio
-async def test_booking_json_missing_starts_at_escalates():
-    """일정 JSON은 있지만 **시각이 빠졌다** — 언제인지 모르면 아무것도 못 잰다."""
+async def test_booking_json_missing_starts_at_is_insufficient_info():
+    """일정 JSON은 있지만 **시각이 빠졌다** — 언제인지 모르면 성립을 단정하지 않는다."""
     broken = {k: v for k, v in FULL_BOOKING.items() if k != "starts_at"}
     result = await ActivityTeam(FakeTools(_values(booking=broken))).execute(_task())
     _show("starts_at 누락", result)
 
-    assert result.outcome == "escalated"
-    assert result.failure_code == "unknown_예약 시각"
+    _assert_time_unknown(result)
 
 
 @pytest.mark.asyncio
-async def test_booking_json_with_unparseable_starts_at_escalates():
+async def test_booking_json_with_unparseable_starts_at_is_insufficient_info():
     """시각 필드는 있는데 **타입이 틀렸다**(문자열 "모름" 등) — `datetime`이 아니면 모름."""
     broken = {**FULL_BOOKING, "starts_at": "모름"}
     result = await ActivityTeam(FakeTools(_values(booking=broken))).execute(_task())
     _show("starts_at 타입 오류", result)
 
-    assert result.outcome == "escalated"
-    assert result.failure_code == "unknown_예약 시각"
+    _assert_time_unknown(result)
 
 
 @pytest.mark.asyncio
-async def test_missing_policy_json_escalates_instead_of_guessing():
-    """규정 JSON이 없다(`read.policy` → `[]`) — 규정 없이 판정을 만들지 않는다."""
+async def test_unknown_time_does_not_hide_a_party_over_capacity():
+    """시각을 몰라도 정원 초과는 시각 없이 확인된 불가다 — 「정보 부족」으로 덮지 않는다."""
+    broken = {k: v for k, v in FULL_BOOKING.items() if k != "starts_at"}
+    broken.update(party_size=9, capacity=4)
+    result = await ActivityTeam(FakeTools(_values(booking=broken))).execute(_task())
+
+    assert result.decisions[0]["status"] == "problem"
+    assert result.decisions[0]["reason"] == "party_over_capacity"
+
+
+@pytest.mark.asyncio
+async def test_unknown_time_does_not_read_the_place():
+    """시각 없이는 운영시간·재난·기상을 잴 수 없다 — 장소를 읽지 않는다."""
+    broken = {k: v for k, v in FULL_BOOKING.items() if k != "starts_at"}
+    tools = FakeTools(_values(booking=broken))
+    await ActivityTeam(tools).execute(_task())
+
+    assert "read.place" not in [name for name, _ in tools.calls]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capability", ["activity.check_cancelable", "activity.propose_change"])
+async def test_other_capabilities_still_escalate_without_a_time(capability):
+    """★바뀐 것은 성립 판정뿐이다. 취소·변경은 시각이 있어야 계산되므로 그대로 멈춘다."""
+    broken = {k: v for k, v in FULL_BOOKING.items() if k != "starts_at"}
+    result = await ActivityTeam(FakeTools(_values(booking=broken))).execute(_task(capability))
+
+    assert result.outcome == "escalated" and result.failure_code == "unknown_예약 시각"
+
+
+@pytest.mark.asyncio
+async def test_missing_policy_does_not_block_the_feasibility_check():
+    """규정 JSON이 없다(`read.policy` → `[]`) — 성립 판정은 규정을 쓰지 않으므로 계속 답한다."""
     result = await ActivityTeam(FakeTools(_values(policy=[]))).execute(_task())
     _show("policy 없음", result)
 
-    assert result.outcome == "escalated"
-    assert result.failure_code == "unknown_취소·환급 규정"
+    assert result.outcome == "completed"
+    assert result.decisions[0]["status"] == "ok" and result.decisions[0]["feasible"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capability", ["activity.check_cancelable", "activity.propose_change"])
+async def test_missing_policy_still_escalates_the_other_capabilities(capability):
+    """규정이 필요한 취소·변경은 규정 없이 판정을 만들지 않는다."""
+    result = await ActivityTeam(FakeTools(_values(policy=[]))).execute(_task(capability))
+
+    assert result.outcome == "escalated" and result.failure_code == "unknown_취소·환급 규정"
 
 
 # ── 있으면 좋지만 없어도 판정은 계속되는 값 ──────────────────────

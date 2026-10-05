@@ -8,6 +8,12 @@
        → 관광공사에도 없으면 카카오 값을 **그 여행 항목에만**(출처 표시)
     5  (Places 유료 — 예산 장치는 있다. 이 단계는 아직 잇지 않았다)
 
+★`[2026-10-01]` 요식 원장(`dining`) — 미리 적재해 둔 식당 데이터. 관광공사 자리(`tour`)는 지금 액티비티 CSV 라
+  식당이 없다(액티비티 쪽 결정 8e9d8d0). 식당을 그 자리에 기대지 않고 요식이 따로 찾는다.
+    식사(`kind_hint="dining"` 또는 앞에 끼니 말) — 1 → 3 → **요식 원장** → 관광공사 자리 → 카카오. 끼니 말(「점심」)은 뗀다
+    그 밖의 항목                           — 1 → 3 → 관광공사 자리 → **요식 원장** → 카카오(관광공사 자리가 그대로 먼저)
+    카카오가 찾은 이름도 원장에서 다시 확인한다 — 확인되면 원장 값(관광공사 ID 포함)을 싣는다.
+
 ★「원문이 가리킨 만큼만 좁힌다」(§4-2) — 「광장시장 빈대떡」은 전체로 먼저 찾고, 안 되면 **뒤 단어를 떼어**
   「광장시장」으로 찾는다. ★좁힌 이름은 우리 표·관광공사에서만 받는다(카카오는 원문 전체로만). 카카오 1위 가게(원문에 없는 이름)를 고르지 않는다 — 카카오 결과는 **원문 조각과 이름이
   같거나 원문 조각으로 시작할 때만** 받는다.
@@ -34,6 +40,8 @@ KIND_BY_CONTENT_TYPE = {"39": "dining"}
 #:   없는 것과 못 물어본 것이 같은 말이 되면 고객은 틀린 이유로 고치고, 우리는 한도 부족을 모른다.
 NOT_THERE = {"not_found", "no_exact_title", "ambiguous", "no_coordinates", "no_place_name"}
 _HANGUL = re.compile(r"[가-힣]")
+#: 식사 항목 앞의 끼니 말 — 뒤에서부터 좁히는 규칙으로는 떼지 못한다(「점심 토속촌삼계탕」 → 「점심」만 남는다)
+MEAL_WORDS = frozenset({"아침", "조식", "점심", "중식", "저녁", "석식", "브런치", "식사"})
 #: 떼어도 확인이 필요 없는 말 — **무엇을 하는지**만 말하고 다른 곳을 가리키지 않는다(「경복궁 관람」 = 경복궁).
 #: ☆2026-09-27 실제 확인 화면: 이런 항목까지 전부 「확인 필요」가 붙어 정작 확인할 곳이 묻혔다.
 #: ★「빈대떡」(음식 — 가게일 수 있다) · 「카약」(활동 자체 — 다른 업체일 수 있다)은 여기 넣지 않는다.
@@ -62,7 +70,8 @@ class Resolved:
     item_kind: str | None = None
 
     def evidence(self) -> dict[str, Any]:
-        source = {"places": "places", "typo": "places", "tour_api": "tour_api", "kakao": "kakao"}.get(self.method or "")
+        source = {"places": "places", "typo": "places", "tour_api": "tour_api", "kakao": "kakao",
+                  "dining_ledger": "dining_ledger"}.get(self.method or "")
         return {"source": source, "method": self.method, "name": self.name, "query": self.query,
                 "place_id": self.place_id, "content_id": self.content_id, "tried": self.tried,
                 "blocked": self.blocked}
@@ -106,11 +115,19 @@ def narrowings(title: str) -> list[str]:
 
 
 def resolve(title: str, *, our_places: list[dict[str, Any]], tour: Any = None, kakao: Any = None,
-            kind_hint: str | None = None, aliases: dict[str, str] | None = None) -> Resolved:
+            kind_hint: str | None = None, aliases: dict[str, str] | None = None, dining: Any = None) -> Resolved:
+    # ★앞에 끼니 말이 있으면 식사다 — 규칙 읽기는 「12:00 점심 토속촌삼계탕」에 식사 표시를 하지 않는다(모델이 읽은 줄만)
+    words = title.split()
+    meal = kind_hint == "dining" or (len(words) > 1 and words[0] in MEAL_WORDS)
+    if meal:
+        while len(words) > 1 and words[0] in MEAL_WORDS:
+            words = words[1:]
+        title = " ".join(words)
+        kind_hint = "dining"
     # 2 — 별칭(고객이 고친 표현 · 우리가 넣은 기본값). ★값은 고객 글이다 — 바꾼 이름으로 **다시 찾는다**
     alias = (aliases or {}).get(normalize(title))
     if alias and normalize(alias) != normalize(title):
-        found = resolve(alias, our_places=our_places, tour=tour, kakao=kakao, kind_hint=kind_hint)
+        found = resolve(alias, our_places=our_places, tour=tour, kakao=kakao, kind_hint=kind_hint, dining=dining)
         found.tried = [f"alias:{title}→{alias}"] + found.tried
         found.needs_review = True
         found.note = "; ".join(filter(None, [f"별칭으로 「{alias}」를 찾았다", found.note]))
@@ -137,13 +154,22 @@ def resolve(title: str, *, our_places: list[dict[str, Any]], tour: Any = None, k
             return Resolved("resolved", "typo", place["name"], query, place.get("kind"), place.get("latitude"),
                             place.get("longitude"), place_id=str(place["place_id"]), needs_review=True,
                             tried=tried, note=f"오타로 보고 「{place['name']}」로 고쳤다(자모 거리 비율 {ratio:.2f})")
-        # 4 — 관광공사(서울) 정확 일치
-        found = _tour(tour, query, blocked)
-        tried.append(f"tour_api:{query}")
-        if found is not None:
-            done = _from_tour(found, query, title, tried)
-            done.item_kind = _food_hint(query, title, full_hits)
-            return done
+        # 4 — 관광공사(서울) 정확 일치 · 요식 원장. 식사면 원장이 먼저다(관광공사 자리는 지금 액티비티 CSV)
+        for slot in (("dining", "tour") if meal else ("tour", "dining")):
+            if slot == "dining":
+                if dining is None:
+                    continue
+                found = _tour(dining, query, blocked, label="dining_ledger")
+                tried.append(f"dining_ledger:{query}")
+                if found is not None:
+                    return _from_tour(found, query, title, tried, method="dining_ledger")
+                continue
+            found = _tour(tour, query, blocked)
+            tried.append(f"tour_api:{query}")
+            if found is not None:
+                done = _from_tour(found, query, title, tried)
+                done.item_kind = _food_hint(query, title, full_hits)
+                return done
         # 4 — 카카오로 이름 찾기 → 관광공사 재확인 → 없으면 카카오 값(그 여행에만)
         # ★카카오는 **원문 전체**로만 찾는다. 좁힌 이름(뒤 단어를 뗀 것)은 우리 표·관광공사에서만 받는다 —
         #   「한강 카약」을 「한강」으로 좁혀 카카오가 강 자체를 골랐다(2026-09-27 실측). 뗀 말이 활동 자체일 수 있다.
@@ -167,10 +193,20 @@ def resolve(title: str, *, our_places: list[dict[str, Any]], tour: Any = None, k
                 #   설계서 §4-2 가 막은 바로 그것. 좁힌 이름(「광장시장」)이 먼저이고, 후보는 좁혀도 못 찾을 때만 쓴다
                 candidates = candidates or _kind_hits(query, hits)[:5]
             if match is not None:
-                again = _tour(tour, match["name"], blocked) if match["name"] != query else None
-                if again is not None:
-                    tried.append(f"tour_api:{match['name']}")
-                    return _from_tour(again, query, title, tried, via=match["name"])
+                # 카카오가 찾은 이름을 미리 적재한 데이터에서 다시 확인한다 — 식당(FD6 · CE7)이나 식사면 원장부터
+                food = meal or match["category_group"] in ("FD6", "CE7")
+                for slot in (("dining", "tour") if food else ("tour", "dining")):
+                    if slot == "dining":
+                        again = (_tour(dining, match["name"], blocked, label="dining_ledger")
+                                 if dining is not None and match["name"] != query else None)
+                        if again is not None:
+                            tried.append(f"dining_ledger:{match['name']}")
+                            return _from_tour(again, query, title, tried, via=match["name"], method="dining_ledger")
+                        continue
+                    again = _tour(tour, match["name"], blocked) if match["name"] != query else None
+                    if again is not None:
+                        tried.append(f"tour_api:{match['name']}")
+                        return _from_tour(again, query, title, tried, via=match["name"])
                 exact = normalize(match["name"]) == key
                 return Resolved("resolved", "kakao", match["name"], query,
                                 "dining" if match["category_group"] in ("FD6", "CE7") else (kind_hint or "activity"),
@@ -220,26 +256,28 @@ def _typo(key: str, by_name: dict[str, dict[str, Any]]) -> tuple[dict[str, Any],
     return best
 
 
-def _tour(tour: Any, name: str, blocked: list[str]) -> dict[str, Any] | None:
+def _tour(tour: Any, name: str, blocked: list[str], *, label: str = "tour_api") -> dict[str, Any] | None:
+    """관광공사 자리 · 요식 원장이 같은 계약(`find` + `misses`)이다. `label` 은 막힌 조회에 붙는 이름."""
     if tour is None:
         return None
     before = dict(getattr(tour, "misses", {}) or {})
     found = tour.find(name, area_code=SEOUL_AREA_CODE)
     for reason, count in (getattr(tour, "misses", {}) or {}).items():
         if count > before.get(reason, 0) and reason not in NOT_THERE:
-            blocked.append(f"tour_api:{reason}")
+            blocked.append(f"{label}:{reason}")
     if found is None or not str(found.get("address") or "").startswith("서울"):
         return None
     return found
 
 
-def _from_tour(found: dict[str, Any], query: str, title: str, tried: list[str], via: str | None = None) -> Resolved:
+def _from_tour(found: dict[str, Any], query: str, title: str, tried: list[str], via: str | None = None,
+               method: str = "tour_api") -> Resolved:
     note = []
     if query != title:
         note.append(f"원문 「{title}」에서 「{query}」로 좁혔다")
     if via:
-        note.append(f"카카오로 「{via}」를 찾아 관광공사에서 확인했다")
-    return Resolved("resolved", "tour_api", found.get("matched_title"), query,
+        note.append(f"카카오로 「{via}」를 찾아 {'요식 원장' if method == 'dining_ledger' else '관광공사'}에서 확인했다")
+    return Resolved("resolved", method, found.get("matched_title"), query,
                     KIND_BY_CONTENT_TYPE.get(str(found.get("content_type_id")), "activity"),
                     found.get("latitude"), found.get("longitude"), content_id=found.get("content_id"),
                     # ★카카오로 찾은 이름이 원문과 다르면(「토속촌」 → 「토속촌삼계탕」) 확인을 받는다

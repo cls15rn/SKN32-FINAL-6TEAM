@@ -114,15 +114,19 @@ def proposal_notice(*, item: Item, decision: Decision, causes: list[dict[str, An
                 + (f" 다른 안: {listed}" if listed else ""))
     else:
         body = f"{item.title} — {why}. 어떻게 할까요? {listed}"
-    text = f"{head}{body} 답이 없으면 원래 일정을 그대로 둡니다."
+    warnings = [f"{o['name']}: {warning}" for o in options[:3] for warning in o.get("warnings") or []]
+    text = f"{head}{body} " + (" ".join(warnings) + " " if warnings else "") \
+        + "답이 없으면 원래 일정을 그대로 둡니다."
     return {"type": "safety_alert" if decision.safety else "proposal_request",
             "text": text, "language": "ko", "causes": causes, "proposal_id": str(proposal_id),
             "item_id": str(item.item_id), "reason": decision.reason,
             "protected_by": decision.protected_by,
             "options": [{"key": o["key"], "rank": o["rank"],
                          "name": o.get("option_label") or o["name"],
-                         "starts_at": o.get("starts_at")} for o in options[:3]],
-            "replay": False}
+                         "starts_at": o.get("starts_at"),
+                         **({"warnings": list(o["warnings"])} if o.get("warnings") else {})}
+                        for o in options[:3]],
+            "replay": False, **({"warnings": warnings} if warnings else {})}
 
 
 class PendingStore:

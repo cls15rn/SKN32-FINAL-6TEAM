@@ -51,6 +51,11 @@ logger = logging.getLogger(__name__)
 #:  소스의 하루 한도와 틱 주기에서 역산해 정한다.
 DEFAULT_BATCH = 5
 
+#: 활동 재난문자 감시 규칙 — 활동 시작 몇 시간 전부터 보나 / 같은 활동을 몇 분 간격으로 다시 보나.
+#:  ★방향이 바뀌면(멘토 검토 중) 여기 두 값과 `activity/watch_runner.py` 만 고치면 된다.
+ACTIVITY_WINDOW_HOURS = 3.0
+ACTIVITY_GAP_MINUTES = 5.0
+
 
 @dataclass
 class Change:
@@ -132,13 +137,18 @@ class TravelWatcher:
                        "bookings", "last_seen")
             return [dict(zip(columns, row)) for row in cur.fetchall()]
 
-    def due_activities(self, limit: int = DEFAULT_BATCH) -> list[dict[str, Any]]:
+    def due_activities(self, limit: int = DEFAULT_BATCH, *,
+                       within_hours: float = ACTIVITY_WINDOW_HOURS,
+                       min_gap_minutes: float = ACTIVITY_GAP_MINUTES) -> list[dict[str, Any]]:
         """가장 오래전에 본 활동부터. ★한 번도 안 본 것이 먼저 온다.
 
-        ★**활동 시작 3시간 이내인 것만** 본다(wiki/teams/activity.md 「조회
+        ★**활동 시작 `within_hours`(기본 3시간) 이내인 것만** 본다(wiki/teams/activity.md 「조회
           시점·재검토 주기」의 결정 그대로). 「가까운 일정만 재검토한다」는
           `due_places`의 원칙(다가오는 예약만)과 같은 이유이고, 재난문자는
           거기서 한 번 더 좁힌다 — 하루 내내 모든 활동을 5분마다 볼 수는 없다.
+
+        ★**마지막 관측이 `min_gap_minutes`(기본 5분) 안인 활동은 건너뛴다.** 스케줄러가 몇 분마다
+          부르든 활동마다 이 간격이 지켜진다(호출 시각에 기대지 않는다). 0 이면 거르지 않는다.
 
         ★**`place_id`가 해소된 활동만** 본다. 재난문자는 지역(좌표) 기준으로
           찾는데, `place_id IS NULL`(015 — 아직 `places`로 안 해소됨)이면
@@ -159,12 +169,14 @@ class TravelWatcher:
                         AND o.target_id = a.id::text
                  WHERE a.tenant_id = %s
                    AND a.activity_time > now()
-                   AND a.activity_time <= now() + interval '3 hours'
+                   AND a.activity_time <= now() + %s * interval '1 hour'
                  GROUP BY a.id, a.name, a.activity_time, p.latitude, p.longitude
+                 HAVING max(o.observed_at) IS NULL
+                     OR max(o.observed_at) <= now() - %s * interval '1 minute'
                  -- ★NULLS FIRST: 한 번도 안 본 것을 맨 앞에 둔다
                  ORDER BY max(o.observed_at) ASC NULLS FIRST
                  LIMIT %s
-                """, (self.tenant_id, limit))
+                """, (self.tenant_id, float(within_hours), float(min_gap_minutes), limit))
             columns = ("activity_id", "name", "activity_time", "latitude", "longitude",
                        "last_seen")
             return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -255,7 +267,9 @@ class TravelWatcher:
                 result.changes.append(change)
         return result
 
-    def tick_activities(self, limit: int = DEFAULT_BATCH) -> TickResult:
+    def tick_activities(self, limit: int = DEFAULT_BATCH, *,
+                        within_hours: float = ACTIVITY_WINDOW_HOURS,
+                        min_gap_minutes: float = ACTIVITY_GAP_MINUTES) -> TickResult:
         """활동 시작 3시간 이내인 것을 `limit`개만 본다. 재난문자 관련성을 본다.
 
         ★`[2026-09-28 병합 후속]` `DisasterMsgApi`/`DisasterMsgCsv`(`disaster_msg.py`)가
@@ -273,7 +287,8 @@ class TravelWatcher:
             result.note = "재난문자 소스가 안 붙어 있다(키 없음). 감시할 수 없다"
             return result
 
-        for target in self.due_activities(limit):
+        for target in self.due_activities(limit, within_hours=within_hours,
+                                          min_gap_minutes=min_gap_minutes):
             result.checked += 1
             lat, lng = target.get("latitude"), target.get("longitude")
             if lat is None or lng is None:

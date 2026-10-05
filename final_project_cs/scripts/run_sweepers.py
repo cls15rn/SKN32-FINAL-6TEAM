@@ -106,7 +106,18 @@ def _run_once(tenant_id: str, only: str | None) -> dict[str, dict[str, int]]:
     # ★끝난 여행의 전용 장소 행(029)에서 외부 서비스 값(좌표·식별자)을 비운다 — 약관, `trip_places.py` 머리
     if only in (None, "trip_places"):
         result["trip_places"] = _run_trip_places(tenant_id)
+    # ★활동 재난문자 감시(`activities` 테이블 기반, 시작 3시간 전부터 활동마다 5분 간격) — 방향 검토 중인 임시 배선
+    if only in (None, "activity_disaster"):
+        result["activity_disaster"] = _run_activity_disaster(tenant_id)
     return result
+
+
+def _run_activity_disaster(tenant_id: str) -> dict[str, int]:
+    from app.infrastructure.travel.base import build_travel_sources
+    from app.modules.travel_ops.activity.watch_runner import run_activity_disaster
+
+    return run_activity_disaster(connection_factory=get_connection, tenant_id=tenant_id,
+                                 sources=build_travel_sources(get_settings()))
 
 
 def _run_trip_places(tenant_id: str) -> dict[str, object]:
@@ -257,7 +268,7 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=None,
                         help="N 초마다 반복한다. 주면 --once 를 덮는다")
     parser.add_argument("--only", choices=("classifying", "routing", "trip", "trip_cases", "trip_dawn",
-                                           "trip_reminders", "trip_places"),
+                                           "trip_reminders", "trip_places", "activity_disaster"),
                         default=None)
     args = parser.parse_args()
 

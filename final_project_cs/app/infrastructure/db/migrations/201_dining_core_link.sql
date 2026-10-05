@@ -244,6 +244,12 @@ DECLARE
     v_today_has boolean;
     v_prev_has  boolean;
 BEGIN
+    -- 0. 폐업으로 확인된 가게는 닫힘이다(2026-10-01). 영업규칙만 보면 규칙이 없을 때 「모름」,
+    --    옛 규칙이 남았을 때 「영업」으로 답해 폐업한 식당을 경고하지 못했다.
+    IF EXISTS (SELECT 1 FROM dining.dn_place WHERE place_uid = p_place_uid AND record_status = 'closed') THEN
+        RETURN false;
+    END IF;
+
     v_date      := (p_starts_at AT TIME ZONE 'Asia/Seoul')::date;
     v_prev      := v_date - 1;
     v_start_min := EXTRACT(HOUR   FROM p_starts_at AT TIME ZONE 'Asia/Seoul')::int * 60

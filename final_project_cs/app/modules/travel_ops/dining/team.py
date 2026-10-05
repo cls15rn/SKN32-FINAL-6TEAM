@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.contracts import (NextAction, TeamManifest, TeamResult, TeamTask,
                                 ToolNotAllowed)
+from app.tools.read_tools import ToolBudgetExceeded
 
 from .._base import TravelTeamBase
 from ..itinerary_changes import plan_closed, plan_delay
@@ -42,7 +43,7 @@ class DiningTeam(ItineraryWork, TravelTeamBase):
         #   `ToolNotAllowed` 가 나고, 그때는 원장 없이 예전처럼 답한다 — 등록 전에 이 Team 이 죽으면 안 된다.
         # ★`[2026-09-30]` `read.place_price` — 대체 식당을 세울 때 구글 가격(1인당 범위 · 가격대)을 묻는다. 없으면 없이 세운다
         allowed_tools=["read.place", "read.policy", "read.booking", "read.booking_terms",
-                       "read.dining_state", "read.place_price", *ITINERARY_TOOLS],
+                       "read.dining_state", "read.dining_states", "read.place_price", *ITINERARY_TOOLS],
         # ★`[2026-09-22]` `opening_hours`·`dietary` 는 **실물이 없던 scope** 였다(문서 0건). 지운다 —
         #   안 쓰는 선언은 나중에 누가 잘못 채운다(재점검 문서 §1 이 지적한 그대로).
         knowledge_scope=["travel_dining", "travel_cancellation", "travel_access"],
@@ -65,17 +66,34 @@ class DiningTeam(ItineraryWork, TravelTeamBase):
             return self._unknown(task, "장소 목록", ctx["evidence"])
         request_id = task.context.current_state.get("request_id")
         prices = self._price_lookup(task, ctx)
+        states = self._state_lookup(task, ctx)
         if kind == "delay":
             minutes = ctx["report"].get("minutes")
             if not minutes:
                 return self._unknown(task, "늦는 시간", ctx["evidence"])
             plan = plan_delay(trip=ctx["trip"], items=ctx["items"], places=places, at=ctx["at"],
                               minutes=int(minutes), message=task.input_text, request_id=request_id,
-                              price_lookup=prices)
+                              price_lookup=prices, state_lookup=states)
         else:
             plan = plan_closed(trip=ctx["trip"], items=ctx["items"], places=places, at=ctx["at"],
-                               message=task.input_text, request_id=request_id, price_lookup=prices)
+                               message=task.input_text, request_id=request_id, price_lookup=prices,
+                               state_lookup=states)
         return self.settle(task, ctx, plan)
+
+    def _state_lookup(self, task: TeamTask, ctx: dict[str, Any]):
+        """코어 도구로 대체 후보의 시간대별 원장 판정을 읽는다."""
+        def lookup(slots):
+            try:
+                states = self._read(task, "read.dining_states",
+                                    {"slots": [{**s, "at": s["at"].isoformat(),
+                                                "until": s["until"].isoformat()} for s in slots]}, ctx["seen"])
+            except (ToolNotAllowed, ToolBudgetExceeded):
+                return None
+            ctx["evidence"] = self._evidence(task, source_id="read.dining_states",
+                                             claim="대체 식당의 방문 시간대 원장 판정",
+                                             value=states, base=ctx["evidence"])
+            return states
+        return lookup
 
     def _price_lookup(self, task: TeamTask, ctx: dict[str, Any]):
         """대체 식당의 구글 가격을 묻는 함수(`read.place_price`). ★한 번에 한 번만 부른다(도구 호출 하나).
@@ -88,7 +106,7 @@ class DiningTeam(ItineraryWork, TravelTeamBase):
             try:
                 return self._read(task, "read.place_price",
                                   {"place_ids": [str(p["place_id"]) for p in places]}, ctx["seen"])
-            except ToolNotAllowed:
+            except (ToolNotAllowed, ToolBudgetExceeded):
                 return None
         return lookup
 

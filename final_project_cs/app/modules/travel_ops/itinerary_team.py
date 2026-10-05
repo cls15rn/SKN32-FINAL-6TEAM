@@ -44,6 +44,7 @@ ITINERARY_TOOLS = ["read.itinerary", "read.itinerary_version", "read.place_catal
 
 #: 바꾸지 않아도 되는 결과 — 사람에게 넘길 일이 아니라 **답**이다(시나리오 화면 문구와 같다).
 ANSWERS = {
+    "needs_check": "영업 여부는 확인이 필요해요. 기존 일정은 바꾸지 않았어요.",
     "still_fits": "지금 일정 그대로도 괜찮아요 — 바꾸지 않았어요.",
     "no_meal": "그 시각 뒤에는 식사 일정이 없어요.",
     "no_alternate": "바꿀 수 있는 다른 안이 없어요.",
@@ -251,8 +252,12 @@ class ItineraryWork:
         evidence = ctx["evidence"]
         if isinstance(plan, NoChange):
             if plan.status in ANSWERS:
-                return self._result(task, outcome="completed", confidence=0.9, evidence=evidence,
-                                    answer=ANSWERS[plan.status], next_action=NextAction.RESPOND,
+                checking = plan.status == "needs_check"
+                return self._result(task, outcome="completed", confidence=0.5 if checking else 0.9,
+                                    evidence=evidence,
+                                    answer=plan.detail.get("message", ANSWERS[plan.status]) if checking
+                                           else ANSWERS[plan.status],
+                                    warnings=plan.detail.get("warnings") or [], next_action=NextAction.RESPOND,
                                     decisions=[{"itinerary": plan.status, **self._plain(plan.detail)}])
             return self._escalate(task, f"itinerary_{plan.status}", evidence,
                                   warnings=[f"일정을 바꾸지 못했다: {plan.status}"])
@@ -271,6 +276,7 @@ class ItineraryWork:
             approval_required=False, risk_level="low", rationale_evidence_ids=[])
         return self._result(task, outcome="completed", confidence=0.9, evidence=evidence,
                             answer=plan.notice["text"], next_action=NextAction.RESPOND,
+                            warnings=plan.notice.get("warnings") or [],
                             action_proposals=[proposal],
                             decisions=[{"itinerary": plan.reason, **self._plain(plan.summary)}])
 

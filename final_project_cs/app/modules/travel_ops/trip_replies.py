@@ -134,6 +134,8 @@ def outcome_reply(status: str | None, outcome: dict[str, Any], message: str) -> 
     text = (outcome.get("notice") or {}).get("text") or outcome.get("text")
     if text:
         return str(text)
+    if status == "needs_check" and outcome.get("message"):
+        return str(outcome["message"])
     if status in OUTCOME_ANSWERS:
         return OUTCOME_ANSWERS[status]
     if status in ("adjusted", "rolled_back", "asked", "answered"):

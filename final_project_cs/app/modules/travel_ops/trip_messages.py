@@ -195,7 +195,7 @@ def handle_trip_message(*, tenant: str, trip_id: UUID, request_id: str, message:
         # ★`asked` — 「먼저 물어봐줘」·「변경 안 할 일정」이라 바꾸지 않고 물었다(D-020). 처리한 것이다 —
         #   답은 묻는 문장이고, 고객은 계획서 링크·웹에서 고른다. 사람에게 넘길 일이 아니다.
         answer = trip_replies.outcome_reply(outcome.get("status"), outcome, message)
-        if outcome.get("status") in ("adjusted", "answered", "still_fits", "asked", "rolled_back"):
+        if outcome.get("status") in ("adjusted", "answered", "still_fits", "needs_check", "asked", "rolled_back"):
             ref = f"trip:{trip_id}:" + (f"v{outcome['version']}" if outcome.get("version")
                                          else str(outcome.get("status")))
             # ★컨트롤러와 같은 모양 — 답은 `state_patch.answer` 로 Case 에 들어간다.
