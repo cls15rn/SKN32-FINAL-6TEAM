@@ -542,5 +542,109 @@
     ]
   },
   "not_linked": [],
-  "kept_unverified": []
+  "kept_unverified": [],
+  "walk_basis": {
+    "hotel_to_gyeongbokgung": {
+      "basis": "straight",
+      "source_id": null,
+      "grade": "추정",
+      "parts": [
+        {
+          "part": "access",
+          "from": "명동 호텔",
+          "to": "을지로입구",
+          "basis": "straight",
+          "straight_m": 210,
+          "walk_m": 293,
+          "ratio": 1.4,
+          "why": "no_router"
+        },
+        {
+          "part": "egress",
+          "from": "경복궁",
+          "to": "경복궁",
+          "basis": "straight",
+          "straight_m": 393,
+          "walk_m": 550,
+          "ratio": 1.4,
+          "why": "no_router"
+        }
+      ],
+      "warnings": []
+    },
+    "gyeongbokgung_to_seongsu": {
+      "basis": "straight",
+      "source_id": null,
+      "grade": "추정",
+      "parts": [
+        {
+          "part": "access",
+          "from": "경복궁",
+          "to": "경복궁",
+          "basis": "straight",
+          "straight_m": 393,
+          "walk_m": 550,
+          "ratio": 1.4,
+          "why": "no_router"
+        },
+        {
+          "part": "egress",
+          "from": "성수",
+          "to": "성수동 팝업·향수 쇼룸 거리",
+          "basis": "straight",
+          "straight_m": 90,
+          "walk_m": 126,
+          "ratio": 1.4,
+          "why": "no_router"
+        }
+      ],
+      "warnings": []
+    },
+    "seongsu_to_dinner": {
+      "basis": "straight",
+      "source_id": null,
+      "grade": "추정",
+      "parts": [
+        {
+          "part": "access",
+          "from": "성수동 팝업·향수 쇼룸 거리",
+          "to": "성수",
+          "basis": "straight",
+          "straight_m": 90,
+          "walk_m": 126,
+          "ratio": 1.4,
+          "why": "no_router"
+        },
+        {
+          "part": "egress",
+          "from": "서울역",
+          "to": "서울역 저녁 식당(시나리오)",
+          "basis": "straight",
+          "straight_m": 31,
+          "walk_m": 44,
+          "ratio": 1.4,
+          "why": "no_router"
+        }
+      ],
+      "warnings": []
+    },
+    "dinner_to_lotte_mart": {
+      "basis": "straight",
+      "source_id": null,
+      "grade": "추정",
+      "parts": [
+        {
+          "part": "direct",
+          "from": "서울역 저녁 식당(시나리오)",
+          "to": "롯데마트 서울역점",
+          "basis": "straight",
+          "straight_m": 139,
+          "walk_m": 194,
+          "ratio": 1.4,
+          "why": "no_router"
+        }
+      ],
+      "warnings": []
+    }
+  }
 }

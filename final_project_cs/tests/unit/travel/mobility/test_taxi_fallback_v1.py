@@ -307,7 +307,8 @@ def test_plan_off_is_unchanged_and_has_no_key(monkeypatch):
     off, seen = _plan(monkeypatch, False)
     assert [x[2] for x in seen] == [False, False, False]
     assert "taxi_fallback" not in off
-    assert set(off) == {"items", "routes", "skipped", "left_out", "not_linked", "kept_unverified", "basis"}
+    assert set(off) == {"items", "routes", "skipped", "left_out", "not_linked", "kept_unverified", "basis",
+                        "walk_basis"}                                               # 102 — 걷기 근거(봉투 · 늘 있는 칸)
     assert [s["to"] for s in off["skipped"]] == ["나", "다"] and all("taxi" not in s for s in off["skipped"])
     assert list(off["routes"]) == ["c_to_d"]
     on, _ = _plan(monkeypatch, True)

@@ -114,5 +114,32 @@
     ]
   },
   "not_linked": [],
-  "kept_unverified": []
+  "kept_unverified": [],
+  "walk_basis": {
+    "seongsu_to_dinner": {
+      "basis": null,
+      "source_id": null,
+      "grade": "추정",
+      "parts": [],
+      "warnings": []
+    },
+    "dinner_to_lotte_mart": {
+      "basis": "straight",
+      "source_id": null,
+      "grade": "추정",
+      "parts": [
+        {
+          "part": "direct",
+          "from": "서울역 저녁 식당(시나리오)",
+          "to": "롯데마트 서울역점",
+          "basis": "straight",
+          "straight_m": 139,
+          "walk_m": 194,
+          "ratio": 1.4,
+          "why": "no_router"
+        }
+      ],
+      "warnings": []
+    }
+  }
 }

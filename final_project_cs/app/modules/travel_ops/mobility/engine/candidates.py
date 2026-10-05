@@ -611,6 +611,7 @@ class MixedGenerator:
                                        rec["station_nm"], None, 0.0, "추정")
                     c._rank, c._sub_lines, c._tg = sub, sorted(s_lines), sr
                     c.route_id, c.board = r.route_id, x
+                    c.alight = y                          # 102 — 장소 쪽 하차 정류장 행(걷기를 이 행까지 잰다 · 이름으로 다시 찾지 않는다)
                     pk = self.sc.phys_key(rec)
                     cur = per_route[r.route_id].get(pk)
                     if cur is None or c.est_min < cur.est_min:

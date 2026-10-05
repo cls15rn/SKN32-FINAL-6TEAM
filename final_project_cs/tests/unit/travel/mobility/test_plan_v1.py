@@ -650,7 +650,10 @@ def test_walk_m_and_fare():
     from app.modules.travel_ops.mobility.engine.options import fare_is_est
     l9 = [{"line": "09호선", "from": "노량진", "to": "신논현"}]
     r9 = [_FLR("09호선 노량진→신논현", 600)]
-    if v.lo.est_edges:
+    if getattr(v.lo, "gap_edges", None):
+        # ☆102 — 옛 기대: 1,550 · 추정(선로 길이) → 새 기대: 1,550 · 추정 아님. 공표 역간거리 표(9호선 노량진~신논현 확정)가 먼저다
+        assert fare_of(v, l9, r9) == 1550 and not fare_is_est(v, l9, r9), "9호선 노량진→신논현은 공표 역간거리(확정)로 1,550"
+    elif v.lo.est_edges:
         assert fare_of(v, l9, r9) == 1550 and fare_is_est(v, l9, r9), "9호선은 선로 길이 추정으로 1,550(추정)"
     else:
         assert fare_of(v, l9, r9) is None, "선로 길이 자료가 없으면 거리 모르는 노선(9호선)은 요금을 뺀다"
@@ -676,7 +679,8 @@ def test_no_per_option_departure():
     assert not labels & {x["label"] for x in lo}, "뺀 후보가 options 에 남았다"
     starts = {o["start_min"] for o in tr[0]["options"] if o["id"] != "walk"}
     assert len(starts) == 1, f"options 의 출발이 여럿이다: {starts}"
-    assert set(got) == {"items", "routes", "skipped", "left_out", "not_linked", "kept_unverified", "basis"}   # 팀장 #26·#45
+    assert set(got) == {"items", "routes", "skipped", "left_out", "not_linked", "kept_unverified", "basis",
+                        "walk_basis"}   # 팀장 #26·#45 · 102 걷기 근거(봉투)
 
 
 def test_bus_from_place_recheck():
@@ -1154,10 +1158,24 @@ def test_fare_subway_bracket():
     assert f(long_) == f(short) == 1550
     assert net.lower_m(short) <= net.upper_m(short)
     l9 = [{"line": "09호선", "from": "노량진", "to": "신논현"}]
-    assert f(l9) == (1550 if v.lo.est_edges else None), "9호선 — 공표 거리 없음, 선로 길이 추정이 있으면 1,550(추정) · 없으면 뺀다"
-    lb, ub = net.lower_m([{"line": "05호선", "from": "김포공항", "to": "광화문"}]), net.upper_m([{"line": "05호선", "from": "김포공항", "to": "광화문"}])
-    assert O.subway_fare_at(v.R["fare"], lb, 600) != O.subway_fare_at(v.R["fare"], ub, 600)
-    assert f([{"line": "05호선", "from": "김포공항", "to": "광화문"}]) is None, "괄호가 요금 경계를 가로지르면 뺀다"
+    gap = bool(getattr(v.lo, "gap_edges", None))       # 102 — 공표 역간거리 표(station_gap_v1)가 있나. 없으면 앞 판과 같은 기대
+    assert f(l9) == (1550 if (v.lo.est_edges or gap) else None), \
+        "9호선 — 역 순서 표에 거리 없음. 공표 역간거리 표(확정)나 선로 길이 추정이 있으면 1,550 · 둘 다 없으면 뺀다"
+    gimpo = [{"line": "05호선", "from": "김포공항", "to": "광화문"}]
+    lb, ub = net.lower_m(gimpo), net.upper_m(gimpo)
+    if gap:
+        # ☆102 — 옛 기대: 값 없음(괄호가 요금 경계를 가로질렀다) → 새 기대: 1,750(5호선 김포공항→광화문 15~20 km 단계).
+        #   공표만의 요금망은 여전히 가로지른다(거리 모르는 간선 = 0). 공표 역간거리 표가 **추정 요금망**의 빈 간선을 채워
+        #   그쪽에서 하한 요금 = 상한 요금이 됐다 — 값은 나오되 추정 표시가 붙는다(fare_is_est).
+        assert O.subway_fare_at(v.R["fare"], lb, 600) != O.subway_fare_at(v.R["fare"], ub, 600)
+        assert f(gimpo) == (1750 if v.lo.est_edges else None)
+        if v.lo.est_edges:
+            assert O.fare_is_est(v, gimpo, [_FLR(O.leg_txt(x), 600) for x in gimpo])
+        cross = [{"line": "02호선", "from": "잠실", "to": "교대"}, {"line": "03호선", "from": "교대", "to": "압구정"}]
+        assert f(cross) is None, "괄호가 요금 경계를 가로지르면 뺀다(표가 있어도 — 신분당선 등 거리 모르는 지름길이 하한을 낮춘다)"
+    else:
+        assert O.subway_fare_at(v.R["fare"], lb, 600) != O.subway_fare_at(v.R["fare"], ub, 600)
+        assert f(gimpo) is None, "괄호가 요금 경계를 가로지르면 뺀다"
     assert f(short, 350) == 1240, "조조"
     assert f(short, 395) is None, "GPT 54 #4 — 06:35 열차면 개찰이 06:30 전일 수 있다(창이 가로지름) → 뺀다"
     assert f(short, 420) == 1550
@@ -1190,17 +1208,25 @@ def test_fare_lb_unknown_zero():
     from app.modules.travel_ops.mobility.engine import options as O
     v = _runtime()._v
     net = O.fare_net(v)
-    k = n = 0
+    # ☆102 — 공표 역간거리 표(station_gap_v1)가 있으면 그 간선은 「거리 모르는 간선」이 아니다: 하한에 공표 값(추정 등급은 −100 m)이 든다.
+    #   표에도 없는 간선은 여전히 0. 표가 없으면 앞 판 기대 그대로(거리 없는 간선 전부 0 · 400개 이상).
+    gap = getattr(v.lo, "gap_edges", None) or {}
+    k = n = g = 0
     for ln, doc in v.lo.doc["lines"].items():
         for e in doc["edges"]:
             w = net.lb[(ln, e["a"])][(ln, e["b"])]
-            if e.get("distance_m") is None:
-                assert w == 0, (ln, e["a"], e["b"], w)
-                k += 1
-            else:
+            pub = gap.get((ln, e["a"], e["b"]), gap.get((ln, e["b"], e["a"])))
+            if e.get("distance_m") is not None:
                 assert w in (0, int(e["distance_m"])), (ln, e["a"], e["b"])
                 n += 1
-    assert k >= 400 and n >= 250
+            elif pub is not None:
+                want = pub[0] if pub[1] == "확정" else max(0, pub[0] - O.GAP_EST_TOL_M)
+                assert w in (0, want), (ln, e["a"], e["b"], w, pub)
+                g += 1
+            else:
+                assert w == 0, (ln, e["a"], e["b"], w)
+                k += 1
+    assert n >= 250 and (k >= 400 if not gap else (g >= 400 and k >= 50)), (n, g, k)
 
 
 def test_fare_early_bird_gate():

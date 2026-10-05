@@ -49,6 +49,29 @@ def _load_est_edges(path):
     return est, straight
 
 
+def _load_gap_edges(path):
+    """`station_gap_v1.jsonl`(공표 역간거리 표 · datasets/mobility/scripts/build_station_gap_v1.py · 54-2) → {(노선, a, b): (m, 등급)}.
+    역 순서 표에 거리(`distance_m`)가 **없는** 간선을 채우는 둘째 공표 원천이다(102 — 요금 거리 원천 순서: 역 순서 표 → 이 표 →
+    선로 길이 추정). 등급은 표 그대로 — 확정(두 원천 일치 · 단일 원천) / 추정(김포골드라인 누적 km 차 · ±0.1 km).
+    파일이 없거나 못 읽으면 {} — 요금은 앞 판과 같은 결과다(역 순서 표 → 선로 길이 추정)."""
+    if not Path(path).exists():
+        return {}
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                d = r.get("distance_m")
+                if d is None or r.get("grade") not in ("확정", "추정"):
+                    continue
+                out[(r["line"], r["a"], r["b"])] = (int(d), r["grade"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return out
+
+
 @dataclass
 class Verdict:
     value: object                 # True / False / None(판정 불가)
@@ -65,6 +88,7 @@ class LineOrder:
         self.built_at = doc["built_at"]
         self.est_edges = {}           # {(노선, 역 a, 역 b): 선로 길이 m} — 공표 거리가 없는 간선의 OSM 선로 길이(추정 · 요금 보강). 없으면 빈 칸
         self.straight_edges = {}      # {(노선, 역 a, 역 b): 두 역 좌표 직선 m} — 공표도 선로 길이도 없는 간선(요금 하한 그래프의 바닥값 재료)
+        self.gap_edges = {}           # {(노선, 역 a, 역 b): (공표 역간거리 m, 등급)} — 역 순서 표에 거리가 없는 간선의 둘째 공표 원천(102 · 없으면 빈 칸)
         self._g = {}
         self._grade = {}
         self._main = {}
@@ -86,6 +110,7 @@ class LineOrder:
             path = PROCESSED / "mobility" / "line_station_order_v1.json"
         lo = cls(json.loads(Path(path).read_text(encoding="utf-8")))
         lo.est_edges, lo.straight_edges = _load_est_edges(Path(path).parent / "rail_edge_track_v1.jsonl.gz")
+        lo.gap_edges = _load_gap_edges(Path(path).parent / "station_gap_v1.jsonl")
         return lo
 
     # ── 기본 조회 ──

@@ -175,40 +175,48 @@ class BikeRouter:
         return self.router is not None or bool(self.fixture)
 
     def route(self, profile, lat1, lng1, lat2, lng2):
+        """거리·시간 요약 또는 None. 못 낸 까닭은 `last_error` 에 남긴다 — ★이 칸은 객체에 하나라 여러 요청이 같이 쓰면 섞인다.
+        까닭으로 **판단**을 가르는 쪽(걷기 foot_walk)은 `route_ex` 를 쓴다(GPT 102 #1)."""
+        out, err = self.route_ex(profile, lat1, lng1, lat2, lng2)
+        self.last_error = err
+        return out
+
+    def route_ex(self, profile, lat1, lng1, lat2, lng2):
+        """(요약 또는 None, 못 낸 까닭 dict 또는 None) — **까닭을 답과 함께** 돌려준다. 객체의 칸(last_error)을 건드리지 않아
+        요청 스레드가 겹쳐도 남의 까닭을 읽지 않는다."""
         k = self.key(profile, lat1, lng1, lat2, lng2)
         if k in self.fixture:
             v = self.fixture[k]
             return {"distance_m": v["distance_m"], "time_s": v["time_s"], "basis": "fixture",
-                    "source_id": v.get("source_id") or self.source_id}
-        self.last_error = None
+                    "source_id": v.get("source_id") or self.source_id}, None
         if self.router is None:
-            self.last_error = {"kind": "no_router"}
-            return None
+            return None, {"kind": "no_router"}
         from .car import RouterDown
         try:
             self.calls += 1
             doc = self.router.route((lng1, lat1), (lng2, lat2), profile=profile)   # car.py 와 같은 (lng, lat) 순서
         except RouterDown as ex:               # 라우터에 못 닿음 — 자전거는 소요 근거없음으로 낸다(죽지 않는다)
-            self.last_error = {"kind": "router_down", "error": str(ex)[:120]}
-            return None
+            # ☆102 — 못 찾은 까닭을 가른다: 지도 밖(out_of_area) · 이을 길 없음(no_path) · 그래프 자료 없음(no_graph) · 그 밖(router_down).
+            #   앞 판은 전부 router_down 으로 뭉쳐, 걷기에서 「길 없음이면 도보 후보를 뺀다」(plan._walk_net) 가지가 한 번도 안 탔다.
+            #   갈래는 car.RouterDown.code 가 길찾기의 문장 머리에서 읽은 값이다(길찾기 파일은 고치지 않는다).
+            code = getattr(ex, "code", None)
+            kind = (code if code in ("out_of_area", "no_path")
+                    else "no_graph" if "자료가 없다" in str(ex) else "router_down")
+            return None, {"kind": kind, "error": str(ex)[:120]}
         except (OSError, ValueError) as ex:    # 통신·응답 해석 실패. 그 밖의 예외(코드 결함)는 삼키지 않는다(#28)
-            self.last_error = {"kind": "router_error", "error": type(ex).__name__}
-            return None
+            return None, {"kind": "router_error", "error": type(ex).__name__}
         paths = (doc or {}).get("paths") or []
         if not paths:
-            self.last_error = {"kind": "no_path"}
-            return None
+            return None, {"kind": "no_path"}
         p = paths[0]
         # ☆`[2026-09-29 문제목록 #10]` 거리·시간이 빠진 응답을 0 으로 채우지 않는다 — 앞 판은 {"paths":[{}]} 를
         #   「0 m · 0 초 경로」로 만들었다. 빠졌으면 근거없음이다.
         try:
             dist, tms = float(p["distance"]), float(p["time"])
         except (KeyError, TypeError, ValueError):
-            self.last_error = {"kind": "bad_response", "error": "distance/time 없음"}
-            return None
+            return None, {"kind": "bad_response", "error": "distance/time 없음"}
         if dist < 0 or tms < 0:
-            self.last_error = {"kind": "bad_response", "error": "음수 거리·시간"}
-            return None
+            return None, {"kind": "bad_response", "error": "음수 거리·시간"}
         out = {"distance_m": round(dist, 1),
                "time_s": int(round(tms / 1000)), "basis": getattr(self.router, "basis", "router"),
                "source_id": self.source_id}
@@ -219,7 +227,7 @@ class BikeRouter:
         if self.record is not None:
             self.record[k] = {"distance_m": out["distance_m"], "time_s": out["time_s"],
                               "source_id": out["source_id"]}
-        return out       # ★ doc(형상 포함)은 여기서 버린다
+        return out, None       # ★ doc(형상 포함)은 여기서 버린다
 
 
 def party_excluded(party, rules_bike):

@@ -104,6 +104,15 @@ from .errors import CaseInputError                                       # noqa:
 VERDICTS = ("feasible", "infeasible", "rejected_by_limit", "unknown")
 #: 99(2026-10-04) — 자전거 승차 소요를 못 내는 이유 문구. 판정 이유·근거·계획의 뺀 후보(plan left_out)가 같은 말을 쓴다.
 BIKE_NO_ROUTE = "자전거 경로 계산 없음"
+#: (102) 걷는 길이 직선의 이 배수를 넘으면 되돌리지 않고 경고한다 — 본인 10/3 결정 「2배 넘는 우회는 경고」. 규칙 파일 수정은 모아서
+#:   한 번에 올리므로 그 전까지는 변경안 값(규칙 transfer.stop_station_walk.detour_warn_ratio 가 생기면 그 값이 이긴다).
+WALK_DETOUR_WARN_RATIO_PROPOSED = 2.0
+#: (102 · 본인 10/5) 배수만 보면 짧은 걸음(직선 31 m → 길 132 m)까지 울린다 — 529구간 대조에서 걷기 조각 1,876개 중 498개(27% · 직선
+#:   100 m 미만은 46%)가 2배를 넘었다. 그래서 **종전 식(직선 × 우회계수)보다 이만큼 넘게 더 걸을 때만** 경고한다(약 3분 · 498 → 230개).
+#:   규칙 transfer.stop_station_walk.detour_warn_extra_m 가 생기면 그 값이 이긴다(변경안 재료).
+WALK_DETOUR_WARN_EXTRA_M_PROPOSED = 200.0
+#: (102 · GPT #2) 걷기 길찾기의 실패 중 캐시에 담아도 되는 갈래 — 같은 그래프면 늘 같은 답인 것만
+FOOT_CACHE_FAIL_KINDS = frozenset({"out_of_area", "no_path"})
 OUT_VERDICTS = ("feasible", "infeasible")          # 밖으로 나가는 판정 둘 (v0.8)
 # 내부 판정 → 밖 판정 · 이유 코드(내부 코드가 없을 때의 기본값). rules judgment.reason_codes 가 어휘의 정본이다.
 OUT_OF = {"feasible": ("feasible", None), "infeasible": ("infeasible", None),
@@ -372,6 +381,106 @@ def match_stops(a_mins, b_mins, est, n_edges):
     return matched, weak
 
 
+# ── 걷기 — 길 기준(걸음 그래프) → 못 재면 직선 × 우회계수 (102) ─────────────────────
+#   판정기(환승 걷기)와 플래너(장소↔역·정류장 · 장소↔장소)가 **같은 함수 · 같은 캐시**로 잰다. v 는 판정기(또는 같은 칸을 가진 대역).
+def foot_router_of(v):
+    """걷기를 길로 잴 수 있는 길찾기(BikeRouter)와 못 쓰는 까닭 — (br 또는 None, 까닭 또는 None).
+    쓰는 조건 둘(101): ① 파이썬 로컬 길찾기(`is_local` — 호출 비용 0) ② 걸음 길이 든 판(road_graph_v2 · `foot_ok`).
+    차도만 있는 v1 로는 걷기를 재지 않는다. `foot_ok` 를 말하지 않는 길찾기(시험 대역)는 걸을 수 있는 것으로 본다."""
+    br = getattr(v, "bike_router", None)
+    if br is None or not br.available():
+        return None, "no_router"
+    r = getattr(br, "router", None)
+    if not getattr(r, "is_local", False):
+        return None, "no_router"
+    if not getattr(r, "foot_ok", True):
+        return None, "not_foot_graph"
+    return br, None
+
+
+def walk_detour_warn_ratio(v):
+    """걷는 길이 직선의 이 배수를 넘으면 **되돌리지 않고 경고**한다(본인 10/3 결정 · 보도 결손으로 길게 도는 자리가 그 예).
+    규칙 transfer.stop_station_walk.detour_warn_ratio 가 있으면 그 값, 없으면 변경안 값(규칙 파일 수정은 모아서 한 번에)."""
+    R = getattr(v, "R", None) or {}
+    n = (((R.get("transfer") or {}).get("stop_station_walk") or {}).get("detour_warn_ratio") or {}).get("value")
+    return float(n) if n else WALK_DETOUR_WARN_RATIO_PROPOSED
+
+
+def walk_detour_warn_extra_m(v):
+    """경고의 둘째 조건 — 종전 식(직선 × 우회계수)보다 이 m 넘게 더 걸을 때만(짧은 걸음의 큰 배수를 거른다). 규칙 값 → 없으면 변경안 값."""
+    R = getattr(v, "R", None) or {}
+    n = (((R.get("transfer") or {}).get("stop_station_walk") or {}).get("detour_warn_extra_m") or {}).get("value")
+    return float(n) if n is not None else WALK_DETOUR_WARN_EXTRA_M_PROPOSED
+
+
+def foot_walk(v, lat1, lng1, lat2, lng2, straight_m=None, factor=None, what=None):
+    """두 점 사이 **걷는 거리(m)** 와 근거 — (walk_m, info).
+
+    길 기준(걸음 그래프 위 최단 거리)을 먼저 쓰고, 못 재면 종전 식(직선 × 우회계수)으로 **되돌리되 까닭을 남긴다**:
+      no_router(길찾기 꺼짐·없음) · not_foot_graph(차도만 있는 v1) · out_of_area(지도 밖 — 1,200 m 안에 걸음 길 없음) ·
+      no_path(그래프에서 두 점이 안 이어짐) · no_graph(그래프 자료 없음) · router_down·router_error·bad_response(그 밖).
+    ★ 길을 찾았으면 **길게 돌아도 되돌리지 않는다** — 직선의 walk_detour_warn_ratio 배를 넘고 종전 식보다 walk_detour_warn_extra_m
+      넘게 더 걸으면 info["detour_over"] 로 경고만
+      한다(하천·철도 건너편은 진짜로 멀고, 보도 결손으로 도는 자리는 그래프 쪽 문제다 — 어느 쪽인지 값으로는 못 가른다).
+    ★ 낙관 표시(길에서 30 m 넘게 떨어진 점 — 길 밖 직선 접근이 길어 짧게 나올 수 있다)는 직선 × 우회계수와 **큰 쪽**(101 과 같다).
+    info: basis "road"|"straight" · why(되돌린 까닭 · 길 기준이면 None) · source_id(그래프 판) · grade "추정" · straight_m · walk_m ·
+          ratio(걷는 거리 ÷ 직선) · optimistic · detour_over. v.walk_log 가 dict 이고 what(이름표)을 주면 (what, 좌표 넷) 을 열쇠로 적는다."""
+    if straight_m is None:
+        straight_m = meters(lat1, lng1, lat2, lng2)
+    if factor is None:
+        factor = v.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
+    info = {"basis": "straight", "why": None, "source_id": None, "grade": "추정", "straight_m": float(straight_m),
+            "optimistic": False, "detour_over": False}
+    br, why = foot_router_of(v)
+    walk_m = straight_m * factor
+    if br is None:
+        info["why"] = why
+    elif straight_m:
+        cache = getattr(v, "_foot_cache", None)
+        if cache is None:
+            cache = {}
+            try:
+                v._foot_cache = cache
+            except AttributeError:
+                pass
+        key = (lat1, lng1, lat2, lng2)              # 정확한 좌표 쌍 — 담장 양쪽의 가까운 두 점을 한 키로 합치지 않는다
+        got = cache.get(key)
+        if got is None:
+            R = getattr(v, "R", None) or {}
+            prof = ((R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
+            # (GPT 102 #1) 까닭은 **이 호출의 답과 함께** 받는다(route_ex) — 객체에 하나뿐인 last_error 를 읽으면 다른 요청의 까닭이
+            #   섞여, 「경로 없음」일 때만 도보 후보를 빼는 판단까지 뒤바뀐다. route_ex 가 없는 대역(시험)만 종전 방식으로 읽는다.
+            ex = getattr(br, "route_ex", None)
+            if ex is not None:
+                r, err = ex(prof, lat1, lng1, lat2, lng2)
+            else:
+                r = br.route(prof, lat1, lng1, lat2, lng2)
+                err = None if r else (getattr(br, "last_error", None) or {"kind": "router_down"})
+            got = ((float(r["distance_m"]), bool(r.get("optimistic")), r.get("source_id"), None) if r
+                   else (None, False, None, (err or {}).get("kind") or "router_down"))
+            # (GPT 102 #2) 담아 두는 것은 **그래프가 같으면 늘 같은 답**뿐이다 — 길 거리 · 지도 밖 · 경로 없음. 그래프 자료 없음·길찾기
+            #   오류처럼 다음에 달라질 수 있는 실패는 담지 않는다(회복 뒤 다시 잰다).
+            if got[0] is not None or got[3] in FOOT_CACHE_FAIL_KINDS:
+                if len(cache) > 200_000:
+                    cache.clear()
+                cache[key] = got
+        routed, optimistic, sid, err = got
+        if routed is None:
+            info["why"] = err
+        else:
+            info.update(basis="road", source_id=sid, optimistic=optimistic)
+            walk_m = max(routed, straight_m * factor) if optimistic else routed
+            info["detour_over"] = bool(walk_m > straight_m * walk_detour_warn_ratio(v)
+                                       and walk_m - straight_m * factor >= walk_detour_warn_extra_m(v))
+    info["walk_m"] = float(walk_m)
+    info["ratio"] = round(walk_m / straight_m, 2) if straight_m else None
+    log = getattr(v, "walk_log", None)
+    if log is not None and what is not None:
+        # (GPT 102 #4) 이름표만으로 적으면 이름이 같은 다른 정류장·역의 값이 덮어쓴다 — 좌표까지가 열쇠다
+        log[(what, lat1, lng1, lat2, lng2)] = info
+    return walk_m, info
+
+
 # ── 검증기 ────────────────────────────────────────────────────────────────
 class Verifier:
     def __init__(self, tt, lo, rules, holidays, tw=None, bus=None, sc=None, ex=None, car=None,
@@ -408,6 +517,8 @@ class Verifier:
         self._cg = {}           # 후보 생성기(v0.5) — first_visit 별로 하나. 길찾기 가산이 달라진다
         self._leg_cache = {}    # (v0.8) 케이스 안 자동차·자전거 구간 결과 캐시 — verify_case 가 매 건 비운다
         self.lfd_capped = False # (v0.8) 마지막 성립 출발 역산이 상한(max_probe)에 걸렸다
+        self._foot_cache = {}   # (102) 걷기 길 거리 캐시 — 좌표 쌍 → 길찾기 답. 그래프는 읽기 전용이라 요청과 무관(복사본이 같이 쓴다)
+        self.walk_log = None    # (102) dict 를 주면 foot_walk 가 잰 걷기의 근거를 적는다(플래너가 요청마다 복사본에 단다)
 
     _CG_LOCK = __import__("threading").Lock()   # #33 — 요청별 얕은 복사본이 _cg 를 공유한다. 처음 만들 때만 잠근다
 
@@ -1280,6 +1391,36 @@ class Verifier:
         return self.warn_msg("MOB_W_STATION_AMBIGUOUS", station=station,
                              groups=" / ".join(self.sc.ambiguous_lines(station)), what=what)
 
+    # ── 걷기 — 길 기준(걸음 그래프) → 못 재면 직선 × 우회계수 (102) ─────────────────
+    def _foot_router(self):
+        """걷기를 길로 잴 수 있는 길찾기와 못 쓰는 까닭 — (BikeRouter 또는 None, 까닭 또는 None). 본체는 모듈 함수 foot_router_of."""
+        return foot_router_of(self)
+
+    def foot_walk(self, lat1, lng1, lat2, lng2, straight_m=None, factor=None, what=None):
+        """두 점 사이 걷는 거리(m)와 근거 — 본체는 모듈 함수 foot_walk(플래너도 같은 함수를 쓴다)."""
+        return foot_walk(self, lat1, lng1, lat2, lng2, straight_m, factor, what)
+
+    @staticmethod
+    def _walk_claim(info, factor):
+        """근거 문구 꼬리 — 길 기준인지 직선인지 · 되돌린 까닭 · 길게 도는 경고."""
+        if info["basis"] == "road":
+            s = f" · 길 기준 {info['walk_m']:,.0f}m({info['source_id'] or '걸음 그래프'})"
+            if info["optimistic"]:
+                s += f" · 길에서 멀어 낙관 가능 — 직선×{factor:g} 과 큰 쪽"
+            if info["detour_over"]:
+                s += f" · ★직선의 {info['ratio']:g}배 — 길게 돈다(되돌리지 않음)"
+            return s
+        return f" · 직선×{factor:g}" + ("" if info["why"] in (None, "no_router") else f"(길 기준 못 냄 — {info['why']})")
+
+    @staticmethod
+    def _walk_txt(w):
+        """환승 도보 한 줄의 거리 설명 — 길 기준이면 「직선 a m → 길 b m」, 아니면 종전 문장(직선×계수 = m)."""
+        wb = w.get("walk_basis") or {}
+        if wb.get("basis") == "road":
+            return (f"({w['dist_m']:,.0f}m 직선 → 길 기준 {w['walk_m']:,.0f}m"
+                    + (f" · 직선의 {wb['ratio']:g}배" if wb.get("detour_over") else "") + ")")
+        return f"({w['dist_m']:,.0f}m 직선×{w['factor']:g} = {w['walk_m']:,.0f}m)"
+
     def _bike_walk(self, lat1, lng1, lat2, lng2):
         """대여소까지 도보 — 직선 × 우회계수(추정). (m, 분, 근거 dict, 직선 m). 보행망 거리는 없다(99 — 경로 서버 삭제)."""
         B = self.R["bike"]["ddareungi"]
@@ -1996,7 +2137,12 @@ class Verifier:
             src = {"source_type": "db", "source_id": "station_coords", "grade": "추정",
                    "observed_at": self.sc.built_at,
                    "claim": f"정류장 {stop_nm} ↔ {st_nm} 역 좌표 직선 {dist:,.0f}m (OSM 출구 없음)"}
-        walk_m = dist * factor
+        # ☆102 — 걷는 거리는 길 기준(걸음 그래프) → 못 재면 직선 × 우회계수(까닭을 근거 문구에). **상한 판정은 종전대로 직선**
+        #   (아래) — 길찾기를 끈 실행(pytest 기본 · 명령줄 --road-graph none)은 앞 판과 같은 값이다.
+        to_lat, to_lng = (ex["lat"], ex["lng"]) if near else (pt["lat"], pt["lng"])
+        walk_m, winfo = self.foot_walk(stop["lat"], stop["lng"], to_lat, to_lng, dist, factor,
+                                       what=("transfer", stop_nm, st_nm))
+        src["claim"] += self._walk_claim(winfo, factor)
         walk_min = ceil1(walk_m / speed / 60)               # #2 올림
         rule_ev = self._ev_rule("transfer.stop_station_walk", "추정")
 
@@ -2005,7 +2151,7 @@ class Verifier:
             why = (f"정류장 {stop_nm} ↔ {where} 직선 {dist:,.0f}m 가 도보 상한 {wlim:,}m 의 "
                    f"±{margin}m 안이다 — 출구 좌표 오차가 판정을 뒤집을 수 있어 판정하지 않는다")
             return {"verdict": "unknown", "label": label, "walk_min": walk_min, "grade": "근거없음",
-                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": why,
+                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": why,
                     "relief": "정류장 또는 역을 실제 위치로 다시 확인한다",
                     "warnings": [self.warn_msg("MOB_W_TRANSFER_NEAR_WALK_LIMIT", stop=stop_nm,
                                                station=st_nm, dist_m=round(dist), limit_m=wlim)],
@@ -2017,12 +2163,12 @@ class Verifier:
             why = (f"정류장 {stop_nm} ↔ {where} 직선 {dist:,.0f}m — 도보 상한 {wlim:,}m 를 넘어 "
                    f"환승할 수 없다")
             return {"verdict": "infeasible", "label": label, "walk_min": walk_min, "grade": "추정",
-                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": why,
+                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": why,
                     "relief": (f"정류장 근처 역은 {hint} — 그 역에서 타는 구간으로 다시 잡는다"
                                if hint else f"정류장 {stop_nm} 반경 안에 역이 없다 — 수단을 바꾼다"),
                     "warnings": [], "evidence": [src, rule_ev]}
         return {"verdict": "feasible", "label": label, "walk_min": walk_min, "grade": "추정",
-                "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": None, "relief": None,
+                "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": None, "relief": None,
                 "warnings": [], "evidence": [src, rule_ev]}
 
     def _bus_bus_walk(self, prev_leg, leg, party):
@@ -2074,15 +2220,17 @@ class Verifier:
         src = {"source_type": "db", "source_id": getattr(self.bus, "source_id", None) or "bus_stops_v1",
                "grade": "추정", "observed_at": a.get("fetched_at") or b.get("fetched_at")}
         dist = meters(a["lat"], a["lng"], b["lat"], b["lng"])
-        walk_m = dist * factor
+        # ☆102 — 길 기준 → 못 재면 직선 × 우회계수(_stop_station_walk 와 같은 규칙 · 상한 판정은 직선)
+        walk_m, winfo = self.foot_walk(a["lat"], a["lng"], b["lat"], b["lng"], dist, factor, what=("transfer", a_nm, b_nm))
         walk_min = ceil1(walk_m / speed / 60)
         src["claim"] = (f"정류장 {a_nm}(ID {a.get('station_id')} · {a.get('direction') or '?'} 방향) ↔ "
-                        f"{b_nm}(ID {b.get('station_id')} · {b.get('direction') or '?'} 방향) 직선 {dist:,.0f}m")
+                        f"{b_nm}(ID {b.get('station_id')} · {b.get('direction') or '?'} 방향) 직선 {dist:,.0f}m"
+                        + self._walk_claim(winfo, factor))
         if abs(dist - wlim) <= margin:
             why = (f"{label} 직선 {dist:,.0f}m 가 도보 상한 {wlim:,}m 의 ±{margin}m 안이다 — "
                    f"정류장 좌표 오차가 판정을 뒤집을 수 있어 판정하지 않는다")
             return {"verdict": "unknown", "label": label, "walk_min": walk_min, "grade": "근거없음",
-                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": why,
+                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": why,
                     "relief": "정류장을 실제 위치로 다시 확인한다",
                     "warnings": [self.warn_msg("MOB_W_TRANSFER_NEAR_WALK_LIMIT", stop=a_nm,
                                                station=b_nm, dist_m=round(dist), limit_m=wlim)],
@@ -2090,11 +2238,11 @@ class Verifier:
         if dist > wlim:
             why = f"{label} 직선 {dist:,.0f}m — 도보 상한 {wlim:,}m 를 넘어 환승할 수 없다"
             return {"verdict": "infeasible", "label": label, "walk_min": walk_min, "grade": "추정",
-                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": why,
+                    "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": why,
                     "relief": f"{a_nm} 에서 가까운 정류장을 지나는 다른 노선으로 다시 잡는다",
                     "warnings": [], "evidence": [src, rule_ev]}
         return {"verdict": "feasible", "label": label, "walk_min": walk_min, "grade": "추정",
-                "dist_m": dist, "walk_m": walk_m, "factor": factor, "reason": None, "relief": None,
+                "dist_m": dist, "walk_m": walk_m, "factor": factor, "walk_basis": winfo, "reason": None, "relief": None,
                 "warnings": [], "evidence": [src, rule_ev]}
 
     # ── 다목적 후보 (규칙 v0.5 · 20번 방) ────────────────────────────────
@@ -2562,8 +2710,7 @@ class Verifier:
                                               grade=tg, warnings=twarn, evidence=list(tev), code=code, worst=worst))
                         return fail(bb["verdict"], bb["reason"], code, bb["relief"], "transfer_walk", i, leg, now)
                     walk = bb["walk_min"]
-                    dist_txt = (f"({bb['dist_m']:,.0f}m 직선×{bb['factor']:g} = {bb['walk_m']:,.0f}m)"
-                                if bb["dist_m"] else "(같은 정류장)")
+                    dist_txt = (self._walk_txt(bb) if bb["dist_m"] else "(같은 정류장)")
                 elif mixed:
                     # ★ 지하철↔버스 환승 (규칙 v0.4 · 19번 방 · rules.transfer.stop_station_walk).
                     #   v0.3.1 까지는 tw.lookup 이 지하철↔지하철만 타서 **도보 0분 + 길찾기 1분**으로
@@ -2579,8 +2726,7 @@ class Verifier:
                                               grade=tg, warnings=twarn, evidence=list(tev), code=code, worst=worst))
                         return fail(ss["verdict"], ss["reason"], code, ss["relief"], "transfer_walk", i, leg, now)
                     walk = ss["walk_min"]
-                    dist_txt = (f"({ss['dist_m']:,.0f}m 직선×{ss['factor']:g} = {ss['walk_m']:,.0f}m)"
-                                if ss["dist_m"] is not None else "")
+                    dist_txt = (self._walk_txt(ss) if ss["dist_m"] is not None else "")
                 elif leg.get("line") and prev_leg.get("line") and self._other_station(st, prev_line, cur_line):
                     # ★ 55 GPT #1 — 이름만 같은 다른 역(경의선 양평 ↔ 5호선 양평 53.6 km)은 환승이 아니다. 후보 생성기를
                     #   거치지 않는 legs 입력도 여기서 막는다(종전: 도보 0분 + 길찾기 1분으로 성립).

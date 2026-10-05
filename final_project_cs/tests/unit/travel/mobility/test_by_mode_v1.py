@@ -905,7 +905,7 @@ def test_full_faster_transfer_beats_slow_direct():
 
 # ── 98 — 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다 · 계획 수단은 앞 판 후보에서 안 나올 때만) ─────────────
 def test_98_plan_version_and_switch():
-    assert P.PLAN_VERSION == "plan-v2.6" and P.XFER_IN_PLAN is True      # 101 — 걷기 길 기준·택시 후보·자전거 되살림(98 판 = plan-v2.5)
+    assert P.PLAN_VERSION == "plan-v2.7" and P.XFER_IN_PLAN is True      # 102 — 환승·혼합 후보 걷기 길 기준·걷기 근거·요금 거리 원천 순서(101 판 = plan-v2.6 · 98 판 = plan-v2.5)
 
 
 def test_98_planned_is_best_among_all_candidates():

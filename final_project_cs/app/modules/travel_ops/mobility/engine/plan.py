@@ -53,10 +53,10 @@ from .candidates import (MIX_CUTS_PER_ROUTE_PROPOSED, MIX_MAX_PROPOSED, ChainGen
 from .options import line_name, station_name  # noqa: F401 — 32 시험·호출 쪽이 plan 에서 가져간다
 from .geo import same_station
 from .timeutil import MIN_DAY, SERVICE_DAY_START_MIN
-from .verify_time import BIKE_NO_ROUTE, leg_mode
+from .verify_time import BIKE_NO_ROUTE, foot_router_of, foot_walk, leg_mode
 
 KST = timezone(timedelta(hours=9))
-PLAN_VERSION = "plan-v2.6"   # 101(합치기) — 길찾기(local_router)가 켜진 서버에서 걷기가 길 기준(장소↔역 출구·정류장 · 장소↔장소) · modes 에 taxi 를 주면 택시 후보(뒤 무리) · 자전거 승차 소요를 다시 낸다
+PLAN_VERSION = "plan-v2.7"   # 102(합치기 2) — 길찾기가 켜진 서버에서 버스 환승·지하철+버스 후보의 장소↔정류장 걷기와 정류장↔역·정류장↔정류장 환승 걷기도 길 기준 · 봉투에 걷기 근거(walk_basis) · 지하철 요금 거리는 공표 역간거리 먼저. 앞 판 plan-v2.6 = 101(합치기) — 길찾기(local_router)가 켜진 서버에서 걷기가 길 기준(장소↔역 출구·정류장 · 장소↔장소) · modes 에 taxi 를 주면 택시 후보(뒤 무리) · 자전거 승차 소요를 다시 낸다
 # (v2.5 · 98) 고르는 기준이 「예정 소요 + 일찍 떠나는 분」으로(계획 수단·수단별 대표 · 모든 후보를 한 무리로) · 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다)
 # (v2.3 · 86) 가장 이른 도착 모드(Planner.earliest · earliest_on_late) 추가 · 기본 호출 결과는 v2.2 와 같다
 # (v2.2 · 58) modes 에 bike 를 주면 자전거 후보를 싣는다 · 기본(bike 없음)은 v2.1 과 같다 · 모양 무변경
@@ -73,6 +73,10 @@ KNOWN_MODES = frozenset(DEFAULT_MODES) | {"bike", "taxi"}
 #:   모아서 한 번에 고친다). 규칙에 들어가면 규칙 값이 이긴다(Planner._station_k).
 STATION_K_PROPOSED = 3
 #: 역 짝을 어디까지 보나 — "first_feasible"(가까운 짝부터 · 대중교통 후보가 성립한 짝에서 멈춤) / "all"(짝 전부)
+#: (102) 걷기를 길 기준으로 못 재 직선으로 되돌린 까닭의 문장(봉투 walk_basis.warnings)
+WALK_FALLBACK_WHY = {"out_of_area": "지도 밖(1,200 m 안에 걸음 길이 없다)", "no_path": "걸음 그래프에서 두 점이 이어지지 않는다",
+                     "no_graph": "걸음 그래프 자료가 없다", "not_foot_graph": "걸음 길이 없는 그래프 판(차도만)이다",
+                     "router_down": "길찾기에 닿지 못했다", "router_error": "길찾기 오류", "bad_response": "길찾기 답이 비었다"}
 STATION_PAIR_MODE = "first_feasible"
 #: 도보 상한 안 역이 모두 사고로 막혔을 때 이유 코드
 STATION_BLOCKED_CODE = "no_service"
@@ -367,7 +371,10 @@ class Planner:
         self.stage = stage
         self.speed = self.v.R["measured_baseline"]["kakao_walk_speed_mps"]["value"]
         self.detour = self.v.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
-        self._eff_cache = {}                 # #13 — 접근 걷기 길 거리(직선 환산) 캐시 · 이 플래너 수명
+        # ☆102 — 이 요청에서 잰 걷기의 근거(길 기준/직선 · 되돌린 까닭 · 길게 도는 자리)를 판정기 복사본에 모은다(foot_walk 가 적는다).
+        #   leg() 가 구간마다 비우고, 끝에 계획 수단의 걷기 조각을 last_walk 로 묶는다(봉투 walk_basis — 코어로는 안 나간다).
+        self.v.walk_log = {}
+        self.last_walk = None
         # 표시 전용 필드(◆칸 — 답 전엔 만들어만 둔다). 켜면 transfer_car 를 options 에 싣는다(새 키 · 스펙 밖).
         self.display = display
         self._tc = O.TransferCar.load() if display else None
@@ -413,65 +420,175 @@ class Planner:
           v1 로 걷기를 재면 걸음 전용 길이 없어 길게 돌아간다(팀장 판 확인 방 실측: 도보 20구간 10/20 · 예시 일정 4구간 중 2구간이
           「못 만듦」). 그럴 때는 조용히 길게 재지 않고 **종전 식(직선 × 우회계수)** 으로 간다. `foot_ok` 를 말하지 않는 길찾기
           (시험 대역)는 걸을 수 있는 것으로 본다."""
-        br = getattr(self.v, "bike_router", None)
-        if br is None or not br.available():
-            return None
-        r = getattr(br, "router", None)
-        if not getattr(r, "is_local", False) or not getattr(r, "foot_ok", True):
-            return None
-        return br
+        return foot_router_of(self.v)[0]          # 102 — 조건은 판정기와 같은 함수 하나(verify_time.foot_router_of)
 
-    def _eff(self, lat1, lng1, lat2, lng2, straight_m):
+    def _eff(self, lat1, lng1, lat2, lng2, straight_m, what=None):
         """역·정류장 **접근 걷기**를 도로 그래프로 잰 값 — 「직선 환산 m」(실제 걷는 거리 ÷ 우회계수)로 돌려준다.
 
         ☆`[2026-10-04 #13]` 장소↔역·정류장 걷기는 직선 × 우회계수(1.3 안팎)였다. 걷는 거리는 30곳 넘는 자리에서
         `직선 m` 로 다뤄지고(도보 상한도 직선 m) 식은 `_walk` 한 곳이 `× detour` 하므로, 길 거리를 detour 로 나눠
         **같은 칸에 넣으면** 호출부를 안 바꾸고 `_walk` 가 길 거리 × 속도 로 나온다.
-        파이썬 로컬 라우터(`is_local` — 호출 비용 0)가 있을 때만 쓴다 — 서버 라우터면 후보마다 HTTP 가 나간다.
-        길을 못 찾거나(no_path 포함 — 걷기가 불가능하다는 근거가 못 된다) 라우터가 없으면 직선 그대로(종전 식).
-        낙관 표시(길 밖 접근이 길어 짧게 나올 수 있는 값)는 직선 × 우회계수와 큰 쪽(_walk_net 과 같은 규칙)."""
-        br = self._foot_router()
-        if not straight_m or br is None:
+        ☆102 — 재는 일은 판정기 `foot_walk` 하나가 한다(환승 걷기와 같은 함수 · 같은 캐시). 길을 못 재면 직선 그대로(종전 식)이되
+        **까닭이 남는다**(지도 밖 · 경로 없음 · 그래프 없음 · 길찾기 없음 — walk_log) · 길게 돌아도(직선의 2배 초과) 되돌리지 않고
+        경고만 한다. 낙관 표시는 직선 × 우회계수와 큰 쪽(101 과 같다). `what` = 걷기 조각의 이름표(근거 표시에 쓴다)."""
+        if not straight_m:
             return straight_m
-        key = (lat1, lng1, lat2, lng2)          # 정확한 좌표 쌍 — 담장 양쪽의 가까운 두 점을 한 키로 합치지 않는다
-        got = self._eff_cache.get(key)
-        if got is None:
-            prof = ((self.v.R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
-            r = br.route(prof, lat1, lng1, lat2, lng2)
-            if not r:
-                got = float(straight_m)
-            else:
-                routed = float(r["distance_m"])
-                if r.get("optimistic"):
-                    routed = max(routed, straight_m * self.detour)
-                got = routed / self.detour
-            self._eff_cache[key] = got
-        return got
+        walk_m, info = foot_walk(self.v, lat1, lng1, lat2, lng2, straight_m, self.detour, what=what)
+        if info["basis"] != "road":
+            return straight_m                    # 종전 값 그대로(× detour ÷ detour 로 끝자리가 흔들리지 않게)
+        return walk_m / self.detour
 
     def _stop_walk(self, place, stop, straight_m):
         """장소 → 정류장 접근 걷기(직선 환산 m) — `_eff` 로 길 기준. 직선 도보 상한·후보 가르기는 **종전대로 직선 m** 로 하고,
         이 값은 그 거름을 통과한 후보에만 쓴다(코덱스 지적: 환산값을 상한과 비교하면 후보가 잘못 탈락하고, 거르기 전 라우팅은 낭비)."""
         if stop.get("lat") is None or stop.get("lng") is None:
             return straight_m
-        return round(self._eff(place["lat"], place["lon"], stop["lat"], stop["lng"], straight_m))
+        return round(self._eff(place["lat"], place["lon"], stop["lat"], stop["lng"], straight_m,
+                               what=("stop", place.get("name"), stop.get("station_nm"))))
 
     def _walk_net(self, a_place, b_place, straight_m):
-        """장소↔장소 도보 거리(m) — 보행망 라우터 foot 거리 → 없으면 직선 × 우회계수. (거리, 길 없음 여부).
+        """장소↔장소 도보 거리(m) — 걸음 그래프 길 거리 → 없으면 직선 × 우회계수. (거리, 길 없음 여부).
 
-        「길 없음」은 라우터가 **경로가 없다**고 답했을 때만이다. 라우터가 없거나 못 닿으면(no_router·router_down·
-        router_error·bad_response) 길이 없다는 근거가 아니다 — 직선 식으로 낸다(verify_time._bike_walk 와 같은 규칙)."""
-        br = self._foot_router()
-        if br is not None:
-            prof = ((self.v.R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
-            r = br.route(prof, a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
-            if r:
-                if r.get("optimistic"):
-                    # ☆`[2026-10-04]` 길 밖 접근 구간이 길어 낙관적일 수 있는 거리는 직선 × 우회계수와 **큰 쪽**을 쓴다(도착 여유를 깎지 않는다)
-                    return max(float(r["distance_m"]), straight_m * self.detour), False
-                return float(r["distance_m"]), False
-            if (br.last_error or {}).get("kind") == "no_path":
-                return None, True
-        return straight_m * self.detour, False
+        「길 없음」은 길찾기가 **두 점이 이어지지 않는다(no_path)** 고 답했을 때만이다. 길찾기가 없거나 지도 밖·자료 없음이면
+        길이 없다는 근거가 아니다 — 직선 식으로 낸다(까닭은 walk_log 에 남는다 · 102)."""
+        walk_m, info = foot_walk(self.v, a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"], straight_m, self.detour,
+                                 what=("direct", a_place.get("name"), b_place.get("name")))
+        if info["basis"] != "road" and info["why"] == "no_path":
+            return None, True                    # 도보 후보는 싣지 않는다 — 그래프로 성립을 확인하지 못했다(걸을 수 없다는 단정이 아니다)
+        if info["basis"] != "road":
+            return straight_m * self.detour, False
+        return walk_m, False
+
+    def _cand_row(self, mc, which):
+        """(102 · GPT #3) 환승·혼합 후보의 **장소 쪽 정류장 행** — 후보를 만든 그 행. 이름으로 다시 찾지 않는다(같은 이름의 정류장이
+        장소에서 같은 거리에 둘 있을 수 있다 — 거리 차로는 같은 정류장인지 알 수 없다).
+          · 혼합 1회: 생성기가 후보에 달아 둔 행(`board` = 승차 · `alight` = 하차)
+          · 환승 후보(버스→버스 · 혼합 2회): 구간에 정류장 순번(from_seq·to_seq)이 있어 판정기가 그 행을 그대로 쓴다(_bus_seg)
+        둘 다 아니면 None — 길을 재지 않는다."""
+        leg = mc.legs[0] if which == "from" else mc.legs[-1]
+        row = getattr(mc, "board" if which == "from" else "alight", None)
+        if row is not None and len(mc.legs) and row.get("station_nm") == leg.get(which):
+            return row
+        if leg.get("from_seq") is not None and leg.get("to_seq") is not None:
+            return self.v._bus_stop_row(leg, which)
+        return None
+
+    def _cand_stop(self, place, mc, which, straight_m):
+        """(102) 환승·혼합 후보의 **정류장 쪽** 장소↔정류장 걷기 — (직선 환산 m, 정류장 좌표 또는 None). 후보를 만든 정류장 행까지
+        길 기준으로 잰다. 그 행을 모르면 재지 않고 직선 그대로 둔다(까닭 stop_row_unknown)."""
+        row = self._cand_row(mc, which)
+        if row is None or row.get("lat") is None or row.get("lng") is None:
+            return straight_m, None
+        return self._stop_walk(place, row, straight_m), (row["lat"], row["lng"])
+
+    def _cand_walks(self, mc, a_place, b_place, party):
+        """(102 · GPT 101 지적 5) 버스 환승·지하철+버스 후보의 걷기 —
+        (접근 직선환산 m, 이탈 직선환산 m, 환승 걷기 분, 환승 걷는 m 또는 None, 근거 {in, out, xfer}).
+
+        앞 판은 이 후보들만 직선 × 우회계수였다(직행·지하철만 후보는 101 에서 길 기준). 길찾기가 걸음 길을 잴 수 있을 때:
+          · 장소↔정류장(첫·마지막 구간이 버스인 쪽)은 `_cand_stop` 으로 길 기준 — 역 쪽은 부르는 쪽이 이미 길 기준으로 준 값이다.
+          · 정류장↔역 · 정류장↔정류장 환승은 **판정기 함수 그대로**(_stop_station_walk · _bus_bus_walk — 판정이 쓰는 값과 같은 값).
+        생성기의 추정 소요·도보 상한 거르기는 직선 그대로다 — **거른 뒤 판정에 넣는 후보에만** 잰다(길찾기 호출을 늘리지 않게).
+        길찾기가 없으면 앞 판 값 그대로(환승 걷는 m 는 None — 부르는 쪽이 종전 식으로 셈한다).
+        근거(GPT 102 #4): in·out = 장소 쪽 정류장 좌표(걷기 근거를 그 좌표로 찾는다) · xfer = [(앞 이름, 뒤 이름, 근거 info)] —
+        이 후보가 실제로 쓴 값을 후보가 들고 다닌다(이름이 같은 다른 정류장의 값과 섞이지 않게)."""
+        w_in, w_out = mc.walk_in_m, mc.walk_out_m
+        link_min = math.ceil(mc.link_m * self.detour / self.speed / 60)
+        ev = {"in": None, "out": None, "xfer": []}
+        if self._foot_router() is None:
+            return w_in, w_out, link_min, None, ev
+        legs = mc.legs
+        if leg_mode(legs[0]) == "bus":
+            w_in, ev["in"] = self._cand_stop(a_place, mc, "from", w_in)
+        if leg_mode(legs[-1]) == "bus":
+            w_out, ev["out"] = self._cand_stop(b_place, mc, "to", w_out)
+        tot = 0.0
+        for p, q in zip(legs, legs[1:]):
+            mp, mq = leg_mode(p), leg_mode(q)
+            if mp == "bus" and mq == "bus":
+                w = self.v._bus_bus_walk(p, q, party)
+            elif {mp, mq} == {"bus", "subway"}:
+                w = self.v._stop_station_walk(p, q, party)
+            else:
+                continue
+            if w.get("walk_m") is None:
+                ev["xfer"] = []
+                return w_in, w_out, link_min, None, ev   # 판정기가 못 잰 환승(좌표 없음) — 종전 식 · 성립 여부는 판정기가 가른다
+            tot += w["walk_m"]
+            if w.get("walk_basis"):
+                ev["xfer"].append((p.get("to"), q.get("from"), w["walk_basis"]))
+        return w_in, w_out, math.ceil(tot / self.speed / 60), tot, ev
+
+    def _log_find(self, kind, a_name, b_name, pt=None):
+        """걷기 근거 찾기 — 이름표(kind, 앞 이름, 뒤 이름)와 **도착 쪽 좌표**(pt)로. pt 를 모르면 그 이름표의 값이 하나뿐일 때만
+        돌려준다(이름이 같은 다른 역·정류장의 값이 섞여 있으면 None — 틀린 근거를 붙이느니 뺀다 · GPT 102 #4)."""
+        log = getattr(self.v, "walk_log", None) or {}
+        hit = {}
+        for (what, _la1, _lo1, la2, lo2), info in log.items():
+            if what == (kind, a_name, b_name) and (pt is None or (la2, lo2) == tuple(pt)):
+                hit[(la2, lo2)] = info
+        return next(iter(hit.values())) if len(hit) == 1 else None
+
+    def _walk_parts(self, o, a_place, b_place):
+        """(102) 후보 o 의 걷기 조각마다 근거. 후보가 들고 온 것(`_wev` — 장소 쪽 정류장 좌표 · 환승 근거)을 먼저 쓰고, 역 쪽은
+        이름표로 찾는다(값이 하나일 때만). 못 찾은 조각(잰 적 없음 · 지하철 안 환승 · 택시·자전거)은 뺀다."""
+        legs = o.get("_legs") or []
+        ev = o.get("_wev") or {}
+        if o.get("_taxi"):
+            return []
+        an, bn = a_place.get("name"), b_place.get("name")
+        found = []
+        if not legs:
+            found.append(("direct", an, bn, self._log_find("direct", an, bn)))
+        else:
+            f, t = legs[0].get("from"), legs[-1].get("to")
+            if isinstance(f, str) and isinstance(t, str):      # 자전거 구간(좌표 dict)은 걷기 조각으로 세지 않는다
+                # 이름표의 갈래는 역(station)·정류장(stop)을 가른다 — 「경복궁」처럼 역과 정류장의 이름이 같은 곳이 있다
+                kin = "stop" if leg_mode(legs[0]) == "bus" else "station"
+                kout = "stop" if leg_mode(legs[-1]) == "bus" else "station"
+                found.append(("access", an, f, self._log_find(kin, an, f, ev.get("in"))))
+                found += [("transfer", x, y, info) for x, y, info in ev.get("xfer") or []]
+                found.append(("egress", t, bn, self._log_find(kout, bn, t, ev.get("out"))))
+        out = []
+        for part, frm, to, info in found:
+            if info is None:
+                continue
+            row = {"part": part, "from": frm, "to": to, "basis": info["basis"],
+                   "straight_m": int(round(info["straight_m"])), "walk_m": int(round(info["walk_m"])), "ratio": info["ratio"]}
+            if info["basis"] != "road":
+                row["why"] = info["why"]
+            if info.get("optimistic"):
+                row["optimistic"] = True
+            if info.get("detour_over"):
+                row["detour_over"] = True
+            out.append(row)
+        return out
+
+    def _walk_basis(self, planned, a_place, b_place):
+        """(102) 이 구간 계획 수단의 **걷기 근거** — 봉투 `walk_basis[route 키]` 한 줄(코어로는 안 나간다).
+        {basis: road(전부 길 기준)·straight(전부 직선)·mixed · source_id(그래프 판 — 길 기준이 하나라도 있을 때) · grade "추정" ·
+         parts[{part: access|transfer|egress|direct, from, to, basis, straight_m, walk_m, ratio, why?, optimistic?, detour_over?}] ·
+         warnings[{code, reason}]}.
+        warnings code: `walk_fallback` = 길을 못 재 직선 × 우회계수로 되돌렸다(까닭 why: out_of_area 지도 밖 · no_path 경로 없음 ·
+          no_graph 그래프 자료 없음 · not_foot_graph 걸음 길 없는 판 · router_down 등) ·
+          `walk_detour` = 길을 쟀더니 직선의 2배를 넘고 종전 식보다 200 m 넘게 더 걷는다(되돌리지 않았다 — 하천·철도 건너편이거나
+          그래프의 보도 결손).
+        길찾기를 끈 실행(why no_router)은 되돌린 것이 아니라 설정이다 — 경고를 내지 않는다."""
+        parts = self._walk_parts(planned, a_place, b_place)
+        kinds = {p["basis"] for p in parts}
+        sid = getattr(getattr(self._foot_router(), "router", None), "source_id", None) if "road" in kinds else None
+        warns = []
+        for p in parts:
+            if p["basis"] != "road" and p.get("why") not in (None, "no_router"):
+                warns.append({"code": "walk_fallback",
+                              "reason": f"{p['from']} → {p['to']} 걷기를 길 기준으로 못 재 직선 × 우회계수로 냈다 — "
+                                        f"{WALK_FALLBACK_WHY.get(p['why'], p['why'])}(직선 {p['straight_m']:,}m → {p['walk_m']:,}m)"})
+            if p.get("detour_over"):
+                warns.append({"code": "walk_detour",
+                              "reason": f"{p['from']} → {p['to']} 걷는 길 {p['walk_m']:,}m 가 직선 {p['straight_m']:,}m 의 "
+                                        f"{p['ratio']:g}배다 — 길게 돈다(되돌리지 않고 길 기준 그대로 · 건너편이거나 그래프의 보도 결손)"})
+        return {"basis": ("road" if kinds == {"road"} else "straight" if kinds == {"straight"} else "mixed" if kinds else None),
+                "source_id": sid, "grade": "추정", "parts": parts, "warnings": warns}
 
     def _blocked_station(self, rec):
         """사고 조건(self.disruptions)으로 **그 물리적 역의 모든 노선**이 서지 않거나 운행하지 않으면 True.
@@ -535,7 +652,8 @@ class Planner:
                     d = e[0]
                     tlat, tlon = e[1]["lat"], e[1]["lng"]
             if tlat is not None and tlon is not None:
-                d = self._eff(place["lat"], place["lon"], tlat, tlon, d)     # #13 — 출구(없으면 역)까지 길로
+                d = self._eff(place["lat"], place["lon"], tlat, tlon, d,     # #13 — 출구(없으면 역)까지 길로
+                              what=("station", place.get("name"), nm))
             out.append((nm, d, lines))
             if len(out) >= k:
                 break
@@ -614,6 +732,7 @@ class Planner:
                 "eta_min": eta, "uses": uses_of(legs), "_legs": legs, "_route": label_of(legs), "_start": start,
                 "_transfers": 0, "_n": 100 + i, "_key": ("bus", 0, i), "_margin": margin, "_slack": slack,
                 "_walk_min": wi + wo, "_walk_m": (da + db) * self.detour,
+                "_wev": {"in": (x.get("lat"), x.get("lng")), "out": (y.get("lat"), y.get("lng")), "xfer": []},
                 "_fare": O.fare_of(v, legs, r2.legs),
                 "_severe": [], "_covered": False, "_lr": r2.legs, "_day_type": r2.day_type,
                 "_check": {"date": st_date.isoformat(), "legs": legs, "off": off, "walk_place_in": wi,
@@ -713,7 +832,9 @@ class Planner:
         (후보 dict, None) 또는 (None, 뺀 이유 dict)."""
         v = self.v
         legs = mc.legs
-        wi, wo = self._walk(mc.walk_in_m), self._walk(mc.walk_out_m)
+        # ☆102 — 정류장 쪽 장소↔정류장 걷기와 환승 걷기를 길 기준으로(_cand_walks · 길찾기가 없으면 앞 판 값 그대로)
+        w_in_m, w_out_m, link_min, link_walk_m, wev = self._cand_walks(mc, a_place, b_place, party)
+        wi, wo = self._walk(w_in_m), self._walk(w_out_m)
         st_date, by_stop = service_day(arrive_dt - timedelta(minutes=wo))
         off = (st_date - sdate).days * MIN_DAY
         # ☆94 — 환승 후보(버스만 BB·BBB · 혼합 2회 BSB·SBS)도 같은 순서로 판정한다: key·n·tag 를 부르는 쪽이 준다(87 기본값 그대로)
@@ -741,7 +862,6 @@ class Planner:
             return drop("no_last_departure", "도착 목표가 04:00 전(운행일 경계)이라 보지 않는다")
         base = {"id": f"{case_id}/mix{i}", "date": st_date.isoformat(), "stage": self.stage, "legs": legs,
                 "arrive_by": by_stop, "party": party, "first_visit": first_visit, "no_alternatives": True}
-        link_min = math.ceil(mc.link_m * self.detour / self.speed / 60)
         walk_min = wi + wo + link_min + (mc.sub_walk_min or 0)
 
         def hopeless(o):
@@ -758,7 +878,8 @@ class Planner:
             if mk is not None:
                 memo[mk] = out
             return out
-        lfd, r2, why = self._mix_latest(base, by_stop, mc.est_min - wi - wo, hopeless)
+        # 추정 소요에서 빼는 접근·이탈 걷기는 생성기가 더한 값(직선 식) 그대로 — 길 기준 값으로 빼면 추정이 어긋난다
+        lfd, r2, why = self._mix_latest(base, by_stop, mc.est_min - self._walk(mc.walk_in_m) - self._walk(mc.walk_out_m), hopeless)
         if lfd is None and why == "hopeless":
             o = r2.out or {}
             return drop("mix_dominated", f"지하철만·버스만 후보보다 소요·환승·도보 어느 축에서도 앞서지 않는다(첫 성립 출발 판정: "
@@ -790,13 +911,18 @@ class Planner:
             if len(run) > 1:
                 w_ = O.transfer_walk_m(v, run)
                 inner = None if (w_ is None or inner is None) else inner + w_
-        walk_m = None if inner is None else (mc.walk_in_m + mc.walk_out_m + mc.link_m) * self.detour + inner
+        if inner is None:
+            walk_m = None
+        elif link_walk_m is None:
+            walk_m = (mc.walk_in_m + mc.walk_out_m + mc.link_m) * self.detour + inner          # 앞 판 식 그대로(길찾기 없음)
+        else:
+            walk_m = (w_in_m + w_out_m) * self.detour + link_walk_m + inner                    # 102 — 길 기준(접근·이탈 + 환승)
         got = {"eta_min": eta, "uses": uses_of(legs), "_legs": legs, "_route": label_of(legs), "_start": start,
                 "_transfers": mc.transfers, "_n": n_, "_key": key, "_margin": margin, "_slack": slack,
                 "_walk_min": walk_min, "_walk_m": walk_m,
                 "_fare": O.fare_of(v, legs, r2.legs), "_severe": O.severe_hits(r2.warnings),
                 "_covered": O.congestion_checked(v, legs, r2.legs, st_date, r2.day_type),
-                "_lr": r2.legs, "_day_type": r2.day_type, "_shape": mc.shape,
+                "_lr": r2.legs, "_day_type": r2.day_type, "_shape": mc.shape, "_wev": wev,
                 "_check": {"date": st_date.isoformat(), "legs": legs, "off": off, "walk_place_in": wi,
                            "walk_place_out": wo, "walk_stop_in": 0, "walk_stop_out": 0, "by_station": by_stop,
                            "fast": True}}
@@ -1831,7 +1957,9 @@ class Planner:
         # ☆`[87]` 혼합(⑤) — leg() 와 같은 생성기 · 같은 거르기(운행 시간 · 구간열) · 추정 소요 순 MIX_VERIFY_MAX 개만 소스로
         #   (앞설 축 거르기는 하지 않는다 — 목표 후보를 넓게, 확인은 leg() 가 한다 · 86 의 짝 전부 보기와 같은 뜻)
         for i, mc in enumerate(self._mixed_sources(a_place, b_place, sa, sb, nb, party, first_visit, wlim)):
-            def mix(m, i=i, mc=mc, wi=self._walk(mc.walk_in_m), wo=self._walk(mc.walk_out_m)):
+            cw = self._cand_walks(mc, a_place, b_place, party)            # 102 — leg() 의 혼합 후보와 같은 걷기(길 기준)
+
+            def mix(m, i=i, mc=mc, wi=self._walk(cw[0]), wo=self._walk(cw[1])):
                 day, dm, off = at(m, wi)
                 rr = self._vcq({"id": f"{case_id}~emix{i}@{m}", "date": day, "stage": self.stage, "legs": mc.legs,
                                 "depart_at": dm, "party": party, "first_visit": first_visit, "no_alternatives": True})
@@ -2089,6 +2217,9 @@ class Planner:
         건드리지 않는다. 기본 False — 결과·호출 횟수가 앞 판과 같다."""
         from .geo import meters
         self.last_by_mode = None
+        self.last_walk = None               # 102 — 이 구간 계획 수단의 걷기 근거(이동을 만들었을 때만)
+        if getattr(self.v, "walk_log", None) is not None:
+            self.v.walk_log.clear()
         self._mix_memo = {}                 # 94 — 이 호출 안에서만(혼합 후보 판정 답 재사용)
         self._bx_memo, self._m2_gen_memo = None, None   # 98 — 이 호출 안에서만(버스 환승 답 · 혼합 2회 생성 재사용)
         sdate, arrive_by = service_day(arrive_dt)
@@ -2110,7 +2241,9 @@ class Planner:
             wm, no_path = self._walk_net(a_place, b_place, direct)
             if no_path:
                 left.append({"_o": {"_legs": []}, "label": "도보", "code": "no_walk_path",
-                             "reason": "보행망에 두 장소를 잇는 길이 없다(직선으로는 도보 상한 안)"})
+                             # (GPT 102 #6) 그래프에서 못 이은 것이지 걸을 수 없다고 확인한 것이 아니다 — 문장을 그 뜻으로
+                             "reason": "현재 걸음 그래프에서 두 장소가 이어지지 않아 도보 성립을 확인하지 못했다"
+                                       "(직선으로는 도보 상한 안 · 실제로 걸을 수 없다는 뜻은 아니다)"})
             else:
                 eta = max(1, math.ceil(wm / self.speed / 60))
                 opts.append({"eta_min": eta, "uses": [], "_legs": [], "_route": "도보",
@@ -2398,6 +2531,7 @@ class Planner:
                                             "transfers": o["_transfers"], "check": o.get("_check")}
                                            for o in opts],
                                "left_out": left, "left_checks": left_checks, "start_min": start})
+        self.last_walk = self._walk_basis(planned, a_place, b_place)        # 102 — 봉투 전용(코어 routes 칸은 그대로)
         keys = ("id", "label", "eta_min", "walk_m", "fare_krw", "uses", "transfer_car")
         route = {"from": a_place["name"], "to": b_place["name"], "planned": planned["id"],
                  "options": [{k: o[k] for k in keys if k in o} for o in opts]}
@@ -2510,6 +2644,7 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
 
     reserved = set(routes or {}) | {str(it["route"]) for it in its if it.get("route")}
     merged, routes, skipped, left_out, not_linked = [], {}, [], {}, []
+    walk_out = {}                                 # 102 — 만든 이동마다 계획 수단의 걷기 근거(봉투 walk_basis)
     by_mode_out = []
     taxi_out = []                                 # 97 — 택시 소요로 메운 구간(켰을 때만 봉투에 실린다)
 
@@ -2627,6 +2762,8 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
             routes[key] = route
             if left:
                 left_out[key] = left
+            if getattr(P, "last_walk", None) is not None:
+                walk_out[key] = P.last_walk
             if trace is not None and trace:
                 trace[-1]["route"] = key
             start_iso, end_iso = iso_of(sdate, start), iso_of(sdate, end)
@@ -2645,7 +2782,12 @@ def plan(places, items, party_size=None, constraints=None, *, runtime=None, stag
            "not_linked": not_linked, "kept_unverified": kept_unverified,
            "basis": {"timetable_built_at": runtime.timetable_built_at, "rules_version": runtime.rules_version,
                      "plan_version": PLAN_VERSION,
-                     "decided_at": datetime.now(KST).strftime("%Y-%m-%dT%H:%M:00+09:00")}}
+                     "decided_at": datetime.now(KST).strftime("%Y-%m-%dT%H:%M:00+09:00")},
+           "walk_basis": walk_out}
+    # 102 — 이 실행이 걷기를 무엇으로 쟀나(길 기준이면 그래프 판) · 구간별 조각·경고는 walk_basis[route 키]
+    fr, fwhy = foot_router_of(getattr(P, "v", None))
+    out["basis"]["walk"] = {"mode": "road" if fr is not None else "straight", "why": fwhy,
+                            "source_id": getattr(getattr(fr, "router", None), "source_id", None), "grade": "추정"}
     if by_mode:
         out["by_mode"] = by_mode_out          # 93 — 켰을 때만 칸이 생긴다(기본 출력 모양 무변경)
     if taxi_fallback:

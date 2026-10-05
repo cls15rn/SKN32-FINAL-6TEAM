@@ -153,15 +153,23 @@ class FareNet:
     하한 = 전 노선 그래프 최단 — **거리 모르는 간선은 0**(입증된 하한이 없다 · GPT 54 #2 — 좌표 직선은 공표 거리보다 길 수 있어 하한이 아니다),
            같은 역명·반경 안 다른 노선 역도 0 으로 잇는다(이음을 넓게 두면 하한이 낮아질 뿐이다)."""
 
-    def __init__(self, lo, sc, tw, cfg, est=None, tau=None, est_ok=None, floor=None):
+    def __init__(self, lo, sc, tw, cfg, est=None, tau=None, est_ok=None, floor=None, pub=None, lb_only=None, fare_lines=None):
         """est — {(노선, a, b): 선로 길이 m} 공표 거리가 없는 간선의 **추정 길이**(OSM 선로 · 문제목록 #21). None 이면 종전 그대로(공표만).
         tau — 간선 하나일 때의 상대 오차 상한. 추정 간선을 n 개 지난 경로의 오차는 tau/√n 로 본다(오차가 서로 상쇄 — 공표가 있는
         1~8호선으로 연속 n 간선 합을 재니 오차 최대가 n=1 29% · 2 18% · 3 12% · 4 8% · 8 6% · 12 4% 였다).
         요금 하한·상한은 길이 합 ∓ (추정 간선 길이 합 × tau/√n) 이다.
         est_ok — 요금을 **내도 되는** 노선(통합 거리비례 운임). est 에는 다른 노선(공항철도·신분당선 등 별도운임)의 길이도 넣는다 —
         하한 그래프가 길이 모르는 노선의 0 짜리 지름길로 무너지지 않게(그 노선을 실제로 타는 후보의 요금은 내지 않는다).
-        floor — {(노선, a, b): m} 공표도 추정도 없는 간선의 **하한 바닥값**(두 역 직선 × 규칙 비율). 없으면 0(종전)."""
+        floor — {(노선, a, b): m} 공표도 추정도 없는 간선의 **하한 바닥값**(두 역 직선 × 규칙 비율). 없으면 0(종전).
+        ☆102 — 요금 거리 **원천 순서**: ① 역 순서 표 `distance_m` → ② pub(공표 역간거리 표 station_gap_v1 의 확정 값) → ③ est(선로 길이 추정).
+        pub — {(노선, a, b): m} ①이 없는 간선의 **공표 거리**(확정 — 추정 간선으로 세지 않는다 · 오차 괄호 없음). 요금을 내는 노선 것만 준다.
+        lb_only — {(노선, a, b): m} 요금을 내지 않는 노선(별도운임일 수 있다)이나 추정 등급 공표 값의 거리 — **하한 그래프에만** 넣는다
+                  (0 짜리 지름길로 하한이 무너지지 않게 · 상한 그래프와 탄 경로 계산에는 안 쓴다 — 그 노선의 최단을 운임에 쓰는지 모른다).
+        fare_lines — 요금을 **내도 되는** 노선(통합 거리비례 운임). 주면 그 밖 노선을 탄 구간은 값을 내지 않는다(pub 로 거리가 생겨도
+                  별도운임 노선의 요금이 나오지 않게). None 이면 앞 판과 같다(거리 확정 간선만으로 이어지면 낸다)."""
         from .geo import meters
+        pub, lb_only = pub or {}, lb_only or {}
+        self.fare_lines = set(fare_lines) if fare_lines is not None else None
         self.est = dict(est or {})
         self.tau = tau or 0.0
         self.est_ok = set(est_ok or ())
@@ -178,15 +186,27 @@ class FareNet:
                 self.lb[(ln, s["station_nm"])]
             for e in doc["edges"]:
                 a, b, d = e["a"], e["b"], e.get("distance_m")
+                if d is None:                           # 102 — 역 순서 표에 없으면 공표 역간거리 표(확정)
+                    d = pub.get((ln, a, b), pub.get((ln, b, a)))
                 w = int(d) if d is not None else self.est.get((ln, a, b), self.est.get((ln, b, a)))
                 if d is None and w is not None:
                     self._est_pairs.add((ln, frozenset((a, b))))
                 if w is not None:                       # 공표 거리 또는 추정 길이(중심값) — 추정이면 _est_pairs 가 알려 준다
                     self.exact[ln].setdefault(a, {})[b] = w
                     self.exact[ln].setdefault(b, {})[a] = w
-                    self.ub[(ln, a)][(ln, b)] = w
-                    self.ub[(ln, b)][(ln, a)] = w
-                self._lb_edge((ln, a), (ln, b), w if w is not None else floor.get((ln, a, b), floor.get((ln, b, a), 0)))
+                    # (GPT 102 #5) **상한 그래프에는 요금을 내는 노선의 간선만** 넣는다. 앞 판은 목록 밖 노선(별도운임일 수 있다)의
+                    #   추정 길이도 넣어, 허용 노선만 탄 후보의 상한이 그 노선을 지름길로 지나며 짧아질 수 있었다(그 길을 운임거리로
+                    #   쓰는지 모른다 — 요금이 싸게 나오는 쪽 오류). 탄 경로(exact)는 _ridden 이 노선으로 막는다 · 하한 그래프에는 넣는다.
+                    if (d is not None or ln in self.est_ok) and (self.fare_lines is None or ln in self.fare_lines):
+                        self.ub[(ln, a)][(ln, b)] = w
+                        self.ub[(ln, b)][(ln, a)] = w
+                if w is None:                           # 102 — 하한 전용 공표 값(요금 안 내는 노선 · 추정 등급) → 없으면 바닥값
+                    w_lb = lb_only.get((ln, a, b), lb_only.get((ln, b, a)))
+                    if w_lb is None:
+                        w_lb = floor.get((ln, a, b), floor.get((ln, b, a), 0))
+                else:
+                    w_lb = w
+                self._lb_edge((ln, a), (ln, b), w_lb)
         by_nm = collections.defaultdict(list)
         for n in nodes:
             by_nm[station_name(n[1])].append(n)
@@ -265,6 +285,8 @@ class FareNet:
         tot = est = n = 0
         for leg in legs:
             ln = leg["line"]
+            if self.fare_lines is not None and ln not in self.fare_lines:
+                return None                              # 102 — 요금을 내는 노선이 아니다(별도운임일 수 있다) — 거리가 있어도 값 없음
             if self.est and ln not in self.est_ok and any(k[0] == ln for k in self._est_pairs_lines()):
                 return None                              # 별도운임일 수 있는 노선 — 추정 길이로 요금을 내지 않는다
             r = self._walk(self.exact.get(ln, {}), leg["from"], leg["to"],
@@ -325,6 +347,29 @@ def est_lengths(v):
     return dict(est), tau, lines, floor
 
 
+#: (102) 추정 등급 공표 값(김포골드라인 — 누적 km 의 차 · 0.1 km 반올림)의 오차 — 하한 그래프에 넣을 때 이만큼 뺀다
+GAP_EST_TOL_M = 100
+
+
+def pub_lengths(v):
+    """(공표 역간거리 {(노선, a, b): m}, 하한 전용 {(노선, a, b): m}, 요금을 내는 노선 집합 또는 None) — 102 · 요금 거리 원천 순서의 둘째.
+
+    공표 역간거리 표(`station_gap_v1.jsonl` · LineOrder.gap_edges)가 역 순서 표에 거리가 없는 간선을 채운다.
+      · 요금을 내는 노선 = 규칙 fare.subway.distance_estimate.lines(통합 거리비례 운임 노선 — 팀장 목록 그대로 · 규칙 파일 무변경).
+        그 노선의 **확정** 값만 공표 거리로 쓴다(두 원천 일치 · 단일 원천 — 본인 10/5: 단일 원천도 확정).
+      · 그 밖 노선(공항철도·용인·의정부·우이신설·인천 — 별도운임일 수 있다)과 추정 등급(김포골드라인)은 **하한 그래프에만**
+        넣는다(추정은 − GAP_EST_TOL_M). 그 노선을 탄 후보의 요금은 내지 않는다.
+    표가 없거나 규칙에 노선 목록이 없으면 ({}, {}, None) — 앞 판과 같은 결과."""
+    rule = (_fare(v)["subway"].get("distance_estimate") or {}).get("value") or {}
+    lines = set(rule.get("lines") or ())
+    gap = getattr(v.lo, "gap_edges", None) or {}
+    if not gap or not lines:
+        return {}, {}, None
+    pub = {k: m for k, (m, g) in gap.items() if g == "확정" and k[0] in lines}
+    lb_only = {k: (m if g == "확정" else max(0, m - GAP_EST_TOL_M)) for k, (m, g) in gap.items() if k not in pub}
+    return pub, lb_only, lines
+
+
 def fare_net_est(v):
     """공표 거리 + 선로 길이 추정을 합친 요금망. 추정이 없으면 None(= 공표만)."""
     net = _NETS_EST.get(v.lo)
@@ -333,7 +378,9 @@ def fare_net_est(v):
             net = _NETS_EST.get(v.lo)
             if net is None:
                 est, tau, ok, floor = est_lengths(v)
-                net = (FareNet(v.lo, v.sc, v.tw, {"연결_반경_m": _fare(v)["subway"]["하한_연결_반경_m"]["value"]}, est, tau, ok, floor)
+                pub, lb_only, fl = pub_lengths(v)
+                net = (FareNet(v.lo, v.sc, v.tw, {"연결_반경_m": _fare(v)["subway"]["하한_연결_반경_m"]["value"]}, est, tau, ok, floor,
+                               pub=pub, lb_only=lb_only, fare_lines=fl)
                        if est else False)
                 _NETS_EST[v.lo] = net
     return net or None
@@ -346,7 +393,9 @@ def fare_net(v):
         with _NETS_LOCK:
             net = _NETS.get(v.lo)
             if net is None:
-                net = FareNet(v.lo, v.sc, v.tw, {"연결_반경_m": _fare(v)["subway"]["하한_연결_반경_m"]["value"]})
+                pub, lb_only, fl = pub_lengths(v)
+                net = FareNet(v.lo, v.sc, v.tw, {"연결_반경_m": _fare(v)["subway"]["하한_연결_반경_m"]["value"]},
+                              pub=pub, lb_only=lb_only, fare_lines=fl)
                 _NETS[v.lo] = net
     return net
 
