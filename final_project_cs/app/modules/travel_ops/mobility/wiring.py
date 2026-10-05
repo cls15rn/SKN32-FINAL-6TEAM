@@ -14,10 +14,13 @@
 """
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
 from .engine import datacheck, paths
+from .engine.timeutil import CalendarOutOfRange
 from .engine import guardrails as engine_guardrails
 from .engine import runtime as engine_runtime
 
@@ -26,21 +29,37 @@ CS_ROOT = Path(__file__).resolve().parents[4]          # mobility → travel_ops
 _STATE: dict[str, Any] = {"mode": "unconfigured", "kw": None, "datacheck": None}
 
 
+#: ★서버 콘솔이 실제로 보여 주는 로거를 쓴다 — 앱 로거(`__name__`)는 INFO 가 콘솔에 안 나와 「적재가 됐는지」 운영에서 보이지 않았다
+# ★이 로거로 찍는 글에는 「—」(U+2014)를 쓰지 않는다 — 윈도 cp949 콘솔이 못 옮겨 글자 그대로 깨져 나온다(화면 세션이 실콘솔에서 확인)
+_SERVER_LOG = logging.getLogger("uvicorn.error")
+_ANNOUNCED: set[tuple] = set()
+
+
+def _announce(key: tuple, message: str, *args: Any) -> None:
+    """같은 상태는 한 번만 — 조립(build_registry)이 여러 번 불려도 줄이 쌓이지 않게."""
+    if key not in _ANNOUNCED:
+        _ANNOUNCED.add(key)
+        _SERVER_LOG.info(message, *args)
+
+
 class MobilityUnavailable(RuntimeError):
     """이동 자료가 없거나 판 명세와 다르다 — 켜라고 했는데 켤 수 없다. 기동을 멈춘다(결정 15)."""
 
 
 def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
               guardrails_path: str | Path | None = None, preload: bool = True,
-              verify_hash: bool = True) -> dict[str, Any]:
+              verify_hash: bool = True, local_router: bool = True, warm_router: bool = False) -> dict[str, Any]:
     """계산기를 켜거나 끈다. 켤 때는 자료를 확인하고(없거나 다르면 MobilityUnavailable) 적재까지 한다.
 
-    ☆99(2026-10-04) `gh_url` 은 **받기만 하고 쓰지 않는다** — 계산기가 경로 서버를 부르지 않는다(택시·자동차는 저장소 안
-      차도 그래프 · 자전거 승차 소요는 근거없음). 팀 설정 칸(`ACOP_MOBILITY_GH_URL` · settings.mobility_gh_url)과 이 인자로
-      부르는 팀 시험이 있어 인자는 남긴다 — 값이 와도 계산기로 넘기지 않는다."""
+    ☆99(2026-10-04) `gh_url` 은 **받기만 하고 쓰지 않는다** — 계산기가 경로 서버를 부르지 않는다. 팀 설정 칸
+      (`ACOP_MOBILITY_GH_URL` · settings.mobility_gh_url)과 이 인자로 부르는 팀 시험이 있어 인자는 남긴다 — 값이 와도
+      계산기로 넘기지 않는다.
+    ☆101(2026-10-05 · 합치기) 길찾기를 켜는 칸은 팀장 `local_router`(설정 `ACOP_MOBILITY_LOCAL_ROUTER`) 하나다 — 택시·자전거·
+      걷기 길찾기가 저장소 안 도로 그래프(걸음 길이 든 v2)를 쓴다. 우리 환경변수 `MOBILITY_ROAD_GRAPH` 는 없앴다."""
     if not data_dir:
         paths.disable()
         _STATE.update(mode="disabled", kw=None, datacheck=None)
+        _announce(("disabled",), "이동 계산기 꺼짐 - 설정 mobility_data_dir 가 비어 있다(일정 짜기·재경로는 직선 어림값)")
         return {"mode": "disabled"}
     paths.configure(data_dir)
     if guardrails_path:
@@ -48,14 +67,43 @@ def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
     dc = datacheck.check(verify_hash=verify_hash)
     if not dc["ok"]:
         _STATE.update(mode="broken", kw=None, datacheck=dc)
-        raise MobilityUnavailable(f"이동 자료 확인 실패 — 서버를 띄우지 않는다(결정 15): 없음 {dc['missing']} · "
+        raise MobilityUnavailable(f"이동 자료 확인 실패 - 서버를 띄우지 않는다(결정 15): 없음 {dc['missing']} · "
                                   f"다름 {dc['mismatched']} · 자료 폴더 {dc['data_dir']}")
     kw = {"quiet": True, "data_dir": data_dir, "seoul_key": seoul_key or "",
-          "guardrails_path": str(guardrails_path) if guardrails_path else None}
+          "guardrails_path": str(guardrails_path) if guardrails_path else None, "local_router": bool(local_router)}
     _STATE.update(mode="enabled", kw=kw, datacheck=dc)
     if preload:
-        engine_runtime.get_verifier(**kw)
+        started = time.monotonic()
+        rt = engine_runtime.get_verifier(**kw)
+        _announce(("enabled", str(paths.DATA_DIR)),
+                  "이동 계산기 켜짐 - 자료 %s(출처 %s) · 명세 %s · 시간표 판 %s%s · 적재 %.1f초",
+                  paths.DATA_DIR, paths.SOURCE, Path(dc["manifest"]).name if dc.get("manifest") else "없음",
+                  getattr(rt, "timetable_built_at", "?"), " · ★오래됨" if getattr(rt, "timetable_stale", False) else "",
+                  time.monotonic() - started)
+        if warm_router:
+            _warm_local_router(rt)
     return {"mode": "enabled", "datacheck": dc}
+
+
+def _warm_local_router(rt) -> None:
+    """☆`[2026-10-04]` 파이썬 로컬 라우터(도로 그래프)를 백그라운드로 미리 올린다 - 서버를 띄운 직후 첫 택시·도보 물음이 10초 멈추지 않게.
+
+    스레드는 기동을 막지 않는다(daemon). 올리다 실패해도 서버는 산다 - 라우터는 첫 호출 때 다시 올려 보고, 안 되면 RouterDown 으로 근거없음이다."""
+    router = getattr(getattr(getattr(rt, "_v", None), "bike_router", None), "router", None)
+    if router is None or not hasattr(router, "warm") or getattr(router, "_warm_started", False):
+        return                                                   # 라우터는 프로세스당 하나를 나눠 쓰므로 스레드도 한 번만
+    router._warm_started = True
+
+    def run():
+        started = time.monotonic()
+        try:
+            router.warm()
+            _announce(("router_warm", id(router)), "이동 계산기 길찾기(로컬 도로 그래프) 준비됨 - %.1f초", time.monotonic() - started)
+        except Exception as ex:                                  # noqa: BLE001 - 서버를 죽이지 않는다(원인은 로그에)
+            _SERVER_LOG.warning("이동 계산기 길찾기 미리 올리기 실패(첫 호출 때 다시 시도): %s", type(ex).__name__)
+
+    import threading
+    threading.Thread(target=run, name="mobility-router-warm", daemon=True).start()
 
 
 def configure_from_settings(settings: Any, *, preload: bool = True) -> dict[str, Any]:
@@ -65,22 +113,24 @@ def configure_from_settings(settings: Any, *, preload: bool = True) -> dict[str,
     if not gp.is_absolute():
         gp = CS_ROOT / gp
     return configure(data_dir=getattr(settings, "mobility_data_dir", ""),
-                     seoul_key=getattr(settings, "seoul_openapi_key", ""), guardrails_path=gp, preload=preload)
+                     seoul_key=getattr(settings, "seoul_openapi_key", ""), guardrails_path=gp, preload=preload,
+                     local_router=getattr(settings, "mobility_local_router", True),
+                     warm_router=getattr(settings, "mobility_local_router", True))
 
 
 def mode() -> str:
     return _STATE["mode"]
 
 
-#: 설문 우선순위 「이동」 세부 코드(화면 PREFERENCES_CONTRACT) → 계산기 수단. 렌트카·택시는 계산기가 아직 못 다룬다(#47)
-SURVEY_MODES = {"public": ("subway", "bus"), "walk": ("walk",)}
+#: 설문 우선순위 「이동」 세부 코드(화면 PREFERENCES_CONTRACT) → 계산기 수단. 택시는 `[2026-10-04 #47]` 부터 넣는다. 렌트카(car)는 아직 못 다룬다
+SURVEY_MODES = {"public": ("subway", "bus"), "walk": ("walk",), "taxi": ("taxi",)}
 
 
 def modes_from_survey(constraints: dict[str, Any] | None) -> list[str] | None:
     """☆`[2026-09-29 문제목록 #46]` 설문의 이동 선호를 계산기 수단으로. 앞 판은 받아 두기만 했다.
 
     화면은 `preferred_mobility[]` 를 보내지 않고 `priority_details.mobility`(public·walk·car·taxi)로 보낸다 — 둘 다 본다.
-    옮길 수 있는 것이 하나도 없으면(렌트카·택시만) None — 계산기 기본 수단(지하철·버스·도보). 도보는 늘 넣는다
+    옮길 수 있는 것이 하나도 없으면(렌트카만) None — 계산기 기본 수단(지하철·버스·도보). 도보는 늘 넣는다
     (역·정류장까지 걷기는 어느 수단에도 들어간다)."""
     survey = (constraints or {}).get("survey") or {}
     codes = list(((survey.get("priority_details") or {}).get("mobility") or []))
@@ -220,9 +270,15 @@ def leg_planner(party_size: int | None, constraints: dict[str, Any] | None, *, d
     def leg(a_place, b_place, arrive_dt, not_before_dt=None):
         counter["n"] += 1
         planner.trace = []
-        got, why = planner.leg(a_place, b_place, arrive_dt, party, first_visit,
-                               case_id=f"{a_place.get('key')}_to_{b_place.get('key')}_{counter['n']}",
-                               not_before_dt=not_before_dt)
+        try:
+            got, why = planner.leg(a_place, b_place, arrive_dt, party, first_visit,
+                                   case_id=f"{a_place.get('key')}_to_{b_place.get('key')}_{counter['n']}",
+                                   not_before_dt=not_before_dt)
+        except CalendarOutOfRange as ex:
+            # ☆`[2026-09-29 자료 폴더를 켜자 시험이 잡음]` 공휴일 표가 덮지 않는 해(2028~)의 여행이면 계산기는 평일·휴일을 짐작하지
+            #   않고 멈춘다(#5). 그 오류를 위로 올리면 장소 교체·일정 짜기 전체가 터진다 — 「계산기가 못 채움」으로 돌려 부르는 쪽이
+            #   종전 대체 소스(어림값)로 가게 한다. 이유는 남는다(조용히 삼키지 않는다)
+            return None, {"code": "no_data", "reason": f"계산기가 그 날짜를 판정하지 못한다 — {ex}"}
         if got is None:
             return None, why
         route, start, end, sdate, left = got

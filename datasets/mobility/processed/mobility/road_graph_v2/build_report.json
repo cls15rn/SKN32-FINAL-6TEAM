@@ -1,8 +1,8 @@
 {
- "version": "road_graph_v1",
- "src": "src.pbf",
+ "version": "road_graph_v2",
+ "src": "south-korea-latest.osm.pbf",
  "src_bytes": 287530348,
- "built_at": "2026-09-29T17:50:53+09:00",
+ "built_at": "2026-10-05T11:17:39+09:00",
  "src_md5": "b4aac9966079cb88204b1d8df495e33c",
  "osmosis_replication_timestamp": "2026-09-18T20:21:10Z",
  "region": {
@@ -30,26 +30,27 @@
   "margin_m": 3000
  },
  "counts": {
-  "ways": 180110,
-  "nodes": 280065,
-  "edges": 375651,
-  "edges_car": 327274,
-  "edges_bike": 365390,
-  "edges_bike_only": 48377,
-  "len_km_car": 26229.3,
-  "edges_car_main": 322143,
-  "edges_bike_main": 360623,
-  "nodes_in_region": 224786
+  "ways": 264283,
+  "nodes": 419672,
+  "edges": 581193,
+  "edges_car": 359592,
+  "edges_bike": 404711,
+  "edges_foot": 532732,
+  "edges_foot_only": 166007,
+  "edges_steps": 5542,
+  "edges_car_main": 354187,
+  "edges_bike_main": 398989,
+  "edges_foot_main": 523340,
+  "nodes_in_region": 341228
  },
  "options": {
-  "no_service": false,
-  "no_geom": false,
   "service_drop": [
    "drive-through",
    "emergency_access",
    "parking_aisle"
   ],
-  "turn_restrictions": "생략"
+  "turn_restrictions": "생략",
+  "oneway_foot": "생략"
  },
- "elapsed_s": 204.9
+ "elapsed_s": 224.0
 }

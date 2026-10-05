@@ -18,6 +18,8 @@
 #   여기서는 **이미 정규화된 시간표 값**과 **사람이 준 시각**을 같은 축으로 맞춘다.
 import re
 
+from .errors import CaseInputError
+
 MIN_DAY = 24 * 60                 # 1440
 SERVICE_DAY_START_MIN = 4 * 60    # 04:00 — 운행일 경계
 SERVICE_DAY_MAX_MIN = 30 * 60     # 30:00 — 이보다 큰 값은 시각으로 보지 않는다
@@ -152,7 +154,7 @@ def normalize_raw(t):
     return v
 
 
-class CalendarOutOfRange(ValueError):
+class CalendarOutOfRange(CaseInputError):
     """공휴일 표가 덮지 않는 해의 날짜 — 평일·휴일을 **짐작하지 않는다**(결정 15: 대체 출처가 없으면 치명)."""
 
 

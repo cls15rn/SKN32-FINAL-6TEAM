@@ -40,6 +40,22 @@ def test_45_no_move_across_service_days():
     assert out["not_linked"] and out["not_linked"][0]["code"] == "day_boundary"
 
 
+def test_45_service_day_boundary_is_04_00_sharp():
+    """운행일 경계는 다음 항목의 **시작 시각**이 04:00:00 인지로 본다(이동 담당·팀장 결정 — 73 후속 · GPT Q5).
+    03:59:59 는 전날 운행일이라 잇고, 04:00:00 정각은 다음 운행일 아침이라 잇지 않는다(day_boundary).
+    ☆앞서 「도착 마감 1분 전」 기준으로 바꿨다가 이 결정과 반대라 물렸다 — 새벽 04:00 정각 시작 항목 앞 이동은 만들지 않는다."""
+    items = [_item("저녁", "P1", "2026-10-05T22:00:00+09:00", "2026-10-05T23:00:00+09:00"),
+             _item("새벽", "P2", "2026-10-06T03:59:59+09:00", "2026-10-06T05:00:00+09:00")]
+    out = P.plan(PLACES, items, 2, {}, runtime=_rt())
+    assert not out["not_linked"], out["not_linked"]
+    assert [it for it in out["items"] if it["kind"] == "mobility"], "03:59:59 는 같은 운행일 — 두 장소가 300 m 라 도보 이동이 만들어진다"
+    items[1] = _item("새벽", "P2", "2026-10-06T04:00:00+09:00", "2026-10-06T05:00:00+09:00")
+    out = P.plan(PLACES, items, 2, {}, runtime=_rt())
+    assert [n["code"] for n in out["not_linked"]] == ["day_boundary"], out["not_linked"]
+    items[1] = _item("아침", "P2", "2026-10-06T09:00:00+09:00", "2026-10-06T10:00:00+09:00")
+    assert P.plan(PLACES, items, 2, {}, runtime=_rt())["not_linked"][0]["code"] == "day_boundary"
+
+
 def test_45_same_day_move_is_made_and_keeps_input_detail():
     items = [_item("A", "P1", "2026-10-05T10:00:00+09:00", "2026-10-05T11:00:00+09:00"),
              _item("이동", None, "2026-10-05T11:05:00+09:00", "2026-10-05T11:20:00+09:00", kind="mobility",
@@ -143,7 +159,9 @@ def test_13_walk_is_straight_line_times_detour():
 
 def test_13_walk_formula_is_the_same_in_leg_and_earliest():
     """99(GPT #3) — 도보 직행은 leg()(도착 목표 역산)와 earliest()(가장 이른 도착)가 **같은 식**(직선 × 우회계수 · 분 올림 ·
-    단계 버퍼)을 쓴다. 보행망 자리를 지우면서 두 군데가 각자 식을 갖게 됐다 — 한쪽만 바뀌면 여기서 운다."""
+    단계 버퍼)을 쓴다. 보행망 자리를 지우면서 두 군데가 각자 식을 갖게 됐다 — 한쪽만 바뀌면 여기서 운다.
+    ☆101(2026-10-05) 두 자리 모두 다시 `_walk_net`(길찾기가 있으면 길 거리 · 없으면 직선 × 우회계수) 한 함수를 부른다(팀장 판).
+      이 시험은 길찾기를 끈 판(pytest 기본)이라 값은 그대로 직선 × 우회계수다 — 잠그는 것은 「두 자리가 같은 값」이다."""
     import math
     from datetime import datetime, timedelta, timezone
 

@@ -133,7 +133,8 @@ def test_24_build_verifier_on_mini_data(mini):
     from app.modules.travel_ops.mobility.engine.runtime import build_verifier
     rt = build_verifier(quiet=True, data_dir=mini, seoul_key="")
     assert rt.stats["timetable_stations"] == 3 and rt.stats["data_dir_source"] == "settings"
-    assert rt.stats["bike_live"] is False and "bike_router" not in rt.stats, "빈 값은 끔 — 환경변수로 새지 않는다 · 자전거 라우터 칸은 없다(99)"
+    assert rt.stats["bike_live"] is False and rt.stats["bike_router"] is False and rt.stats["router"] is None, \
+        "빈 값은 끔 — 환경변수로 새지 않는다 · 길찾기를 안 켰으면(기본) 자전거·택시 길찾기 없음(101 — 99 때는 칸 자체가 없었다)"
     r = rt.verify_case({"id": "t", "date": "2026-10-07", "depart_at": "10:00", "legs": [
         {"line": "01호선", "from": "A", "to": "C"}], "no_alternatives": True})
     assert r.verdict == "feasible", r.reason
@@ -248,3 +249,49 @@ def test_63_committed_mini_timetable_is_gzip_and_readable():
     assert not (here / "mini_timetable_v2.jsonl").exists(), "평문 20MB 판은 압축본으로 바뀌었다"
     tt = Timetable.load(here / "mini_timetable_v2.jsonl.gz", wanted={("05호선", "여의도")})
     assert tt.rows > 0 and tt.fetched_at == "2026-09-09"
+
+
+# ── 자료 폴더 통일(2026-09-29) — 저장소 안 datasets/mobility/processed ─────────────────
+def test_datasets_relative_path_is_resolved_from_the_repo_root(monkeypatch):
+    """상대 경로는 서버를 띄운 폴더가 아니라 저장소 맨 위 기준 — 안 그러면 final_project_cs/ 에서 띄울 때 자료를 못 찾는다."""
+    monkeypatch.chdir(CS_ROOT)
+    before = (paths.SOURCE, paths.DATA_DIR)
+    try:
+        paths.configure("datasets/mobility/processed")
+        assert paths.DATA_DIR == paths.REPO_ROOT / "datasets" / "mobility" / "processed"
+        assert paths.PROCESSED == paths.DATA_DIR, "processed 로 끝나는 경로는 그 자리가 PROCESSED"
+        paths.configure(CS_ROOT / "somewhere")
+        assert paths.DATA_DIR == CS_ROOT / "somewhere" and paths.PROCESSED == CS_ROOT / "somewhere" / "travel" / "processed"
+    finally:
+        paths._layout(before[1], before[0])
+
+
+def test_repo_root_ignores_an_empty_dot_git_folder(tmp_path):
+    """이 기기의 final_project_cs/.git 처럼 info/ 만 든 빈 폴더(찌꺼기)에 속아 저장소 맨 위를 잘못 잡지 않는다."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/x", encoding="utf-8")
+    inner = tmp_path / "final_project_cs" / "app"
+    inner.mkdir(parents=True)
+    (tmp_path / "final_project_cs" / ".git" / "info").mkdir(parents=True)          # 찌꺼기: HEAD 가 없다
+    assert paths._repo_root(inner / "x.py") == tmp_path.resolve()
+    (tmp_path / "final_project_cs" / ".git" / "HEAD").write_text("ref: y", encoding="utf-8")
+    assert paths._repo_root(inner / "x.py") == (tmp_path / "final_project_cs").resolve(), "진짜 저장소면 그것을 센다"
+
+
+def test_datacheck_reads_the_manifest_the_mobility_owner_ships(mini):
+    """자료와 함께 올라오는 MANIFEST_git_v1.json(files[].path·bytes·sha256)으로 서버 기동 때 확인한다."""
+    import hashlib
+    from app.modules.travel_ops.mobility.engine import datacheck
+    paths.configure(mini)
+    base = mini / "travel" / "processed" / "mobility"
+    P = datacheck._paths()
+    entries = [{"path": p.relative_to(base).as_posix(), "bytes": p.stat().st_size,
+                "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in P.values() if p.exists()]
+    (base / datacheck.GIT_MANIFEST_NAME).write_text(json.dumps({"manifest_version": "git_v1", "files": entries}),
+                                                     encoding="utf-8")
+    ok = datacheck.check()
+    assert ok["ok"] and ok["manifest"].endswith(datacheck.GIT_MANIFEST_NAME), ok
+    tt = base / "timetable_v1.jsonl"
+    tt.write_text(tt.read_text(encoding="utf-8").replace("01호선", "01호선 ", 1), encoding="utf-8")   # 내용만 바뀐다
+    bad = datacheck.check()
+    assert not bad["ok"] and {m["file"] for m in bad["mismatched"]} == {"timetable"}, bad

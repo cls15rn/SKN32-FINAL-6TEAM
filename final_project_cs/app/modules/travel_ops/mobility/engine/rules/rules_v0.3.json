@@ -1,21 +1,7 @@
 {
  "rules_version": "v0.9.2",
  "effective_date": "2026-09-29",
- "supersedes": "v0.9.1",
  "source_id": "mobility_rules@v0.9.2",
- "source_id_근거_2026-09-14": "판 번호가 두 군데에 있다 — rules_version 과 이 source_id. 판정 근거(policy Evidence)의 source_id 는 rules_version 이 아니라 **이 값**을 그대로 쓴다(verify_time.py:165 → _ev_rule). 2026-09-14 에 rules_version 만 v0.3.1 로 올리고 이 값을 v0.3 으로 두어, **규칙은 v0.3.1 인데 판정 근거는 v0.3 이라고 기록되는** 상태가 잠시 있었다 (데모 HTML 을 재생성해 근거 표를 눈으로 보고 발견). 두 값은 항상 같은 판을 가리켜야 한다 — check_fold [11] 이 그것을 검사한다. · 2026-09-19 v0.4: 둘을 함께 올렸다(v0.4 / mobility_rules@v0.4). 파일명은 그대로 rules_v0.3.json — 2026-09-14 방침(파일명 유지, 내부 버전만).",
- "author": "서유현 (Mobility 담당)",
- "purpose": "이동 구간의 제약 대조에 쓰는 규칙. Evidence(source_type='policy', source_id=이 파일의 source_id, observed_at=effective_date)로 판정에 붙는다.",
- "changelog_v0.2": [
-  "카카오 보행 속도를 실측(1.04 m/s)해 계수를 다시 계산했다. 팀 의견 검증 결과 반영.",
-  "base_first_visit 1.15 → 1.0 삭제. 카카오는 성인 평균(1.3)보다 이미 느린 속도를 쓰므로 일반 일행에 계수를 곱할 이유가 없다.",
-  "그 대신 '길찾기 시간'을 계수가 아니라 환승당 고정 가산으로 분리했다. 표지를 찾는 시간은 걷는 거리에 비례하지 않는다.",
-  "동행 계수를 실측 기준선 대비 비율로 다시 계산했다(유아 1.5, 짐 1.2, 피로 1.3).",
-  "카카오 totalTime 에 대기 시간이 없다는 것을 확인해 환승·승차 대기 모델의 근거를 굳혔다.",
-  "MVP 결정(9/9): 보행 보정 계수를 기본 OFF(walk_pace.enabled=false)로 둔다. 카카오 시간을 그대로 쓰고, 계수는 소비자 프로필이 넘어오는 확장 단계로 미룬다. 값과 근거는 그대로 남겨 확장 때 바로 켠다.",
-  "9/9 저녁: 서울 시내버스에도 배차간격(term)이 있음을 확인해 bus 절을 정정했다(이전에 '서울은 배차 근거 없음'이라 적은 것은 오류). 공항 리무진의 출발 시각 목록을 airport_bus 절로 분리했다.",
-  "9/9: 공휴일 소스(특일 정보) 확보 후 day_type 절 추가. 시간표를 평일/휴일로 나눠 저장했으므로 날짜→시간표 선택 규칙이 규칙 파일에 있어야 한다."
- ],
  "measured_baseline": {
   "kakao_walk_speed_mps": {
    "value": 1.04,
@@ -867,44 +853,6 @@
    "순서": "① 행선지가 출발역과 같으면 제외 → ② 행선지가 목적지를 지나는지 확인(행선지_확인) → ③ 시각 비교"
   }
  },
- "changelog_v0.3": [
-  "congestion 절 추가 — 소스·커버리지·요일 3종·30분 슬롯·등급·방향·지선 분리.",
-  "임계값 초안 150%/170% 폐기. 실제 데이터 최댓값이 144.6% 라 한 번도 발동하지 않는다. 분포 기준 60/80/100/130 으로 재설정(전부 추정).",
-  "혼잡도 0 값을 혼잡도로 쓰지 않기로 명시 — 종착 방향·막차 이후·해당 30분 열차 없음으로 구분해 근거없음 처리.",
-  "혼잡도가 재차율(출발 직후 열차 부하)임을 노선 진행 방향 단조 감소로 확인. 초안에 '역 기준이라 구간 통과 인원이 아니다'라고 잘못 적었던 것을 정정.",
-  "bus 절 보강 — 서울 15000193 승인·수집 완료(6노선·정류장 89). 1단계 조회 정정, 막차 익일 날짜 처리, term=0 근거없음, 서울 노선 판별 규칙, 그리고 버스 구간이 walk_m 상한을 푸는 경로라는 실측을 기록.",
-  "congestion.방향 을 추정 → 확정으로. consistency_check.py C1(종착 방향 대조) 26 조합에서 일치 17·뒤집힘 0.",
-  "시간표 자정 넘김 정규화 후 C4 교차검증 불일치가 첫차 757→7, 막차 652→40 으로 떨어졌다. 시각 축이 세 소스(시간표·혼잡도·버스)에서 같은 자를 쓴다.",
-  "last_train 절 신설 — 자정 넘김 정규화(확정)와 막차 행선지 확인(확정). C5 에서 막차 단축운행이 광범위함을 확인했다.",
-  "last_train.종착열차_제외 추가 — dest_nm 이 그 역 자신인 행(3,651행·26 조합의 막차)을 출발 후보에서 뺀다. C4 ③.",
-  "last_train.신정지선_토요일_예외 추가 — 02호선 도림천·양천구청·신정네거리·까치산의 토요일 판정 등급을 추정으로 내린다. C4 ③-b.",
-  "last_train.행선지_확인.선행 갱신 — 역 순서 표가 2026-09-10 에 완성돼 막힘이 풀렸다.",
-  "service_window 절 추가 — 첫차 이전·막차 이후·배차 공백·시간표 없음을 가르는 규칙과 공백 상한 180분(추정).",
-  "※ 위 넷은 2026-09-10 오후 검증기 재작성 중에 같은 판(v0.3, effective_date 동일)에 덧붙였다. 값 변경이 아니라 빠져 있던 규칙의 추가다.",
-  "last_train.시발열차_판별 추가(0.5, 추정) — 순환선 시발역·지선 종점의 dest==역 행을 입고 열차와 구분한다. 실제 시간표 조사에서 나왔다.",
-  "service_window.candidate_scan_min 추가(90분, 추정) — 후보를 '가장 이른 출발'이 아니라 '가장 이른 도착'으로 고른다.",
-  "last_train.순환선_한바퀴_판별 추가(0.5, 추정) — 2호선 성수행이 '3정거장 뒤 종착'으로 읽혀 왕십리→잠실이 73분으로 나오던 것을 고쳤다.",
-  "service_window.왕복_비대칭_수집누락 추가 — A→B 0편인데 B→A 가 있으면 불가가 아니라 근거없음. 신도림·성수의 지선 편성 누락에서 나왔다.",
-  "last_train.한바퀴_도착_여유_분 추가(15분, 추정) — 막차가 한 바퀴 돈다는 판정(24:51 출발 → 26:20 도착)을 막는다.",
-  "transfer 절을 rules_v0.2.json(2026-09-10 12:31, 01·03번 방 갱신분)에서 옮겨 왔다 — walk_distance 신설, large_station_addition_min 은 superseded 로 fallback 전용. **두 방이 서로 다른 규칙 파일을 고치고 있었다.** v0.3 이 정본이다(supersedes v0.2).",
-  "bus 절 보강 — ride_model(근거없음)·막차근처_기준_분(60)·route_type_제외(관광)·요일축_없음. 버스 분기 구현에 맞춰 넣었다.",
-  "bus.ride_model 을 '근거없음' → 'speed_table'(추정) 로 해제. bus.표정속도 절 신설 — 교통카드 통계의 거리·시간을 나눠 우리가 산출. 순환 값이 표본 0.13% 로 약하고 하필 시연 남산 구간이라 실측 대체 예정, 심야는 간선 값 대용(보수적 방향).",
-  "bus.표정속도 를 2026년 8월 판으로 교체하고 **주중/주말 요일축 추가**. 값_우선순위 절 신설(노선별 실측 > 유형별 통계 > 근거없음). 2022-01 판과 값이 거의 같아 '코로나기 왜곡' 예측은 틀렸다. 순환은 실측과 여전히 크게 달라 남산 구간은 실측값을 쓴다.",
-  "last_train.행선지_자기역_제외 신설(확정) — 그 역이 종점인 열차는 승차 후보가 아니다. C5 에서 24 조합 확인, 전부 24~25시대.",
-  "bus.표정속도.노선별(빈 값) · 통계_금지_노선(01A·01B) 추가 — 값_우선순위와 약한_값_순환의 결론을 판정기가 읽을 수 있는 형태로 옮겼다. 02번 방.",
-  "bus.우회_경고 추가 — 왕복 노선에서 길 건너 짝을 놓쳐 한 바퀴 도는 답이 나오는 것을 경고한다.",
-  "alternatives 절 신설 — 대안 열거(F3)의 후보축·최대 제시·순위 미부여·정류장 반경·택시 처리. 02번 방.",
-  "taxi 절 신설(2026-09-19, 15번 방) — 서울 택시 요금 산식을 확정 등급으로 기록. 중형·대형/모범 · 심야 2단계 · 시계외 · 호출료 · 공항 구간요금·통행료. 판정기는 아직 읽지 않으므로 rules_version 은 그대로(v0.3.1). 거리·시간 입력은 18번 방 뒤. 19시 정정: A~E 정액은 인터내셔널택시(예약제) 요금 — 일반 택시는 미터+통행료. 통행료 둘 다 운영사 페이지로 확정.",
-  "2026-09-19 (16번 방, 판정 무변경·버전 유지): walk_pace.factors_deferred 근거 보강 — elderly 1.5→1.25, mobility_aid 1.5 신설, fatigue_high 등급 근거없음, luggage 근거약함 명기. measured_baseline.대조 출처명 정정(서울시→경찰청 매뉴얼 2020-11-30 개정, 교통약자 0.8→0.7; 2023 업무편람에서 유지 확인). 원문: 경찰청 매뉴얼 p.61 · 2023 편람 p.112 · 한 외 2020 · 윤 외 2010. ※ 원격 커밋이 두 번 덮여 노트북에서 패치 스크립트로 반영."
- ],
- "changelog_v0.4": [
-  "2026-09-19 · 19번 방(코드 · 혼합 환승). 판정을 바꾸므로 rules_version v0.3.1 → v0.4, source_id mobility_rules@v0.4. 파일명은 유지.",
-  "transfer.stop_station_walk 신설 — 지하철↔버스 환승 도보를 정류장 좌표 ↔ 그 역 가장 가까운 출구(OSM, 추정) 직선 × 우회계수 1.4 ÷ 1.04 m/s 로 낸다. 직선이 limits.walk_m 를 넘으면 **불가**, 상한 ±20 m 면 **근거없음(unknown)**, 좌표가 없으면 0분·근거없음. MIX-01·02 가 0분+1분 → 실제 도보로, MIX-04 가 성립 → 불가로 바뀐다.",
-  "alternatives.정류장_동일_반경_m(100) · 버스_구간_축 신설 — 버스 구간 불가 시 노선교체(같은 두 정류장의 다른 노선)·수단교체(정류장 근처 역끼리 지하철). MIX-03 이 대안 0 → ≥1.",
-  "warnings 2종 추가 — MOB_W_TRANSFER_COORD_MISSING(grade) · MOB_W_TRANSFER_NEAR_WALK_LIMIT(data, answer). 22 → 24종.",
-  "회귀 편입 — tests/mobility/mixed_legs_v1.json 4건이 회귀에 들어간다. 85 → 89.",
-  "verify_time.py 시간표 부분 적재를 넓혔다 — 케이스 구간의 노선만이 아니라 노선교체 후보 노선과 버스 정류장 근처 역도 올린다. 종전에는 ⓑ 노선교체 후보가 시간표 없음으로 죽어 회귀에서 한 번도 살아난 적이 없었다(런타임은 전체 상주라 무관). 판정 값 변경이 아니라 회귀 장치의 결함 수정이다."
- ],
  "service_window": {
   "설명": "'그 시각에 열차가 있는가' 에서 없음을 첫차 이전·막차 이후·배차 공백으로 가르는 규칙. 판정 문구가 달라지고 완화 조건도 달라진다.",
   "gap_max_min": {
@@ -1581,6 +1529,17 @@
     "value": "line_station_order_v1.edges[].distance_m",
     "grade": "확정",
     "근거": "서울교통공사 역간거리 및 소요시간_240810.csv(운영기관 공표 · 1~8호선 서울교통공사 구간 270 간선). 다른 운영기관 구간(9호선·코레일 구간·공항철도·신분당선 등)은 거리가 없다 → 그 간선을 타는 후보는 요금을 뺀다(모르면 뺀다)."
+   },
+   "distance_estimate": {
+    "value": {
+     "lines": ["01호선", "02호선", "03호선", "04호선", "05호선", "06호선", "07호선", "08호선", "09호선", "경의선", "수인분당선", "경춘선", "서해선", "경강선"],
+     "tolerance": 0.30,
+     "tolerance_rule": "추정 간선 n 개를 지난 경로의 상대 오차 = tolerance / sqrt(n)",
+     "unknown_edge_floor": 0.75,
+     "source_file": "rail_edge_track_v1.jsonl.gz"
+    },
+    "grade": "추정",
+    "근거": "공표 거리가 없는 간선(9호선·코레일 구간 등)의 운임거리를 OSM 선로(Geofabrik 2026-10-03 · ODbL) 길이로 추정한다. 역 좌표를 선로 선분 위 점에 붙여 같은 노선 이웃한 두 역 사이 선로 최단 길이를 내고(datasets/mobility/scripts/build_rail_edge_distance_v1.py), 공표 거리가 있는 1~8호선 간선으로 오차를 쟀다 — 선로 길이를 얻은 225 간선: 간선 하나 오차 중앙 3.2% · 최대 29%, 연속 n 간선 합의 최대 오차 n=2 18% · 3 12% · 4 8% · 8 6% · 12 4%(오차가 서로 상쇄). 그래서 경로 오차를 tolerance(0.30)/√n 으로 둔다(관측 최대보다 크다). 공표가 있는 서울교통공사 구간으로 잰 값이라 9호선·코레일 구간에 그대로 맞는지는 모른다. 직선 거리 1.5배+150 m 를 넘는 값은 평행 노선에 붙은 것으로 보고 버린다. 쓰는 방식: 공표 거리만으로 요금이 안 나올 때만 추정 길이를 더한 요금망으로 다시 계산한다 — 상한 = 길이 합 + 추정 길이 × 오차, 하한 = 길이 합 − 추정 길이 × 오차(하한 경로는 중심 길이로 고른 최단 경로 하나 — 다른 경로의 오차 범위는 따로 안 본다). 하한 요금과 상한 요금이 같을 때만 값을 내고, 값이 나와도 추정이라 응답 label 에 밝힌다. 별도운임 노선(공항철도·신분당선·용인·의정부·김포·인천·우이신설·신림선·GTX-A)은 목록에서 뺐다 — 통합 거리비례 운임이 아닐 수 있다. 하한 그래프에서 공표도 추정 길이도 없는 간선(선로를 못 찾은 구간)은 0 이 아니라 두 역 좌표 직선 × unknown_edge_floor(0.75)로 둔다 — 0 이면 길이 모르는 노선(1호선 코레일 구간·경의선·신림선 등)이 공짜 지름길이 돼 하한이 무너진다. 공표 270 간선의 공표/직선 비율은 최소 0.85 · p5 0.92 · 중앙 1.03 이라 0.75 는 그 아래다(서울교통공사 구간만의 값 — 다른 운영기관 구간의 좌표 오차는 모른다). 검증 기록은 wiki/records/reports/2026-10-04_0400_이동_파이썬_길찾기_서버없이_리포트.md 「요금 추정」 절."
    },
    "fare_distance_rule": {
     "value": "shortest_bracket",
@@ -2472,13 +2431,6 @@
    "근거": "시간으로 못 가르는 두 안은 「몇 분 빠르다」를 말하지 않는다. 환승 횟수·도보 분(접근·이탈·환승 도보 합)·근거 등급만 나란히 놓는다. 그래도 같으면 「차이 없음」이다."
   }
  },
- "changelog_v0.5": [
-  "2026-09-20 · 20번 방(코드 · 다목적 후보 + 동급 판정). 판정을 바꾸므로 rules_version v0.4 → v0.5, source_id mobility_rules@v0.5. 파일명은 유지.",
-  "candidates 절 신설 — 역 순서 777간선 위 기준별 대표안(최단·최소환승·최소도보) 생성기(modules/mobility/candidates.py). 최단 × 허용_소요_배수 안에서 파레토 라벨 탐색, 환승 상한 준수. 케이스가 legs 대신 multi:{from,to} 를 주면 verify_time.py 가 후보를 만들고 후보마다 같은 판정기로 시각을 확정한다. 순위 없음. 버스 직행 후보(정류장_반경_m · 성립한 것 도보 순 버스_직행_최대 개)도 같이 낸다.",
-  "tie_band 절 신설 — 지하철 후보 × 버스 후보의 도착 차이가 대기 불확실성(버스 = 대기 추정치, 지하철 = 0) 안이면 「동급」. 이유는 환승·도보·등급 축으로만. 버스끼리·지하철끼리는 비교하지 않는다(비교_대상).",
-  "warnings 1종 추가 — MOB_W_TIE_BAND(data, answer). 24 → 25종.",
-  "회귀 편입 — tests/mobility/multi_legs_v1.json 신설. 기존 91건의 판정·도착·대안·경고는 변경 없음(legs 케이스 경로는 손대지 않았다)."
- ],
  "bike": {
   "설명": "따릉이(서울자전거) 판정 규칙. 17번 방(데이터 · 2026-09-19)이 §4 표로 정한 것을 22번 방(코드 · 2026-09-20)이 그대로 구현한다. 자전거는 시각을 확정하지 않는다 — 시간표가 없다. 소요만 낸다(출발 시각 + 소요 = 도착 추정). **판정 후보를 새로 만드므로(대안 열거 수단교체 축 · multi 후보 · legs mode=bike) rules_version v0.6 → v0.7.**",
   "effective_date": "2026-09-20",
@@ -2622,23 +2574,6 @@
    }
   }
  },
- "changelog_v0.6": [
-  "2026-09-20 · 21번 방(코드 · 자동차·택시 판정). 판정을 바꾸므로 rules_version v0.5 → v0.6, source_id mobility_rules@v0.6. 파일명은 유지.",
-  "car 절 신설 — GraphHopper 상주 서버(localhost:8989, 캐시 없음) + TOPIS 프로파일 동적 소요(modules/mobility/car.py, 18번 graph_time.py 이식). 커버 경계값(골목 50% → 근거없음 · class/default 10% → 경고) · 공항 상자 · 시계외 미판정.",
-  "alternatives.택시 — '열거하되 소요 판단 불가(근거없음)' → 라우터가 있으면 소요·요금(추정). 라우터 없으면 종전대로 근거없음 + MOB_W_CAR_ROUTER_DOWN.",
-  "taxi.적용_상태 — 요금 계산 적용. 택시 요금 = 미터(거리+저속시간, 승차시각 할증) + 공항 통행료 상한. 호출료·정차·시계외 미포함 하한(MOB_W_TAXI_FARE_LOWER_BOUND).",
-  "legs 에 mode=car / mode=taxi 구간 신설 — from/to 는 역명 또는 'lat,lng'. verify_leg_car. Evidence.value kind=car_leg(저장소 3차 변경점 §3).",
-  "warnings 4종 추가 — MOB_W_CAR_SPEED_CLASS · MOB_W_CAR_SPEED_DEFAULT(grade) · MOB_W_CAR_ROUTER_DOWN(data, answer) · MOB_W_TAXI_FARE_LOWER_BOUND(cost, answer). 25 → 29종.",
-  "회귀 편입 — tests/mobility/car_legs_v1.json 신설(합성 경로 픽스처). alt_legs ALT-01·02·03·05 에 expect_taxi 축(택시 unknown → 소요·요금). 기존 97건의 판정·도착·대안·경고는 라우터 유무와 무관하게 변경 없음."
- ],
- "changelog_v0.7": [
-  "2026-09-20 · 22번 방(코드 · 자전거 판정). 판정을 바꾸므로 rules_version v0.6 → v0.7, source_id mobility_rules@v0.7. 파일명은 유지. 21번(자동차·택시)이 같은 날 v0.6 을 먼저 썼다 — 22 는 그 위에 얹는다(car 절 · 경고 · 판정 경로 무변경).",
-  "bike 절 신설 — bike.ddareungi **enabled=true**. 17번 §4 표 그대로: 반경 station_walk_m 안 운영 대여소 ≥1 → 후보 · 출발 대여소 실시간 거치(bikeList stationId 단건, 값만 쓰고 버림) · 외국인 이용 안내 3줄 · 만 12세 이하 제외 · LCD 전용 출발 대여소 제외(추정) · 요금(1h/2h/3h/24h) + 초과 200원/5분, 소요 > 50분 경고 · 소요 = 도보(보행망) + 대여 3 + bike 프로파일 + 반납 3(◇ 근거없음) · 시각 확정 없음.",
-  "판정기 — legs 에 mode=bike 허용(from/to 는 역명 또는 {lat,lng,name}) · 대안 열거 수단교체 축에 자전거 후보(지하철·버스 구간 모두) · multi 후보에 criteria 「자전거」 · tie_band 비교 대상은 그대로 지하철×버스.",
-  "warnings 6종 추가 — MOB_W_BIKE_OVERTIME(cost) · MOB_W_BIKE_FOREIGNER_GUIDE(data) · MOB_W_BIKE_LIVE_UNKNOWN(data) · MOB_W_BIKE_NO_STATION(data) · MOB_W_BIKE_LCD_SKIPPED(data, evidence 만) · MOB_W_BIKE_MODE_UNKNOWN(grade). 21번 뒤의 경고 수에 +6.",
-  "회귀 축 4종 추가 — expect_alt_max_by_mode · expect_alt_min_by_mode · expect_warn_codes_absent · expect_reason_contains. expect_alt_max_by_mode({subway|bus|bike: n}) · alternatives[] 에 mode 필드. ISSUE-06·ALT-03 의 「대안 0」 잠금은 subway·bus 0 으로 옮겼다(자전거는 지하철 이슈를 상속하지 않으므로 나오는 것이 맞다).",
-  "회귀 편입 — tests/mobility/bike_legs_v1.json 신설. 기존 97건 중 판정값 변경 0 — 바뀐 것은 자전거 대안이 붙은 케이스의 **대안 개수**뿐(문서 22번 §4)."
- ],
  "judgment": {
   "설명": "@ 판정 계약(v0.8 · 39번 방 · 12번 규칙 13~15). 구간 열을 best(예정)·worst(최악) 두 번 통과한다. **판정은 worst, 표시는 best + @.** 밖으로는 성립/불가 둘 — 성립 = 예정 시각 + @(margin_min) · 불가 = 이유 코드 + 대안 + 마지막 성립 출발 시각(안에서만). 등급(확정/추정/근거없음)은 밖으로 나가지 않는다 — 안에서 최악값을 고르는 기계다.",
   "effective_date": "2026-09-24",
@@ -2734,44 +2669,5 @@
    "grade": "확정",
    "근거": "CaseResult.out — 밖으로 나가는 판 = **32 의 입력**. 모르는 값은 키를 뺀다(출력 스펙 v1 §2). 등급·내부 판정·근거 없음. 32 가 이 dict 로 items[]·routes{} 를 만든다 — 코어 계약 칸은 기존 것만(새 키 0), last_feasible_depart_min·verdict·code 등은 코어로 안 나간다(계획서 작성 콜에만). multi 케이스는 out.candidates[] 에 후보마다의 같은 모양(출발지 기준으로 되돌린 값)."
   }
- },
- "changelog_v0.8": [
-  "2026-09-24 · 39번 방(코드 · @ 판정 계약). 판정을 바꾸므로 rules_version v0.7 → v0.8, source_id mobility_rules@v0.8. 파일명은 유지.",
-  "judgment 절 신설 — 최악값·최선값 이중 계산(구간 열 두 번 통과 · 판정은 worst · 표시는 best + @) · 밖 판정 둘(feasible/infeasible) · 이유 코드 10종 · margin/slack 정의 · last_feasible_depart 역산(안에서만) · out 키 목록.",
-  "worst 부품 — 버스 대기 배차 전부 · 환승은 최악 도착에서 다음 편 · 혼잡 매우혼잡+조건이면 배차 1회 더(33번 9호선 혼잡도 · 1~8호선 혼잡도) · 정책 버퍼는 @ 에(수단 무관 · v0.7 과 같은 자리) · 버스 승차·자동차·자전거 스프레드는 근거없음(41 대기 · worst = best · MOB_W_WORST_NO_SPREAD).",
-  "tie_band.버스_불확실성 → spread_min(최악 − 예정). 값은 거의 같고 정의가 @ 와 하나가 된다.",
-  "경고 4종 신설 — MOB_W_CONGESTION_SEVERE · MOB_W_CONGESTION_EXTRA_WAIT · MOB_W_WORST_NO_SPREAD · MOB_W_BEST_OK_WORST_FAIL.",
-  "회귀 기대값 재정의 — expect 는 밖 판정 둘 · 옛 4값은 expect_internal · expect_reason(코드) · expect_slack_min/expect_margin_min 범위 · expect_last_depart. 옛 expect(unknown·rejected_by_limit)는 어휘 밖이라 MISS 다.",
-  "코어로 나가는 값은 출력 스펙 v1.3 대로 기존 칸만(32 가 out 으로 만든다) — eta_min 은 중앙값 · 버퍼 안 섞음 · 새 키 0.",
-  "대조(2026-09-24 · 자체 대조 13건 채택 11) — 혼잡 다음 편은 같은 경로만(순환선 @94 결함) · worst 통과가 도착을 못 내면 예정=최악 + 경고 · 자동차·자전거 첫 구간은 역산 없음(라우터 호출 폭주) + 케이스 안 구간 캐시 · 역산 상한 경고(MOB_W_LFD_CAP) · multi 밖 판은 후보 밖 판으로 · multi 도착 목표에 이탈 도보 반영 · worst 실패 대안도 worst 로 · 경고·근거 중복 제거 · 혼잡 warning 액션 구현(MOB_W_CONGESTION_CROWDED) · 다음 편 없음 경고(MOB_W_CONGESTION_NO_NEXT).",
-  "GPT 대조(2026-09-24 · 제시 6 · 채택 3 · 기각 2 · 보류 1) 반영 — ①역산으로 성립 출발을 못 찾으면 「N분 당기면 성립」을 말하지 않는다(택시만) ②토요일과 겹친 공휴일의 혼잡도 요일은 sunday(congestion.day_type.공휴일_처리 그대로 · Congestion.day_key(is_holiday)) ③자기점검에 혼잡도 연결(가산 경로가 탐침에서 돈다 · 실행 건수 집계). 보류: 수단 무관 정책 버퍼 vs 스펙 v1.3(41 뒤 32 에서 확정)."
- ],
- "changelog_v0.9": [
-  "2026-09-25 · 41번 방(데이터 적용 · 판정기 한 곳). 판정을 바꾸므로 v0.8 → v0.9, source_id mobility_rules@v0.9. 파일명은 유지.",
-  "bus.구간_프로파일 신설 — 버스 승차 = 구간 통행시간 프로파일(OA-21217) 누적 · 예정 p50 · worst p90 · 진입 시각대로 시간 칸 이동 · min_days 5 미만·구간 없음은 종전 표정속도 모델로 대체 · 자정 뒤 연장 구간에서 요일형이 갈리면 늦은 쪽(한쪽 결측은 부분) · 양끝 정류장 ID 검증.",
-  "judgment.worst_bus_ride_spread = profile_p90_cumsum · 정책 버퍼는 교체가 아니라 합산(41 결정 A ③ · 잠정).",
-  "승차 시각 상한(45 넘김) — 대기 모델 승차가 막차 통과 추정(막차 + 기점→승차 정류장 누적 · best p50 · worst p90) 뒤면 추정 시각에 탄다. 새 불가는 만들지 않는다(적용 GPT 1·2 — 처음 판의 p10 초과 → after_last 는 기각).",
-  "p90_eta_min — 버스 한 구간짜리 케이스에서 그 구간이 온전한 프로파일일 때만 = eta_min + (worst 승차 − best 승차). 「버스 승차 소요 p90 가산 추정」(적용 GPT 9).",
-  "경고 4종 신설 — MOB_W_BUS_PROFILE_FALLBACK · MOB_W_BUS_PROFILE_DAYTYPE_EDGE · MOB_W_BUS_LAST_PASS_UNCHECKED · MOB_W_BUS_BOARD_CAPPED.",
-  "2차 GPT 대조 반영 — worst 상한 max(p90, p50) · 기점 상한은 프로파일 없어도 확정 막차 · 시나리오 도착 역전 보정(구간+케이스 · FIFO 아님) · 시작점·식별자·칸 값·48시 검증 · 보정된 worst 는 p90_eta 제외 · 경고 MOB_W_WORST_BEFORE_BEST.",
-  "2026-09-25 · 54번 방(데이터 + options.py · 판정 무변경 → 버전 유지 · taxi 절 선례). fare 절 신설 — 지하철 1,550(10km)·거리 5km/8km마다 100·조조 20%(기본운임) · 버스 유형별 단일요금 · 통합환승(높은 기본운임 · 합산 거리 · 30/60분 · 5회). options.py 만 읽는다. 값 + URL + 확인 시각(2026-09-25 19:10) · 티머니 태그 대조 일치. · 같은 날 GPT 대조 반영: 하한 모르는 간선 = 0(직선 − 500 m 폐기) · 탄 간선 전부 거리 확정 요구 · 환승 5km 단계 + 개별 요금 합 상한 · 조조는 개찰 창 · 버스 조조 공식 출처."
- ],
- "changelog_v0.9.1": [
-  "2026-09-28 · 55번 방(판정기 소수정). 판정을 바꾸므로 v0.9 → v0.9.1, source_id mobility_rules@v0.9.1. 파일명은 유지.",
-  "station_names 절 신설 — 동명이역_좌표차_m 500(물리적 역 묶기) · 환승_제외_역명 [양평, 신촌](후보 생성기가 같은 역명 갈아타기로 잇지 않는다 · 이촌 유지).",
-  "역명만 받는 곳(multi 양끝 · 자전거 끝점 · _pt 노선 없음 · 계획의 장소→역)이 동명이역이면 노선으로 고르고, 못 고르면 값을 비우고 경고 MOB_W_STATION_AMBIGUOUS. 출구표는 물리적 역 단위로 나눠 찾는다.",
-  "verify_multi 후보 밖 판의 p90_eta_min 을 eta 와 같이 접근·이탈 도보만큼 민다(뜻 불변 · 41 D5 · 48 발견)."
- ],
- "changelog_v0.9.2": [
-  "2026-09-29 · 73 후속(팀장 수정본 develop 747dc79~38cd59d 위에서 우리 엔진만). 판정을 바꾸므로 v0.9.1 → v0.9.2, source_id mobility_rules@v0.9.2. 파일명은 유지. 코어 계약 칸 무변경.",
-  "팀장 수정 중 판정 규칙을 바꾼 것을 이 판에 적는다(값은 팀장 판 그대로): #1 거리표 밖 지하철↔지하철 환승 = 같은 거리표 측정 분포 상위 10%(추정 · MOB_W_TRANSFER_WALK_NETWORK_P90 · 거리표 없으면 no_data) · 정류장↔역 좌표 없음 = 판정 안 함(MOB_W_TRANSFER_COORD_MISSING) · #3 중간 정류장 막차 = 기점 막차 대신 그 정류장 통과 추정과 비교 · #6 매우혼잡 + 조건 일행인데 다음 편이 없으면 추정으로 내리고 알림(MOB_W_CONGESTION_NO_NEXT_BOARD) · #15 버스 운행 요일 칸이 빠진 노선 = no_data(옛 판만 매일 · MOB_W_BUS_SERVICE_DAYS_ASSUMED) · 휴일 표정속도 없으면 평일 대체(MOB_W_BUS_SPEED_WEEKDAY_FOR_HOLIDAY).",
-  "경고: 팀장 판이 넣은 4종(TRANSFER_WALK_NETWORK_P90 · CONGESTION_NO_NEXT_BOARD · BUS_SERVICE_DAYS_ASSUMED · BUS_SPEED_WEEKDAY_FOR_HOLIDAY)을 합쳐 warnings 절 53종. 이번 판은 새 코드를 만들지 않는다(버스↔버스는 기존 COORD_MISSING · NEAR_WALK_LIMIT 을 쓴다). 구현 false 로 돌린 것 2 — BIKE_FOREIGNER_GUIDE(본인 · 안내 안 함) · TRANSFER_WALK_ZERO(내는 자리 없음).",
-  "우리 수정 ① transfer.bus_bus_walk 신설 — 버스↔버스 환승 도보를 정류장 행(ID·방향·순번) 좌표 직선×1.4÷1.04 m/s 로(같은 ID 0 m 확정) · 도보 상한 · 경계 ±20 m 근거없음 · 행·좌표 없으면 no_data. 옛 0분도, 팀장 #1 대체값(지하철 분포)도 아니다.",
-  "우리 수정 ② bus.구간_프로파일.막차_통과_비교 = 빠른 쪽(막차 + min(p10, p50) 누적 내림) — 팀장 #3 의 worst p90 비교는 일찍 지나갈 위험을 놓친다(GPT Q3). judgment.last_feasible_depart.첫_구간_버스 — 상한을 같은 모델로, 모르면 비움.",
-  "우리 수정 ②-b 환승 앞에서 뒤 버스 구간의 정류장 행을 못 찾으면(그 방향으로 안 감 · 수집 밖 노선) 버스 구간을 먼저 판정해 그 이유를 낸다 — 팀장 #1 뒤 환승 「좌표 없음 → 근거없음」이 먼저 멈춰, 알 수 있는 no_service 가 근거없음으로 바뀌었다(탐침 전이표: 역방향 버스 443건 infeasible/no_service → unknown/no_data). 「모르면 모른다」는 그대로, 「아는 것을 모른다고 하지 않는다」. MIX-07 로 잠금 · MIX-06 기대 경고는 BUS_ROUTE_NOT_COLLECTED 로 되돌아감.",
-  "우리 수정 ③ 운행일 경계 먼저·초 올림 나중(timeutil.to_service_min) — 03:59:01~59 가 그날 04:00(240)으로 읽히던 것 → 전날 28:00(1680). 올림 뒤 30:00 초과(30:00:01)는 시각 아님. 규칙 값 변화 없음(day_type 04:00 경계 그대로)이나 판정이 바뀌어 여기 적는다.",
-  "우리 수정 ④ 따릉이 외국인 안내(MOB_W_BIKE_FOREIGNER_GUIDE)를 붙이지 않는다(본인 9/29 · 자전거는 요청 시만 · 따로 안내 안 함). 앞 판은 설문 없으면 foreign 기본 True.",
-  "판정 밖(규칙 값 무관): 실 시간표 .gz 우선 읽기 · 판정 로그 진입점이 자료 폴더를 먼저 정하고 못 정하면 로그를 안 씀 · plan 의 day_boundary·same_place 로 남긴 입력 이동도 kept_unverified · plan_estimate 대표 경로 동급 띠(5%) 안이면 짧은 쪽.",
-  "GPT 대조(78 · 채택 9 · 기록 5 · 기각 0): ① 같은 station_id 를 좌표 검사보다 먼저(한쪽 좌표 없어도 0 m 확정) · lat·lng 유한성 검사 · 0 m 는 「정류장 간 이동」만 ② 중간 정류장 막차 이후 불가를 추정 등급으로(기점만 확정) · p10 의 뜻 한계를 규칙에 적음 ③ 환승 앞 버스 구간 선판정은 시각 무관 이유(no_service · no_data)만 — 첫차·막차·도착 목표는 환승 도보를 더한 뒤 ④ plan_estimate 대표 경로 — 통상 중앙값(statistics.median) · 띠 내림(표본 20 미만 0) ⑤ 체류 항목 밖 입력 이동(첫 체류 전 · 마지막 체류 뒤 · 이동만 온 입력)도 kept_unverified(before_first_stay · after_last_stay · no_stay) · 봉투 시험에 항목 대응 ⑥ judgment_log_run --log-dir 은 출처 검사를 의도적으로 건너뜀(문서화)."
- ]
+ }
 }

@@ -28,7 +28,7 @@ for _p in (REPO / "final_project_cs", REPO):
         sys.path.insert(0, str(_p))
 
 from app.modules.travel_ops.mobility.engine import verify_time as vt          # noqa: E402
-from app.modules.travel_ops.mobility.engine.judgment_log import JudgmentLogger, install, DeviceMismatch   # noqa: E402
+from app.modules.travel_ops.mobility.devtools.judgment_log import JudgmentLogger, install, DeviceMismatch   # noqa: E402
 
 TARGETS = ("verify_time", "selfcheck")
 

@@ -5,9 +5,11 @@
 #   BikeLive      실시간 거치 수. bikeList?stationId= **단건** 조회 → parkingBikeTotCnt. 응답은 값만 쓰고 버린다 —
 #                 여기서도 캐시하지 않고, 돌려주는 dict 에는 개수와 조회 시각만 있다(원 응답 보관 없음).
 #                 소스 셋: 'env'(ACOP_SEOUL_OPENAPI_KEY 로 실제 호출) · dict 픽스처(회귀 — 케이스 bike_live) · None(조회 불가).
-#   ☆99(2026-10-04) 자전거 **경로 계산은 없다** — 경로 서버(bike·foot 프로파일)를 부르던 조회 계층을 지웠다. 승차 소요는
-#                 근거없음으로 낸다(판정기가 「자전거 경로 계산 없음」이라 말한다 — 다른 수단으로 몰래 바꾸지 않는다).
-#                 살릴 때는 전용 경로 계산을 만들지 않고 보행 경로 거리 ÷ 자전거 평균 속도(단위 환산)(본인 10/4 · 보행 그래프 뒤).
+#   BikeRouter    자전거·도보 경로의 거리·소요(요약만 · 좌표는 버린다). ☆101(2026-10-05 · 합치기) 팀장 판대로 되살렸다 —
+#                 경로는 저장소 안 도로 그래프 위 파이썬 길찾기(graph_router.GraphRouter)가 낸다. 99(10/4)에서 「자전거 경로 계산
+#                 없음 · 승차 소요 근거없음」으로 지웠던 것을 본인 10/5 결정(팀장 판에 있으면 유지)으로 뒤집었다. **경로 서버는
+#                 부르지 않는다**(GraphHopper 호출 코드 0 은 그대로) — `router` 자리에 오는 것은 로컬 길찾기나 시험 대역뿐이다.
+#                 걷기 길찾기(장소↔역·정류장 · 장소↔장소)도 이 객체의 `router` 를 꺼내 쓴다(팀장 통로 그대로).
 #
 # ★ 이 모듈은 규칙 파일을 읽지 않는다 — 규칙값(반경·요금·연령)은 판정기가 넘긴다. fare()·party_excluded() 만 규칙 dict 를 받는다.
 import json, os, math, datetime as _dt
@@ -135,6 +137,89 @@ class BikeLive:
             self.last_error = {"kind": "bad_response", "error": "parkingBikeTotCnt"}
             return None
         return {"available": n, "checked_at": at, "source_id": f"seoul_bikeList@{at}"}
+
+
+class BikeRouter:
+    """bike/foot 소요 — **car.py 의 라우터(로컬 길찾기 graph_router.GraphRouter · 시험 대역 FixtureRouter · NoRouter)를 그대로 쓴다.**
+    새 클라이언트를 만들지 않는다. ☆101 경로 서버 클라이언트는 없다(99 에서 삭제 · 팀장 판에 남아 있던 것도 지움).
+
+    router   : car.make_router(spec) 이 준 객체. route((lng,lat),(lng,lat), profile=...) 을 부르고 응답에서 **거리·시간만** 남긴다(형상은 버린다).
+               None 이면 호출하지 않는다.
+    fixture  : {'<profile>|<lat1>,<lng1>|<lat2>,<lng2>': {'distance_m':..,'time_s':..}} (좌표 5자리) — 자전거 회귀용 요약값. 라우터보다 먼저 본다.
+    pbf_date : source_id 'osm_bike_graph@<pbf_date>' 에 쓴다.
+    record   : dict 를 주면 실제 호출 결과 요약을 모은다(픽스처 기록용 · 형상 없음).
+    """
+
+    def __init__(self, router=None, fixture=None, pbf_date=None, record=None):
+        self.router = router
+        self.fixture = fixture or {}
+        self.pbf_date = pbf_date or "unknown"
+        self.record = record
+        self.calls = 0
+        self.last_error = None          # 마지막 경로 조회 실패의 종류(#28)
+
+    @staticmethod
+    def key(profile, lat1, lng1, lat2, lng2):
+        return f"{profile}|{lat1:.5f},{lng1:.5f}|{lat2:.5f},{lng2:.5f}"
+
+    @property
+    def source_id(self):
+        # ☆`[2026-10-04]` 파이썬 로컬 라우터는 자기 자료 식별자를 가진다(근거 칸이 다른 출처로 찍히지 않게)
+        return getattr(self.router, "source_id", None) or f"osm_bike_graph@{self.pbf_date}"
+
+    @property
+    def url(self):
+        return getattr(self.router, "url", None)
+
+    def available(self):
+        return self.router is not None or bool(self.fixture)
+
+    def route(self, profile, lat1, lng1, lat2, lng2):
+        k = self.key(profile, lat1, lng1, lat2, lng2)
+        if k in self.fixture:
+            v = self.fixture[k]
+            return {"distance_m": v["distance_m"], "time_s": v["time_s"], "basis": "fixture",
+                    "source_id": v.get("source_id") or self.source_id}
+        self.last_error = None
+        if self.router is None:
+            self.last_error = {"kind": "no_router"}
+            return None
+        from .car import RouterDown
+        try:
+            self.calls += 1
+            doc = self.router.route((lng1, lat1), (lng2, lat2), profile=profile)   # car.py 와 같은 (lng, lat) 순서
+        except RouterDown as ex:               # 라우터에 못 닿음 — 자전거는 소요 근거없음으로 낸다(죽지 않는다)
+            self.last_error = {"kind": "router_down", "error": str(ex)[:120]}
+            return None
+        except (OSError, ValueError) as ex:    # 통신·응답 해석 실패. 그 밖의 예외(코드 결함)는 삼키지 않는다(#28)
+            self.last_error = {"kind": "router_error", "error": type(ex).__name__}
+            return None
+        paths = (doc or {}).get("paths") or []
+        if not paths:
+            self.last_error = {"kind": "no_path"}
+            return None
+        p = paths[0]
+        # ☆`[2026-09-29 문제목록 #10]` 거리·시간이 빠진 응답을 0 으로 채우지 않는다 — 앞 판은 {"paths":[{}]} 를
+        #   「0 m · 0 초 경로」로 만들었다. 빠졌으면 근거없음이다.
+        try:
+            dist, tms = float(p["distance"]), float(p["time"])
+        except (KeyError, TypeError, ValueError):
+            self.last_error = {"kind": "bad_response", "error": "distance/time 없음"}
+            return None
+        if dist < 0 or tms < 0:
+            self.last_error = {"kind": "bad_response", "error": "음수 거리·시간"}
+            return None
+        out = {"distance_m": round(dist, 1),
+               "time_s": int(round(tms / 1000)), "basis": getattr(self.router, "basis", "router"),
+               "source_id": self.source_id}
+        q = p.get("quality")
+        if q:                                          # 로컬 길찾기가 낸 품질 표시(낙관 가능 · 접근 거리 · 큰길 비율)
+            out["quality"] = q
+            out["optimistic"] = bool(q.get("optimistic"))
+        if self.record is not None:
+            self.record[k] = {"distance_m": out["distance_m"], "time_s": out["time_s"],
+                              "source_id": out["source_id"]}
+        return out       # ★ doc(형상 포함)은 여기서 버린다
 
 
 def party_excluded(party, rules_bike):

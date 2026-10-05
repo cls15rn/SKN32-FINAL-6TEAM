@@ -19,12 +19,14 @@
 | `congestion_v1.jsonl` · `congestion_line9_v1.jsonl` | 역·방향·요일·30분 슬롯 혼잡도(1~8호선 · 9호선) | 서울교통공사 지하철혼잡도정보(2026-06-30) · 서울 OA-22197 | 2026-09-10 · 09-21 | 65,169 · 5,776(일반만 · 정본 8,208) |
 | `transfer_car_v1.json` | 환승 칸(표시 안 함 · 보관) | 국토교통부 15151816 · 서울교통공사 15098252 | 2026-09-25 | 1,017 |
 | `graph/` 5 | 도로 링크 속도 프로파일 · 도로급 계수 · OSM way↔TOPIS 링크 · way 형상 · 요일형 달력 | 서울 TOPIS 속도(2025-09~2026-05) · OSM | 2026-09-19 | 365,798 · … |
-| `road_graph_v1/` 3 | 서울(+고양·성남·과천·하남·구리·광명·부천·김포·영종구·공항고속도로 회랑) 차도·자전거 그래프 노드·간선 · 범위 geojson — 서버 없는 파이썬 라우터 입력 | Geofabrik `south-korea-latest.osm.pbf`(OSM 2026-09-18 · ODbL) | 2026-09-29 | 280,065 · 375,651 · 11 |
+| `road_graph_v2/` 3 | 서울(+고양·성남·과천·하남·구리·광명·부천·김포·영종구·공항고속도로 회랑) 차도·자전거·걸음 그래프 노드·간선 · 범위 geojson — 서버 없는 파이썬 길찾기(택시·자전거·걷기) 입력(10/5 · v1 을 대신함) | Geofabrik `south-korea-latest.osm.pbf`(OSM 2026-09-18 · ODbL) | 2026-10-05 | 419,672 · 581,193 · 11 |
+| `rail_edge_track_v1.jsonl.gz` | 역간 선로 길이(공표 역간거리가 없는 간선의 요금 거리 추정) | 같은 pbf 의 철도 선로(ODbL) + 역 순서 표 + 역 좌표 | 2026-10-05 | 777 |
+| `station_gap_v1.jsonl` | 공표 역간거리 표(엔진 미연결) | 공공데이터포털 국가철도공단 역간거리 CSV 17 + 김포골드라인 운영사 | 2026-10-04 | 688 |
 
 ## 이용 조건
 
 - 서울 열린데이터광장 · 공공데이터포털 · 국가철도공단 · 서울교통공사: **공공누리 제1유형(출처 표시)** — 각 파일 안 `source`·`source_id`·`license` 칸으로 표시.
-- OSM 유래 3곳(`station_exits_v1.json` · `graph/osm_way_geom_v1.csv` · `road_graph_v1/`): **ODbL 1.0 © OpenStreetMap contributors** — 파일·MANIFEST 안에 표기. 파생 DB 공개 시 같은 조건.
+- OSM 유래 4곳(`station_exits_v1.json` · `graph/osm_way_geom_v1.csv` · `road_graph_v2/` · `rail_edge_track_v1.jsonl.gz`): **ODbL 1.0 © OpenStreetMap contributors** — 파일·MANIFEST 안에 표기. 파생 DB 공개 시 같은 조건.
 - 관광공사 자료: 이 폴더엔 없음.
 - 경로 API(카카오·ODsay) 응답: **저장하지 않는다**(이동 모듈 규칙) — 여기 없음.
 
@@ -32,7 +34,7 @@
 
 - `final_project_cs/app/modules/travel_ops/mobility/engine/runtime.py default_paths()` · `verify_time.py build_verifier_for_cases()` · `car.py CarGraph` · `options.py TransferCar` — 경로는 `engine/paths.py`(`PROCESSED / "mobility"`).
 - 시험: `final_project_cs/tests/unit/travel/mobility/test_regression_cases.py`(회귀 게이트 21 · 전체층 156) · `test_plan_*`.
-- `road_graph_v1/` 은 아직 코드가 읽지 않는다 — 서버 없는 파이썬 라우터(다음 코드 방)가 읽을 입력. 열 뜻은 `road_graph_v1/README.md`.
+- `road_graph_v2/` 는 `engine/graph_router.py`(서버 없는 파이썬 길찾기 — 택시·자전거·걷기)가 읽는다. 열 뜻은 `road_graph_v2/README.md`. `rail_edge_track_v1.jsonl.gz` 는 `engine/options.py`(요금 거리 추정) · `station_gap_v1.jsonl` 은 아직 읽는 코드가 없다.
 - 규칙 파일 2(`engine/rules/rules_v0.3.json` · `holidays_2026_2027.json`)는 코드 옆.
 
 ## 개인정보

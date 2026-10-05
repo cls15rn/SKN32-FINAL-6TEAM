@@ -298,10 +298,12 @@ class TravelSources:
     air: Any | None = None
     #: 기상청 지진정보 — 최근 지진(규모·진앙). 공공데이터포털 공통 키(실측 2026-09-14).
     earthquake: Any | None = None
-    #: 경로에 걸린 운행·통제 사건(무정차·도로 통제) — 도로 UTIC · 지하철 알림 · 버스 TOPIS 를 합친 것
-    #:  (`route_events_chain.CombinedRouteEvents`). 재생 모드는 같은 `affecting()` 모양의 재생 입력을 끼운다.
+    #: 경로에 걸린 운행·통제 사건(무정차·도로 통제) — 도로(UTIC·ITS) · 지하철 알림 · 버스 TOPIS 예고 공지를 합친 것
+    #:  (`subway_notice.CompositeRouteEvents`). 재생 모드는 같은 `affecting()` 모양의 재생 입력을 끼운다.
     route_events: Any | None = None
     transit: Any | None = None
+    #: 서울 열린데이터광장 실시간 지하철 도착정보(「실시간 지하철 인증키」) — **지금 값**. `arrivals(역, line=…)`. 판정에 넣지 않고 같이 놓고 보는 용도(2026-10-05)
+    subway_arrival: Any | None = None
     route: Any | None = None
     #: 키가 없어 못 붙인 소스 이름들. ★조용히 비워 두지 않는다.
     unavailable: dict[str, str] = field(default_factory=dict)
@@ -482,11 +484,14 @@ def build_travel_sources(settings: Any) -> TravelSources:
     # ── 교통 돌발: ITS + UTIC 를 **합친다**(`traffic_chain.py`) ─────────────
     #   둘이 보는 것이 다르다 — 시내 사고·행사·집회는 UTIC 가 본체다.
     traffic_sources: list[Any] = []
+    route_event_sources: list[Any] = []
+    its: Any = None
     # ★ITS 는 공공데이터포털 공통 키가 아니라 **ITS 가 발급한 키**를 쓴다.
     its_key = getattr(settings, "its_api_key", "") or ""
     if its_key:
         from .its_traffic import ItsTrafficEvents
-        traffic_sources.append(ItsTrafficEvents(service_key=its_key, limiter=limiter, cache=cache))
+        its = ItsTrafficEvents(service_key=its_key, limiter=limiter, cache=cache)
+        traffic_sources.append(its)
     else:
         sources.unavailable["traffic_its"] = (
             "ACOP_ITS_API_KEY 가 비어 있다. ITS 국가교통정보센터(its.go.kr/opendata) 에서 "
@@ -500,34 +505,52 @@ def build_travel_sources(settings: Any) -> TravelSources:
         utic = UticIncidents(service_key=utic_key, limiter=limiter, cache=cache)
         traffic_sources.append(utic)
         # ★같은 레코드로 감시 루프의 **경로 사건**(도로 통제)도 답한다 — 요청은 캐시로 나눠 쓴다.
-        sources.route_events = UticRouteEvents(utic)
-    else:
+        road_events: Any = UticRouteEvents(utic)
+        if its is not None:
+            # ★`[2026-10-05]` 도로 사건은 UTIC(1차) + ITS(2차)를 **함께** 묻는다 — UTIC 키는 고정 IP 에 묶여 서버 이전·경유 장애 때 통째로 거절되고,
+            #   그 전엔 경로 사건이 곧바로 치명이 됐다(결정 15 의 대체가 이 자리에 없었다). 둘 다 못 읽을 때만 치명.
+            from .its_traffic import ItsRouteEvents
+            from .subway_notice import AlternateRouteEvents
+            road_events = AlternateRouteEvents(road_events, ItsRouteEvents(its))
+        route_event_sources.append(road_events)
+    elif its is not None:
+        from .its_traffic import ItsRouteEvents
+        route_event_sources.append(ItsRouteEvents(its))        # ★UTIC 키가 없어도 ITS 가 도로 사건에 답한다
+    if not utic_key:
         sources.unavailable["traffic_utic"] = (
             f"ACOP_UTIC_API_KEY_{2 if proxied else 1} 가 비어 있다 — "
             f"{'서버 경유' if proxied else '바로 부르는'} 길의 IP 에 등록된 키가 필요하다.")
-    # ── 경로 사건: 도로(UTIC) + 지하철(서울교통공사 알림) + 버스(TOPIS 예고 공지)를 **합친다** ─────────────
-    #   ☆`[2026-10-01 · 이동 문제목록 #36·#39]` 전에는 UTIC(도로) 하나만 꽂혀 지하철·버스는 전부 「확인 못 한 대상」이었다.
-    #   대상 머리로 나눠 맡긴다(`route_events_chain.py`). 맡을 소스가 없는 대상은 여전히 「확인 못 한 대상」이다.
-    #   ★지하철 알림 키는 공공데이터포털 공통 키 하나(`ACOP_DATA_GO_KR_KEY`) — 새 키 이름을 만들지 않는다.
-    from .route_events_chain import CombinedRouteEvents, MobilityTables
-    from .seoulmetro_alert import SeoulMetroAlerts
+    # ★`[2026-10-04]` 지하철 무정차 통과(서울교통공사 지하철알림정보 · 1~8호선) — 공통 키. 감시 루프의 경로 사건에 도로(UTIC)와 함께 답한다.
+    subway_key = _public_data_key(settings, "subway_notice_api_key")
+    if subway_key:
+        from .subway_notice import SubwayNotices, SubwayRouteEvents
+        route_event_sources.append(SubwayRouteEvents(SubwayNotices(service_key=subway_key, limiter=limiter, cache=cache)))
+    else:
+        sources.unavailable["subway_notice"] = (
+            "ACOP_DATA_GO_KR_KEY(또는 ACOP_SUBWAY_NOTICE_API_KEY)가 비어 있다. 공공데이터포털 「서울교통공사_지하철알림정보」 "
+            "활용신청 후 .env.apikeys 에 채운다.")
+    # ★`[2026-10-05]` 서울 실시간 지하철 도착정보 — 「실시간 지하철 인증키」(일반 키와 별개 · 하루 1,000건). 못 붙이면 이름으로 남긴다
+    metro_key = (getattr(settings, "seoul_metro_api_key", "") or "").strip()
+    if metro_key:
+        from .seoul_subway import SeoulSubwayArrival
+        sources.subway_arrival = SeoulSubwayArrival(service_key=metro_key, limiter=limiter, cache=cache)
+    else:
+        sources.unavailable["subway_arrival"] = (
+            "ACOP_SEOUL_METRO_API_KEY 가 비어 있다. 서울 열린데이터광장 「실시간 지하철 인증키」를 .env.apikeys 에 채운다. "
+            "★일반 인증키(ACOP_SEOUL_OPENAPI_KEY)와 **다른 키**다.")
+    # ★`[2026-10-01 · 이동 문제목록 #39 · 2026-10-05 합치기]` 버스 정류장 무정차·우회 — 서울시 TOPIS 예고 공지(누리집 공지판 · 키 없음 ·
+    #   운행일마다 한 번 읽는다 `topis_notice.py`). 대상 `버스:<노선>` 에 답하고 그 밖은 `unsupported()` — 위 합치기(CompositeRouteEvents)가
+    #   소스마다 자기 대상만 묻는다. 정류장 번호 → 지나는 노선 표는 이동 계산기 자료 파일에서 읽는다(자료 폴더가 비면 버스 대상은 전부
+    #   「확인 못 한 대상」). ☆지하철은 위 `subway_notice.py`(팀장 판) 하나다 — 이동 담당이 따로 만들었던 `seoulmetro_alert.py` 는 내렸다.
+    from .route_events_chain import MobilityTables
     from .topis_notice import TopisNotices
-
-    # ★서비스별 키 칸을 만들지 않는다 — 공통 키(ACOP_DATA_GO_KR_KEY) 그대로(무장애 여행 정보와 같은 방식 ·
-    #   `.env.apikeys.example` 주석). 그 키의 계정이 15144070 을 활용신청해야 열린다(안 했으면 본문 오류 → None).
-    metro_key = _public_data_key(settings, "data_go_kr_key")
     tables = MobilityTables(getattr(settings, "mobility_data_dir", "") or "")
-    subway_alerts = (SeoulMetroAlerts(service_key=metro_key, stations=tables.station_table, limiter=limiter,
-                                      cache=cache)
-                     if metro_key else None)
-    if subway_alerts is None:
-        sources.unavailable["route_events_subway"] = (
-            "ACOP_DATA_GO_KR_KEY 가 비어 있다 — 서울교통공사 지하철알림정보(공공데이터포털 15144070) 키. "
-            "지하철 대상은 「확인 못 한 대상」으로 남는다.")
-    # ★TOPIS 는 키가 없다(누리집 공지판 · 공식 API 아님) — 운행일마다 한 번 읽는다(`topis_notice.py`)
-    bus_notices = TopisNotices(stops=tables.stop_table, limiter=limiter, cache=cache)
-    sources.route_events = CombinedRouteEvents(road=sources.route_events, subway=subway_alerts, bus=bus_notices)
-
+    route_event_sources.append(TopisNotices(stops=tables.stop_table, limiter=limiter, cache=cache))
+    if len(route_event_sources) == 1:
+        sources.route_events = route_event_sources[0]
+    elif route_event_sources:
+        from .subway_notice import CompositeRouteEvents
+        sources.route_events = CompositeRouteEvents(route_event_sources)
     if not traffic_sources:
         sources.unavailable["traffic"] = "교통 돌발 — ITS·UTIC 키가 모두 없다"
     elif len(traffic_sources) == 1:

@@ -20,7 +20,7 @@ for _p in (REPO / "final_project_cs", Path(__file__).resolve().parent):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from app.modules.travel_ops.mobility.engine import judgment_log as jl                 # noqa: E402
+from app.modules.travel_ops.mobility.devtools import judgment_log as jl                 # noqa: E402
 from classification_metrics import classify_report, binary_report, misclassified_catalog   # noqa: E402
 import judgment_metrics_report as rep                                     # noqa: E402
 

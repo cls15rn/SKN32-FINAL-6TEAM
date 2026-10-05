@@ -40,9 +40,10 @@ Mobility(이동) 팀이 쓰는 데이터를 모으는 자리다(2026-09-29 신�
 
 | 자리 | 무엇 | git |
 |---|---|---|
-| `processed/mobility/` | 판정기 입력 21파일(시간표는 판정기가 읽는 8열만 · **`.gz`** · 나머지 정본 그대로) + 파일별 `_report.md` 12 + `MANIFEST_git_v1.json`(sha256·md5·행수·원자료·확인 시각) | **올림(`-f`)** |
+| `processed/mobility/` | 판정기 입력 23파일(시간표는 판정기가 읽는 8열만 · **`.gz`** · 나머지 정본 그대로) + 파일별 `_report.md` 12 + `MANIFEST_git_v1.json`(sha256·md5·행수·원자료·확인 시각) | **올림(`-f`)** |
 | `processed/mobility/graph/` | 택시·자동차 소요 계산 자료 5파일(TOPIS 속도 프로파일 등) | 올림 |
-| `processed/mobility/road_graph_v1/` | 서울(+인접·공항) 차도·자전거 그래프(노드 280,065 · 간선 375,651 · 15.96 MB gz · OSM ODbL) — 서버 없는 파이썬 라우터 입력(9/30 추가) | 올림 |
+| `processed/mobility/road_graph_v2/` | 서울(+인접·공항) 차도·자전거·**걸음** 그래프(노드 419,672 · 간선 581,193 · 22.95 MB gz · OSM ODbL · © OpenStreetMap contributors) — 서버 없는 파이썬 길찾기(택시·자전거·걷기) 입력(10/5 — v1 15.96 MB 를 대신함 · 만드는 스크립트는 팀장 `build_road_graph_v2.py`) | 올림 |
+| `processed/mobility/rail_edge_track_v1.jsonl.gz` · `station_gap_v1.jsonl` | 요금 거리 — OSM 선로 길이 추정(777간선 · 추정 · 팀장) · 공표 역간거리 표(688간선 · 엔진 미연결) | 올림(10/5) |
 | `processed/inventory_75.json` · `size_table_75.md` | 정본 폴더 인벤토리(88파일 열·행·sha) · 전/후 크기표 | 안 올림(ignore) |
 | `raw/` | 비움 — 원자료 1.7 GB 는 드라이브 `data\travel\raw\mobility\` | 안 올림 |
 | `scripts/` | `inventory_75.py`(인벤토리) · `reduce_75.py`(정본 → 이 폴더 줄인 판 + MANIFEST · 기본이 gz·행 삭제 채택안 · **파일을 더할 때는 이 스크립트의 `FILES` 표에 한 줄** — 지금 조사 중인 데이터도 같은 길) · 갱신용 수집·전처리 32개(82 · 파일표·갱신 순서는 `scripts/README.md`) | 올림 |

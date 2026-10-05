@@ -67,19 +67,8 @@ class MobilityTeam(ItineraryWork, TravelTeamBase):
         item = next((i for i in ctx["items"] if str(i.item_id) == str(trigger.get("item_id"))), None)
         if item is None:
             return self.settle(task, ctx, NoChange("gone"))
-        route = route_of(item) if item.kind == "mobility" else None
-        if route is None:
-            return self._unknown(task, "경로 정의", ctx["evidence"])
-        view = self._read(task, "read.route_events", {"targets": route_targets(route)}, ctx["seen"])
-        ctx["evidence"] = self._evidence(task, source_id="read.route_events", claim="구간 운행·통제 사건",
-                                         value=view, base=ctx["evidence"])
-        if view is None or view.get("events") is None:
-            # ★사건을 못 읽었다 — 「사건 없음」으로 넘기지 않는다(결정 15 의 치명).
-            return self._escalate(task, "fatal_source_failure", ctx["evidence"])
-        plan = plan_route_adjustment(item=item, following=next_after(ctx["items"], item), route=route,
-                                     events=view["events"], now=ctx["at"],
-                                     previous=place_before(ctx["items"], item))   # #38·#39 계산기 재탐색의 출발지
-        return self.settle(task, ctx, plan)
+        plan = plan_mobility_trigger(self, task, ctx, item)
+        return plan if isinstance(plan, TeamResult) else self.settle(task, ctx, plan)
 
     async def execute(self, task: TeamTask) -> TeamResult:
         blocked = self._guard(task)
@@ -156,3 +145,20 @@ class MobilityTeam(ItineraryWork, TravelTeamBase):
                             decisions=out.get("decisions") or [], action_proposals=[],
                             next_action=NextAction(out["next_action"]),
                             failure_code=out.get("failure_code"), warnings=out.get("warnings") or [])
+
+
+def plan_mobility_trigger(work: ItineraryWork, task: TeamTask, ctx: dict[str, Any], item: Any):
+    """감시 — 이동 항목 하나의 구간 사건을 **다시 읽고** 경로를 다시 고를 안을 계산한다(쓰지 않는다). 결과: 변경 · `NoChange` · `TeamResult`(여기서 멈춤).
+    ★`[2026-10-03]` `MobilityTeam.handle_trigger` 에서 떼어 냈다 — 같은 여행의 문제 묶음(`trip_watch_batch`)이 한 초안 위에서 항목마다 부른다."""
+    route = route_of(item) if item.kind == "mobility" else None
+    if route is None:
+        return work._unknown(task, "경로 정의", ctx["evidence"])
+    view = work._read(task, "read.route_events", {"targets": route_targets(route)}, ctx["seen"])
+    ctx["evidence"] = work._evidence(task, source_id="read.route_events", claim="구간 운행·통제 사건",
+                                     value=view, base=ctx["evidence"])
+    if view is None or view.get("events") is None:
+        # ★사건을 못 읽었다 — 「사건 없음」으로 넘기지 않는다(결정 15 의 치명).
+        return work._escalate(task, "fatal_source_failure", ctx["evidence"])
+    return plan_route_adjustment(item=item, following=next_after(ctx["items"], item), route=route,
+                                 events=view["events"], now=ctx["at"],
+                                 previous=place_before(ctx["items"], item))   # #38·#39 계산기 재탐색의 출발지

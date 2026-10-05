@@ -24,6 +24,31 @@ def _worst(grades):
     return min(grades, key=lambda g: GRADE_ORDER[_base(g)], default="근거없음")
 
 
+def _load_est_edges(path):
+    """`rail_edge_track_v1.jsonl.gz`(datasets/mobility/scripts/build_rail_edge_distance_v1.py) → (선로 길이, 직선) 두 표.
+    ① 공표 거리가 **없는** 간선의 선로 길이 — 직선 거리의 1.5배 + 150 m 를 넘으면 평행 노선에 붙은 것으로 보고 버린다.
+    ② 공표도 ① 도 없는 간선의 두 역 좌표 직선 거리(하한 그래프의 바닥값 재료). 공표 거리가 있는 행(보정용)은 쓰지 않는다.
+    파일이 없거나 못 읽으면 ({}, {}) — 요금은 종전대로 공표 거리만(모르면 뺀다)."""
+    import gzip
+    if not Path(path).exists():
+        return {}, {}
+    est, straight = {}, {}
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            for line in f:
+                r = json.loads(line)
+                if r.get("official_m") is not None:
+                    continue
+                t, st = r.get("track_m"), r.get("straight_m")
+                if t is not None and st is not None and t <= st * 1.5 + 150:
+                    est[(r["line"], r["a"], r["b"])] = int(t)
+                elif st is not None:
+                    straight[(r["line"], r["a"], r["b"])] = int(st)
+    except (OSError, ValueError, KeyError):
+        return {}, {}
+    return est, straight
+
+
 @dataclass
 class Verdict:
     value: object                 # True / False / None(판정 불가)
@@ -38,6 +63,8 @@ class LineOrder:
     def __init__(self, doc):
         self.doc = doc
         self.built_at = doc["built_at"]
+        self.est_edges = {}           # {(노선, 역 a, 역 b): 선로 길이 m} — 공표 거리가 없는 간선의 OSM 선로 길이(추정 · 요금 보강). 없으면 빈 칸
+        self.straight_edges = {}      # {(노선, 역 a, 역 b): 두 역 좌표 직선 m} — 공표도 선로 길이도 없는 간선(요금 하한 그래프의 바닥값 재료)
         self._g = {}
         self._grade = {}
         self._main = {}
@@ -57,7 +84,9 @@ class LineOrder:
         if path is None:
             from .paths import PROCESSED
             path = PROCESSED / "mobility" / "line_station_order_v1.json"
-        return cls(json.loads(Path(path).read_text(encoding="utf-8")))
+        lo = cls(json.loads(Path(path).read_text(encoding="utf-8")))
+        lo.est_edges, lo.straight_edges = _load_est_edges(Path(path).parent / "rail_edge_track_v1.jsonl.gz")
+        return lo
 
     # ── 기본 조회 ──
     def stations(self, line):

@@ -30,10 +30,13 @@ import os
 from pathlib import Path
 
 
-def _repo_root() -> Path:
-    here = Path(__file__).resolve()
+def _repo_root(start=None) -> Path:
+    here = Path(start or __file__).resolve()
     for p in here.parents:
-        if (p / ".git").exists():
+        g = p / ".git"
+        # ☆`[2026-09-29]` 진짜 git 저장소만 센다 — 파일(작업 폴더 연결) 이거나 HEAD 가 든 폴더. 이 기기의 final_project_cs/.git 처럼
+        #   `info/` 만 든 빈 폴더(찌꺼기)에 속으면 저장소 맨 위를 final_project_cs 로 잘못 잡아 datasets/ 를 못 찾는다
+        if g.is_file() or (g.is_dir() and (g / "HEAD").exists()):
             return p
     # .git 이 없는 배포본 — 패키지에서 여섯 칸 위가 저장소 루트다(69: mobility/engine/ 로 한 칸 더 깊이)
     return here.parents[6]
@@ -72,7 +75,10 @@ def configure(data_dir, source="settings"):
     """자료 폴더를 정한다(서버 기동 때). 빈 값은 받지 않는다 — 조용히 옛 자리를 쓰지 않는다."""
     if not data_dir:
         raise ValueError("이동 자료 폴더(mobility_data_dir)가 비었다")
-    _layout(data_dir, source)
+    # ☆`[2026-09-29 자료 폴더 통일]` 상대 경로(`datasets/mobility/processed`)는 **저장소 맨 위 기준**으로 푼다 — 그냥 두면
+    #   서버를 띄운 폴더(final_project_cs/ 등)에 따라 다른 곳을 봐 자료 확인이 실패하고 서버가 안 뜬다
+    given = Path(data_dir)
+    _layout(given if given.is_absolute() else REPO_ROOT / given, source)
 
 
 def disable():

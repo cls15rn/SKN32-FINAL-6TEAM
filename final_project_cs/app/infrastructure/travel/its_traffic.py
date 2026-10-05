@@ -39,6 +39,11 @@ KST = ZoneInfo("Asia/Seoul")
 
 #: 장소에서 이 거리 안의 돌발만 본다(미터). ★우리가 고른 값이다 — 측정 아님.
 DEFAULT_RADIUS_M = 1000
+#: ★`[2026-10-03 사용자 — 「소스마다 한 번 받아 두고 항목은 사본에서 비교」]` 서울 전체를 덮는 상자(경도 126.70~127.30 · 위도 37.35~37.80 — 서울 경계 경도 126.76~127.19 · 위도 37.41~37.72 에 여유).
+#:  전에는 **장소마다 반경 상자**로 요청해(요청 열쇠가 장소마다 달라 캐시도 못 나눴다) 항목 수만큼 요청이 늘었고, 하루 한도(1,000)가 9/30 · 10/2 에 실제로 찼다(4001).
+#:  서울 범위 한 번 조회는 122건이라(2026-09-14 실측 — 위 머리말) 부담이 작다. 거리로 거르는 것은 전과 같이 **받은 뒤 여기서** 한다.
+#:  서울 밖 장소(상자를 벗어나는 반경)는 전처럼 그 장소의 반경 상자로 묻는다.
+SEOUL_BOX = (126.70, 127.30, 37.35, 37.80)               # (minX, maxX, minY, maxY)
 #: 끝 시각이 없는 돌발(사고 등)을 「그 시각에도 이어진다」고 볼 한도(시간).
 #:  ★우리가 고른 값이다. 지금 난 사고가 내일 일정까지 이어진다고 보지 않는다.
 OPEN_ENDED_HOURS = 3
@@ -107,17 +112,44 @@ class ItsTrafficEvents(TravelSource):
             return None if str(code) == "0" else f'{code} {header.get("resultMsg", "")}'.strip()
         return TravelSource._body_error(payload)
 
+    def records(self) -> list[dict[str, Any]] | None:
+        """서울 상자 전체의 돌발 목록(캐시를 나눠 쓴다). 못 읽으면 `None` — `UticIncidents.records()` 와 같은 모양(2026-10-05 · 경로 사건 2차 소스용)."""
+        payload = self._fetch_json(ENDPOINT, {
+            "apiKey": self._key, "type": "all", "eventType": "all",
+            "minX": SEOUL_BOX[0], "maxX": SEOUL_BOX[1], "minY": SEOUL_BOX[2], "maxY": SEOUL_BOX[3], "getType": "json"})
+        if payload is None:
+            return None
+        body = payload.get("body")
+        items = body.get("items") if isinstance(body, dict) else None
+        if items in (None, ""):
+            items = []
+        if not isinstance(items, list):
+            self._miss("unexpected_shape", type(items).__name__)
+            return None
+        return [item for item in items if isinstance(item, dict)]
+
+    def active_at(self, item: dict[str, Any], at: datetime) -> bool:
+        """그 시각에 걸리는 돌발인가 — 시작 전 · 끝난 뒤 · 끝 모르는 먼 미래는 아니다."""
+        start, end = _parse_time(item.get("startDate")), _parse_time(item.get("endDate"))
+        if start is not None and at < start:
+            return False
+        if end is not None and at > end:
+            return False
+        return not (end is None and at > self._now() + timedelta(hours=OPEN_ENDED_HOURS))
+
     def near(self, *, latitude: float, longitude: float, at: datetime,
              radius_m: int = DEFAULT_RADIUS_M) -> dict[str, Any] | None:
         """장소 반경 안에서 `at` 시각에 걸리는 돌발. 못 읽었으면 `None`."""
         at = at if at.tzinfo else at.replace(tzinfo=KST)
         dlat = radius_m / 111_000
         dlon = radius_m / (111_000 * max(math.cos(math.radians(latitude)), 0.01))
+        place_box = (longitude - dlon, longitude + dlon, latitude - dlat, latitude + dlat)
+        in_seoul = (SEOUL_BOX[0] <= place_box[0] and place_box[1] <= SEOUL_BOX[1]
+                    and SEOUL_BOX[2] <= place_box[2] and place_box[3] <= SEOUL_BOX[3])
+        min_x, max_x, min_y, max_y = SEOUL_BOX if in_seoul else tuple(round(v, 6) for v in place_box)
         payload = self._fetch_json(ENDPOINT, {
             "apiKey": self._key, "type": "all", "eventType": "all",
-            "minX": round(longitude - dlon, 6), "maxX": round(longitude + dlon, 6),
-            "minY": round(latitude - dlat, 6), "maxY": round(latitude + dlat, 6),
-            "getType": "json"})
+            "minX": min_x, "maxX": max_x, "minY": min_y, "maxY": max_y, "getType": "json"})
         if payload is None:
             return None
         body = payload.get("body")
@@ -157,9 +189,54 @@ class ItsTrafficEvents(TravelSource):
                      "message": str(item.get("message") or "").strip()}
             (disruptions if level == "disruption" else advisories).append(entry)
         return self.stamp({"radius_m": radius_m, "at": at.isoformat(),
-                           "total_in_box": len(items), "for_place": disruptions,
+                           "total_in_box": len(items), "box": "seoul" if in_seoul else "place", "for_place": disruptions,
                            "advisories": advisories, "kind": "traffic_events"},
                           source=self.name)
 
 
-__all__ = ["DEFAULT_RADIUS_M", "ENDPOINT", "ItsTrafficEvents", "classify", "parse_message"]
+class ItsRouteEvents:
+    """감시 루프의 **경로 사건** 2차 소스 — `UticRouteEvents` 와 같은 모양(`unsupported()` · `affecting()`) `[2026-10-05]`.
+
+    UTIC 가 멈추면(키가 IP 에 묶여 거절 · 한도 · 장애) 경로 사건이 곧바로 치명이 되던 자리를 ITS 가 받는다 — 결정 15 의 「1차가 안 되면 대체로」.
+    ★답하는 대상은 **도로(`도로:이름`)뿐**이다. 도로 이름은 응답의 `roadName` 또는 메시지(`<종류>::도로::…`)에서 맞춘다.
+    ★ITS 는 고속도로·도시고속도로가 강하고 시내 사고·집회는 UTIC 가 본체다(머리말) — 그래서 UTIC 를 **대신하지 않고 함께** 묻는다(합집합).
+    """
+
+    ROAD = "도로:"
+
+    def __init__(self, source: ItsTrafficEvents) -> None:
+        self.source = source
+        self.name = "its_route_events"
+
+    def unsupported(self, targets: list[str]) -> list[str]:
+        return [target for target in targets if not target.startswith(self.ROAD)]
+
+    def affecting(self, targets: list[str], at: datetime | None = None) -> dict[str, dict[str, Any]] | None:
+        roads = [t for t in targets if t.startswith(self.ROAD)]
+        if not roads:
+            return {}
+        records = self.source.records()
+        if records is None:
+            return None
+        moment = at or self.source._now()
+        moment = moment if moment.tzinfo else moment.replace(tzinfo=KST)
+        found: dict[str, dict[str, Any]] = {}
+        for target in roads:
+            road = target[len(self.ROAD):]
+            for item in records:
+                if road not in str(item.get("roadName") or "") and road not in str(item.get("message") or ""):
+                    continue
+                level, reason = classify(item)
+                if level != "disruption" or not self.source.active_at(item, moment):
+                    continue
+                end = _parse_time(item.get("endDate"))
+                found[target] = self.source.stamp({
+                    "effect": "road_control", "reason": reason,
+                    "summary": f"{road} {reason}(국토교통부 ITS 돌발정보)",
+                    "title": str(item.get("message") or "").strip()[:120], "incident_id": item.get("eventId") or item.get("linkId"),
+                    "ends_at": end.isoformat() if end else None}, source="its")
+                break
+        return found
+
+
+__all__ = ["DEFAULT_RADIUS_M", "ENDPOINT", "ItsRouteEvents", "ItsTrafficEvents", "SEOUL_BOX", "classify", "parse_message"]

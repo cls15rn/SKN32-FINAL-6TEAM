@@ -37,9 +37,33 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
+#: 저장소 안 자료 폴더(datasets/mobility/processed)에 이동 담당이 함께 올리는 판 명세 — 칸 이름이 다르다
+#: (`files[]` 각 항목의 `path` · `bytes` · `sha256` 이 이 폴더 파일의 값이다. `src_*` 는 정본 원본의 값)
+GIT_MANIFEST_NAME = "MANIFEST_git_v1.json"
+
+
 def manifest_path() -> Path:
     from . import paths
     return paths.PROCESSED / "mobility" / MANIFEST_NAME
+
+
+def _git_manifest_files(P: dict) -> tuple[Path | None, dict]:
+    """이동 담당의 `MANIFEST_git_v1.json` 을 판정기 입력 이름(timetable · order …)의 명세로 옮긴다. 없으면 (None, {})."""
+    from . import paths
+    base = paths.PROCESSED / "mobility"
+    mp = base / GIT_MANIFEST_NAME
+    if not mp.exists():
+        return None, {}
+    by_path = {e["path"].replace("\\", "/"): e for e in json.loads(mp.read_text(encoding="utf-8")).get("files") or []}
+    out = {}
+    for k, p in P.items():
+        try:
+            rel = p.relative_to(base).as_posix()
+        except ValueError:
+            continue
+        if rel in by_path:
+            out[k] = {"bytes": by_path[rel].get("bytes"), "sha256": by_path[rel].get("sha256")}
+    return mp, out
 
 
 def write_manifest() -> Path:
@@ -61,9 +85,16 @@ def check(*, verify_hash: bool = True) -> dict:
     mismatched = []
     mp = manifest_path()
     has_manifest = mp.exists()
+    wanted_files = {}
     if has_manifest:
-        doc = json.loads(mp.read_text(encoding="utf-8"))
-        for k, want in (doc.get("files") or {}).items():
+        wanted_files = json.loads(mp.read_text(encoding="utf-8")).get("files") or {}
+    else:
+        # ☆`[2026-09-29 자료 폴더 통일]` 우리 명세가 없으면 이동 담당이 자료와 함께 올린 명세(MANIFEST_git_v1.json)로 확인한다
+        gp, wanted_files = _git_manifest_files(P)
+        if gp is not None:
+            mp, has_manifest = gp, True
+    if has_manifest:
+        for k, want in wanted_files.items():
             p = P.get(k)
             if p is None or not p.exists():
                 if k not in OPTIONAL:

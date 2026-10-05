@@ -56,13 +56,19 @@ from .timeutil import MIN_DAY, SERVICE_DAY_START_MIN
 from .verify_time import BIKE_NO_ROUTE, leg_mode
 
 KST = timezone(timedelta(hours=9))
-PLAN_VERSION = "plan-v2.5"   # 98 — 고르는 기준이 「예정 소요 + 일찍 떠나는 분」으로(계획 수단·수단별 대표 · 모든 후보를 한 무리로) · 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다) · options[] 는 계획 출발에서 재판정한 값 — 기본 호출 결과가 v2.4 와 다르다 (97 — 못 채운 구간 택시 소요 메우기 taxi_fallback 도 켤 때만 · 판 번호 유지) (93 — 수단별 대표 후보 by_mode 는 켤 때만 · 기본 호출 결과가 같아 판 번호 유지) 87 — 지하철+버스 혼합 후보(환승 1회 · A 버스→지하철 · B 지하철→버스) · 지하철만·버스만 후보는 v2.3 과 같다
+PLAN_VERSION = "plan-v2.6"   # 101(합치기) — 길찾기(local_router)가 켜진 서버에서 걷기가 길 기준(장소↔역 출구·정류장 · 장소↔장소) · modes 에 taxi 를 주면 택시 후보(뒤 무리) · 자전거 승차 소요를 다시 낸다
+# (v2.5 · 98) 고르는 기준이 「예정 소요 + 일찍 떠나는 분」으로(계획 수단·수단별 대표 · 모든 후보를 한 무리로) · 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다)
 # (v2.3 · 86) 가장 이른 도착 모드(Planner.earliest · earliest_on_late) 추가 · 기본 호출 결과는 v2.2 와 같다
 # (v2.2 · 58) modes 에 bike 를 주면 자전거 후보를 싣는다 · 기본(bike 없음)은 v2.1 과 같다 · 모양 무변경
 # 56 (2026-09-27 · 본인) — modes 를 안 주면 지하철·버스·도보. 자전거는 modes 에 "bike" 를 줄 때만(48 결정 8 · ◆선호 「요청 시만」).
 #   뺄 때는 **후보 생성 전에** 끊는다(아래 Planner — 따릉이 실시간 호출 0).
 DEFAULT_MODES = ("subway", "bus", "walk")
-KNOWN_MODES = frozenset(DEFAULT_MODES) | {"bike"}
+KNOWN_MODES = frozenset(DEFAULT_MODES) | {"bike", "taxi"}
+#: ☆`[2026-10-04 문제목록 #47 · 팀장]` 택시는 modes 에 "taxi" 를 줄 때만 후보로 싣는다(설문 「택시」 선택). 기본 호출은 앞 판과 같다.
+#:   ☆101(2026-10-05 · 본인) 계획 수단을 고를 때 **택시는 따로 뒤 무리**다 — 지하철·버스·지하철+버스·도보·자전거는 한 무리에서
+#:   「소요 + 일찍 떠나는 분」으로 겨루고(98), 거기서 못 고를 때만 택시를 본다(택시는 거의 늘 가장 빨라 섞어 두면 늘 택시가 뽑힌다 —
+#:   여행자가 택시만 고르면 택시가, 같이 고르면 대중교통·도보가 먼저다).
+#:   요금은 하한(정차·호출료·시계외 미포함)이고 소요는 TOPIS 시각별 속도 추정이다 — label 에 그대로 적는다.
 #: ☆`[2026-09-30 83 E1 · 85]` 장소마다 볼 역 개수 — 규칙 candidates.장소_역_후보_최대 **변경안** 값(27 규칙 32: 규칙 파일은
 #:   모아서 한 번에 고친다). 규칙에 들어가면 규칙 값이 이긴다(Planner._station_k).
 STATION_K_PROPOSED = 3
@@ -186,9 +192,9 @@ XFER_MEET_KEYS = ("정류장_동일_반경_m", "정류장_반경_m")
 #     (도보는 짧은 구간용)로 부른다. 지하철·버스와 섞어 주면 계획 수단 규칙(가장 늦게 떠나도 되는 후보)이 그대로라
 #     더 일찍 떠나야 하는 자전거는 봉투 left_out 에 이유만 남는다. 자전거가 안 되는 구간은 skipped + 이유
 #     (대중교통으로 몰래 바꾸지 않는다 — 입력 이동 항목은 그대로 남는다).
-#   · ☆99(2026-10-04) **자전거 경로 계산이 없다** — 승차 소요가 근거없음이라 자전거 후보는 지금 한 건도 실리지 않는다.
-#     자전거만 요청하면 구간마다 skipped(no_data · 「자전거 경로 계산 없음」), 섞어 주면 left_out 에 같은 이유. 아래 lfd 규칙은
-#     승차 소요가 다시 생길 때(보행 경로 거리 ÷ 자전거 평균 속도(단위 환산) · 본인 10/4)를 위해 그대로 둔다. PLAN_VERSION 은 그대로(기본 호출 무변경).
+#   · ☆99(2026-10-04) 자전거 승차 소요를 근거없음으로 내렸다가 ☆101(2026-10-05 · 본인)에서 되살렸다 — 길찾기(local_router · 로컬
+#     도로 그래프 bike 프로파일 · 팀장 판)가 있으면 자전거 후보가 다시 실린다. 길찾기가 없으면(시험·명령줄 기본 · 도로 그래프 없음)
+#     자전거만 요청한 구간은 skipped(no_data · 「자전거 경로 계산 없음」), 섞어 주면 left_out 에 같은 이유.
 
 # ── 시각 ────────────────────────────────────────────────────────────────
 def _parse_dt(v):
@@ -309,7 +315,9 @@ def public_legs(o):
 
 
 def planned_mode_of(o):
-    """계획 수단이 속한 선택지 — subway · bus · subway_bus · walk · bike(98 · 수단별 칸의 planned_mode)."""
+    """계획 수단이 속한 선택지 — subway · bus · subway_bus · walk · bike · taxi(98 · 수단별 칸의 planned_mode)."""
+    if o.get("_taxi"):
+        return "taxi"        # 101 — modes 에 taxi 를 준 호출에서 택시가 계획 수단이 된 때(뒤 무리)
     ms = {leg_mode(x) for x in o.get("_legs") or []}
     if not ms:
         return "walk"
@@ -359,6 +367,7 @@ class Planner:
         self.stage = stage
         self.speed = self.v.R["measured_baseline"]["kakao_walk_speed_mps"]["value"]
         self.detour = self.v.R["transfer"]["stop_station_walk"]["detour_factor"]["value"]
+        self._eff_cache = {}                 # #13 — 접근 걷기 길 거리(직선 환산) 캐시 · 이 플래너 수명
         # 표시 전용 필드(◆칸 — 답 전엔 만들어만 둔다). 켜면 transfer_car 를 options 에 싣는다(새 키 · 스펙 밖).
         self.display = display
         self._tc = O.TransferCar.load() if display else None
@@ -396,6 +405,73 @@ class Planner:
     def _walk(self, straight_m):
         """장소 도보 분 = 직선 × 우회계수 ÷ 1.04 m/s (rules transfer.stop_station_walk — 정류장↔역과 같은 식)."""
         return math.ceil(straight_m * self.detour / self.speed / 60) if straight_m else 0
+
+    def _foot_router(self):
+        """걷기를 길로 잴 수 있는 길찾기(BikeRouter) 또는 None. 팀장 통로 그대로 `v.bike_router` 에서 꺼낸다(101 — 걷기 전용 자리로
+        빼지 않았다: 경로선·미리 올리기·팀장 시험이 이 자리를 쓴다).
+        ★쓰는 조건 둘: ① 파이썬 로컬 길찾기(`is_local` — 호출 비용 0)일 것 ② **걸음 길이 든 판(road_graph_v2)** 일 것. 차도만 있는
+          v1 로 걷기를 재면 걸음 전용 길이 없어 길게 돌아간다(팀장 판 확인 방 실측: 도보 20구간 10/20 · 예시 일정 4구간 중 2구간이
+          「못 만듦」). 그럴 때는 조용히 길게 재지 않고 **종전 식(직선 × 우회계수)** 으로 간다. `foot_ok` 를 말하지 않는 길찾기
+          (시험 대역)는 걸을 수 있는 것으로 본다."""
+        br = getattr(self.v, "bike_router", None)
+        if br is None or not br.available():
+            return None
+        r = getattr(br, "router", None)
+        if not getattr(r, "is_local", False) or not getattr(r, "foot_ok", True):
+            return None
+        return br
+
+    def _eff(self, lat1, lng1, lat2, lng2, straight_m):
+        """역·정류장 **접근 걷기**를 도로 그래프로 잰 값 — 「직선 환산 m」(실제 걷는 거리 ÷ 우회계수)로 돌려준다.
+
+        ☆`[2026-10-04 #13]` 장소↔역·정류장 걷기는 직선 × 우회계수(1.3 안팎)였다. 걷는 거리는 30곳 넘는 자리에서
+        `직선 m` 로 다뤄지고(도보 상한도 직선 m) 식은 `_walk` 한 곳이 `× detour` 하므로, 길 거리를 detour 로 나눠
+        **같은 칸에 넣으면** 호출부를 안 바꾸고 `_walk` 가 길 거리 × 속도 로 나온다.
+        파이썬 로컬 라우터(`is_local` — 호출 비용 0)가 있을 때만 쓴다 — 서버 라우터면 후보마다 HTTP 가 나간다.
+        길을 못 찾거나(no_path 포함 — 걷기가 불가능하다는 근거가 못 된다) 라우터가 없으면 직선 그대로(종전 식).
+        낙관 표시(길 밖 접근이 길어 짧게 나올 수 있는 값)는 직선 × 우회계수와 큰 쪽(_walk_net 과 같은 규칙)."""
+        br = self._foot_router()
+        if not straight_m or br is None:
+            return straight_m
+        key = (lat1, lng1, lat2, lng2)          # 정확한 좌표 쌍 — 담장 양쪽의 가까운 두 점을 한 키로 합치지 않는다
+        got = self._eff_cache.get(key)
+        if got is None:
+            prof = ((self.v.R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
+            r = br.route(prof, lat1, lng1, lat2, lng2)
+            if not r:
+                got = float(straight_m)
+            else:
+                routed = float(r["distance_m"])
+                if r.get("optimistic"):
+                    routed = max(routed, straight_m * self.detour)
+                got = routed / self.detour
+            self._eff_cache[key] = got
+        return got
+
+    def _stop_walk(self, place, stop, straight_m):
+        """장소 → 정류장 접근 걷기(직선 환산 m) — `_eff` 로 길 기준. 직선 도보 상한·후보 가르기는 **종전대로 직선 m** 로 하고,
+        이 값은 그 거름을 통과한 후보에만 쓴다(코덱스 지적: 환산값을 상한과 비교하면 후보가 잘못 탈락하고, 거르기 전 라우팅은 낭비)."""
+        if stop.get("lat") is None or stop.get("lng") is None:
+            return straight_m
+        return round(self._eff(place["lat"], place["lon"], stop["lat"], stop["lng"], straight_m))
+
+    def _walk_net(self, a_place, b_place, straight_m):
+        """장소↔장소 도보 거리(m) — 보행망 라우터 foot 거리 → 없으면 직선 × 우회계수. (거리, 길 없음 여부).
+
+        「길 없음」은 라우터가 **경로가 없다**고 답했을 때만이다. 라우터가 없거나 못 닿으면(no_router·router_down·
+        router_error·bad_response) 길이 없다는 근거가 아니다 — 직선 식으로 낸다(verify_time._bike_walk 와 같은 규칙)."""
+        br = self._foot_router()
+        if br is not None:
+            prof = ((self.v.R.get("bike") or {}).get("ddareungi") or {}).get("ride", {}).get("walk_profile", "foot")
+            r = br.route(prof, a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
+            if r:
+                if r.get("optimistic"):
+                    # ☆`[2026-10-04]` 길 밖 접근 구간이 길어 낙관적일 수 있는 거리는 직선 × 우회계수와 **큰 쪽**을 쓴다(도착 여유를 깎지 않는다)
+                    return max(float(r["distance_m"]), straight_m * self.detour), False
+                return float(r["distance_m"]), False
+            if (br.last_error or {}).get("kind") == "no_path":
+                return None, True
+        return straight_m * self.detour, False
 
     def _blocked_station(self, rec):
         """사고 조건(self.disruptions)으로 **그 물리적 역의 모든 노선**이 서지 않거나 운행하지 않으면 True.
@@ -452,10 +528,14 @@ class Planner:
                 continue
             nm = rec["station_nm"]
             lines = (sorted(sc.group_lines(rec)) if getattr(sc, "is_ambiguous", None) and sc.is_ambiguous(nm) else None)
+            tlat, tlon = rec.get("lat"), rec.get("lng", rec.get("lon"))
             if self.v.ex is not None:
                 e = self.v.ex.nearest(nm, place["lat"], place["lon"], rec.get("line"))
                 if e is not None:
                     d = e[0]
+                    tlat, tlon = e[1]["lat"], e[1]["lng"]
+            if tlat is not None and tlon is not None:
+                d = self._eff(place["lat"], place["lon"], tlat, tlon, d)     # #13 — 출구(없으면 역)까지 길로
             out.append((nm, d, lines))
             if len(out) >= k:
                 break
@@ -499,6 +579,7 @@ class Planner:
         for i, (r, x, y, _span, da, db) in pairs:
             if r.route_type_nm in excluded or max(da, db) > wlim:
                 continue
+            da, db = self._stop_walk(a_place, x, da), self._stop_walk(b_place, y, db)      # #13 — 거른 뒤에만 길로
             legs = [{"mode": "bus", "route": r.route_nm, "from": x["station_nm"], "to": y["station_nm"],
                      **({"from_seq": x["seq"], "to_seq": y["seq"]} if pred is not None else {})}]
             wi, wo = self._walk(da), self._walk(db)
@@ -1293,11 +1374,11 @@ class Planner:
         return out
 
     TAXI_NONE = {   # 택시 칸 「없음」 — code: (이유 문장). 숫자를 지어내지 않는다(없으면 없다고 낸다)
-        "router_off": "택시 소요 계산이 꺼져 있다 — 도로 경로 계산(차도 그래프 라우터)을 쓰지 않는 실행이다",
-        "no_graph": "택시 소요 근거가 없다 — 차도 그래프 파일(road_graph_v1)이 자료 폴더에 없다",
+        "router_off": "택시 소요 계산이 꺼져 있다 — 길찾기(도로 그래프)를 쓰지 않는 실행이다",
+        "no_graph": "택시 소요 근거가 없다 — 도로 그래프 파일(road_graph_v2)이 자료 폴더에 없다",
         "no_profile": "택시 소요 근거가 없다 — 도로 속도 프로파일(TOPIS 링크·도로급 계수)이 자료 폴더에 없다",
-        "out_of_area": "택시 소요 근거가 없다 — 출발지 또는 도착지가 차도 그래프 범위(서울·인접 8개 시·영종·공항고속도로) 밖이다",
-        "no_snap": "택시 소요 근거가 없다 — 출발지 또는 도착지에서 200 m 안에 차가 다니는 길이 없다",
+        "out_of_area": "택시 소요 근거가 없다 — 출발지 또는 도착지가 도로 그래프 범위(서울·인접 8개 시·영종·공항고속도로) 밖이다(1,200 m 안에 차가 다니는 길이 없다)",
+        "no_snap": "택시 소요 근거가 없다 — 출발지 또는 도착지 가까이에 차가 다니는 길이 없다",     # 101 — 팀장 길찾기는 이 갈래를 내지 않는다(out_of_area 로 온다) · 칸은 남긴다
         "no_path": "택시 소요 근거가 없다 — 두 지점을 잇는 차도 경로를 찾지 못했다",
         "depart_unconfirmed": "택시 경로는 있지만 다음 일정 시작에 맞는 출발 시각을 정하지 못했다 — 없다고 확인한 것은 아니다",
         "router_down": "택시 소요 근거가 없다 — 도로 경로 계산에 닿지 못했다",
@@ -1406,6 +1487,85 @@ class Planner:
         out["reason"] = f"{out.get('reason') or ''} · 택시로도 못 채움 — {slot['reason']}"
         return out
 
+    def _taxi_option(self, a_place, b_place, sdate, arrive_by, buf, left):
+        """택시 후보 하나 또는 None(이유는 left). 판정기의 택시 서비스(`v.car` — 로컬 도로 그래프 + TOPIS 속도 + 요금 산식)로 잰다.
+
+        ☆101(GPT 2·3) 출발은 **성립을 확인한 값**만 낸다.
+          · 택시 서비스가 도착 역산(`arrive_by`)을 할 수 있으면 그것으로 — 수단별 택시 칸·택시로 메우기와 **같은 계산**이다: 느린 쪽
+            소요(p10)로도 닿는 가장 늦은 출발 · 장소↔차도 접근 걷기(스냅 이격 × 우회계수 ÷ 보행속도) 포함. 도착 목표는 「다음 일정
+            시작 − 정책 버퍼」로 준다. 앞 판(팀장 10/4)은 `leg()` 로 두 번 맞추고 **마지막 추측 출발을 재지 않은 채** 돌려줬고
+            (시간대 경계에서 소요가 뛰면 못 닿는 출발이 성립으로 나갔다), 접근 걷기가 0 이었다(스냅 한도 1,200 m).
+          · 역산을 못 하는 서비스(시험 대역)는 앞 판처럼 두 번 맞추되, **돌려줄 출발에서 한 번 더 재서** 도착 목표에 닿을 때만 낸다.
+            안 닿으면 「출발 미확인」으로 뺀다(숫자를 지어내지 않는다)."""
+        from .car import RouterDown
+        car = getattr(self.v, "car", None)
+        if car is None:
+            left.append({"_o": {"_legs": []}, "label": "택시", "code": "taxi_unavailable",
+                         "reason": "택시 소요를 잴 도로 그래프·속도 자료가 없다(길찾기 꺼짐) — 택시 후보를 싣지 않았다"})
+            return None
+        s, e = (a_place["lon"], a_place["lat"]), (b_place["lon"], b_place["lat"])
+        day0 = datetime.combine(sdate, time(0, 0))
+        access_m = access_s = 0.0
+        try:
+            if callable(getattr(car, "arrive_by", None)):
+                c = car.arrive_by(s, e, day0 + timedelta(minutes=int(arrive_by - buf)), taxi=True)
+                guess = int((c["depart_dt"] - day0).total_seconds() // 60)
+                access_m, access_s = float(c.get("access_m") or 0), float(c.get("access_s") or 0)
+                ride = max(1, math.ceil((c["topis_time_s"] + access_s) / 60))
+            else:
+                guess, c, ride, at = arrive_by - 30, None, 0, None
+                for _ in range(2):
+                    c, at = car.leg(s, e, datetime.fromisoformat(iso_of(sdate, guess)), taxi=True), guess
+                    ride = max(1, math.ceil(c["topis_time_s"] / 60))
+                    nxt = arrive_by - ride - buf
+                    done = abs(nxt - guess) <= 3
+                    guess = nxt
+                    if done:
+                        break
+                if at != guess:                         # 돌려줄 출발은 아직 안 쟀다 — 그 시각으로 재서 확인한다
+                    c = car.leg(s, e, datetime.fromisoformat(iso_of(sdate, guess)), taxi=True)
+                    ride = max(1, math.ceil(c["topis_time_s"] / 60))
+                    if guess + ride + buf > arrive_by:
+                        left.append({"_o": {"_legs": []}, "label": "택시", "code": "taxi_unconfirmed",
+                                     "reason": f"택시 — 도착 목표에 맞는 출발 시각을 확인하지 못했다({iso_of(sdate, guess)[11:16]} 출발은 "
+                                               f"소요 {ride}분으로 못 닿는다 · 출발 시각에 따라 소요가 크게 달라지는 구간) — 없다고 확인한 것은 아니다"})
+                        return None
+        except RouterDown as ex:
+            left.append({"_o": {"_legs": []}, "label": "택시", "code": "taxi_no_route",
+                         "reason": f"택시 경로를 못 구했다 — {str(ex)[:100]}"})
+            return None
+        fare = c.get("fare_won")
+        note = f"요금 하한 {fare:,}원(정차·호출료 미포함)" if fare is not None else "요금 모름"
+        walk = f" · 차도까지 걷는 약 {int(round(access_m))}m 포함" if access_m >= 30 else ""
+        return {"eta_min": ride, "uses": [], "_legs": [], "_taxi": True, "_n": 300, "_key": ("taxi", 0, 0),
+                "_route": f"택시 {c['distance_m'] / 1000:.1f}km · {note}{walk} [{c.get('grade', '근거없음')}]",
+                "_start": guess, "_transfers": 0, "_margin": max(buf, arrive_by - guess - ride), "_slack": 0,
+                "_walk_min": math.ceil(access_s / 60) if access_s else 0, "_walk_m": int(round(access_m)),
+                "_fare": fare, "_severe": [], "_covered": False,
+                "_taxi_at": (s, e, access_m, access_s)}
+
+    def _taxi_recheck(self, o, sdate, start, arrive_by, buf):
+        """(GPT 4) 택시 후보를 **이동 항목이 실제로 떠나는 시각(start)** 에서 다시 잰다 — 갱신한 후보 또는 None.
+        택시 후보의 소요·요금은 제 출발(`_start`) 기준이다. 계획 수단이 더 일찍 떠나면 그 시각의 속도·할증으로 다시 재야 한다
+        (시간대가 다르면 소요·요금이 다르다). 접근 걷기 뒤의 시각으로 재고, 도착 목표(다음 일정 시작 − 버퍼)에 닿을 때만 싣는다."""
+        from .car import RouterDown
+        car = getattr(self.v, "car", None)
+        s, e, access_m, access_s = o["_taxi_at"]
+        try:
+            # 차는 출발지 쪽 접근 걷기 뒤에 달린다 — 역산 결과에는 양끝 합만 있어 절반을 출발지 몫으로 본다(나눔은 가정 · 소요에는 합 전부를 넣는다)
+            c = car.leg(s, e, datetime.combine(sdate, time(0, 0)) + timedelta(minutes=int(start), seconds=math.ceil(access_s / 2)),
+                        taxi=True)
+        except RouterDown:
+            return None
+        ride = max(1, math.ceil((c["topis_time_s"] + access_s) / 60))
+        if start + ride + buf > arrive_by:
+            return None
+        fare = c.get("fare_won")
+        note = f"요금 하한 {fare:,}원(정차·호출료 미포함)" if fare is not None else "요금 모름"
+        walk = f" · 차도까지 걷는 약 {int(round(access_m))}m 포함" if access_m >= 30 else ""
+        return dict(o, eta_min=ride, _start=start, _fare=fare, _margin=max(buf, arrive_by - start - ride),
+                    _route=f"택시 {c['distance_m'] / 1000:.1f}km · {note}{walk} [{c.get('grade', '근거없음')}]")
+
     @staticmethod
     def _cost(o):
         """고르는 값(작을수록 좋다) = 예정 소요 − 출발(도착 목표 축 분). 같은 도착 목표를 보는 후보끼리는 「예정 소요 + 일찍 떠나야 하는
@@ -1431,12 +1591,18 @@ class Planner:
           이르게 나왔을 수 있다 · GPT 23 2차 #1)."""
         if not opts:
             return None, []
-        eligible = [o for o in opts if nb is None or o["_start"] >= nb]
-        revived = [] if nb is None else [g for g in (recheck(o) for o in opts if o["_start"] < nb) if g is not None]
+        # ☆101(2026-10-05 · 본인 · 팀장 #47) 택시는 **따로 뒤 무리** — 앞 무리(지하철·버스·지하철+버스·도보·자전거 · 한 무리)에서 못 고를
+        #   때만 본다. 택시는 다시 판정하지 않는다(판정기 밖 — 앞 일정 끝보다 일찍 떠나야 하면 못 맞춘 것이다).
+        main = [o for o in opts if not o.get("_taxi")]
+        eligible = [o for o in main if nb is None or o["_start"] >= nb]
+        revived = [] if nb is None else [g for g in (recheck(o) for o in main if o["_start"] < nb) if g is not None]
         pool = eligible + revived
-        if not pool:
-            return None, []
-        return cls._by_mode_pick(pool, yield_min), revived
+        if pool:
+            return cls._by_mode_pick(pool, yield_min), revived
+        taxis = [o for o in opts if o.get("_taxi") and (nb is None or o["_start"] >= nb)]
+        if taxis:
+            return max(taxis, key=lambda o: o["_start"]), revived
+        return None, []
 
     def _fold_left(self, left):
         """뺀 후보 목록 정리 — 버스 직행은 도보 짧은 순으로 상한(버스_직행_최대)개만 한 줄씩 적고 나머지는 코드별 개수 한 줄로
@@ -1623,8 +1789,10 @@ class Planner:
         sources = []
         direct = meters(a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
         if direct <= wlim and "walk" in self.modes:
-            walk_t = max(1, math.ceil(direct * self.detour / self.speed / 60)) + buf      # leg() ① 과 같은 식(직선 × 우회계수)
-            sources.append(lambda m: ([m + walk_t], False))
+            wm, no_path = self._walk_net(a_place, b_place, direct)                         # leg() ① 과 같은 식(길 기준 → 없으면 직선 × 우회계수)
+            if not no_path:
+                walk_t = max(1, math.ceil(wm / self.speed / 60)) + buf
+                sources.append(lambda m: ([m + walk_t], False))
         sa, sb, pairs = self._station_pairs(a_place, b_place, wlim)
         for pi, (_ia, _ib, xa, xb) in enumerate(pairs):
             def rail(m, pi=pi, xa=xa, xb=xb):
@@ -1651,6 +1819,7 @@ class Planner:
                     a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"], radius)):
                 if r_.route_type_nm in excluded or max(da, db) > wlim:
                     continue
+                da, db = self._stop_walk(a_place, x, da), self._stop_walk(b_place, y, db)  # #13 — 거른 뒤에만 길로
                 def bus(m, i=i, legs=[{"mode": "bus", "route": r_.route_nm, "from": x["station_nm"], "to": y["station_nm"]}],
                         wi=self._walk(da), wo=self._walk(db)):
                     day, dm, off = at(m, wi)
@@ -1935,14 +2104,19 @@ class Planner:
         # ① 도보 직행 — 두 장소 직선이 도보 상한 안이면 후보. 여유는 정책 버퍼(수단 무관 · 39 결정 2).
         direct = meters(a_place["lat"], a_place["lon"], b_place["lat"], b_place["lon"])
         if direct <= wlim and (self.modes is None or "walk" in self.modes):
-            # 도보 거리 = 직선 × 우회계수(추정). ☆99(2026-10-04) 보행망 거리를 끼우던 자리(#13 · 경로 서버 foot 프로파일)를
-            #   지웠다 — 하천·철도 건너편 두 점도 「걸어서 n분」으로 나오는 #13 의 한계가 다시 남는다(보행 그래프 방에서 다시 만든다).
-            wm = direct * self.detour
-            eta = max(1, math.ceil(wm / self.speed / 60))
-            opts.append({"eta_min": eta, "uses": [], "_legs": [], "_route": "도보",
-                         "_start": arrive_by - eta - buf, "_transfers": 0, "_n": 0, "_key": ("walk", 0, 0),
-                         "_margin": buf, "_slack": 0, "_walk_min": eta,
-                         "_walk_m": wm, "_fare": 0, "_severe": [], "_covered": False})
+            # ☆`[2026-09-29 문제목록 #13]` 직선 × 우회계수만 보면 하천·철도 건너편 두 점도 「걸어서 n분」이다. 걸음 길이 든 로컬
+            #   길찾기(_foot_router · 101 팀장 판)가 있으면 그 거리를 쓰고, 없거나 길을 못 찾으면 종전 식(직선 × 계수)으로 낸다.
+            #   (99 에서 이 자리를 지웠다가 101 에서 팀장 판대로 되살렸다 — 경로 서버가 아니라 저장소 안 도로 그래프다.)
+            wm, no_path = self._walk_net(a_place, b_place, direct)
+            if no_path:
+                left.append({"_o": {"_legs": []}, "label": "도보", "code": "no_walk_path",
+                             "reason": "보행망에 두 장소를 잇는 길이 없다(직선으로는 도보 상한 안)"})
+            else:
+                eta = max(1, math.ceil(wm / self.speed / 60))
+                opts.append({"eta_min": eta, "uses": [], "_legs": [], "_route": "도보",
+                             "_start": arrive_by - eta - buf, "_transfers": 0, "_n": 0, "_key": ("walk", 0, 0),
+                             "_margin": buf, "_slack": 0, "_walk_min": eta,
+                             "_walk_m": wm, "_fare": 0, "_severe": [], "_covered": False})
 
         # ② 대중교통 — 장소마다 도보 상한 안 역 **가까운 순 여럿**(막힌 역 뺌 · E1) → 역 짝마다 다목적 후보(판정기
         #   verify_multi) → 후보마다 마지막 성립 출발로 다시 판정. 짝은 가까운 짝부터 보고, **실을 수 있는 대중교통 후보가
@@ -2031,6 +2205,12 @@ class Planner:
             self.last_by_mode = self._by_mode(opts, bus_opts, left_bm, why, r, a_place, b_place, sa, sb, arrive_dt, sdate,
                                               arrive_by, party, first_visit, case_id, wlim, range_from_dt, visited)
             self.last_by_mode["planned_mode"], self.last_by_mode["planned_is_representative"] = None, False
+        # ①' 택시 — modes 에 taxi 가 있을 때만(#47 · 팀장). 도착 목표에서 거꾸로 소요를 맞춘다(출발 시각의 요일형·시간대가 소요를 바꾼다).
+        #   ☆101 — 수단별 칸을 만든 **뒤에** 넣는다(그 칸은 제 택시 칸(_taxi_slot)을 따로 낸다). 계획 수단으로는 뒤 무리(_choose_planned).
+        if "taxi" in self.modes:
+            tx = self._taxi_option(a_place, b_place, sdate, arrive_by, buf, left)
+            if tx is not None:
+                opts.append(tx)
         if pairs:
             if not any(o["_legs"] for o in opts):
                 if r.candidates and n_mode == 0 and not bus_opts:
@@ -2135,8 +2315,19 @@ class Planner:
             # ☆98 — 계획 수단이 「가장 늦게 떠나는 후보」가 아니게 됐다 → 더 늦은 _start 후보도 **계획 출발에서 다시 판정**해 싣는다
             #   (앞 판은 _start ≥ start 면 그대로 실었다 — 그때는 동률일 때만 타던 분기다). 실리는 eta 는 계획 출발에서 잰 값이다
             #   (기다림이 늘면 길어진다 — 코어는 이동 출발 + eta 로 도착을 본다). 도보는 판정기 밖이라 식으로 본다(일찍 떠나면 일찍 닿는다).
-            if o is planned or o["_start"] == start or (o["_start"] > start and o.get("_check") is None):
+            if o is planned or o["_start"] == start or (o["_start"] > start and o.get("_check") is None and not o.get("_taxi")):
                 listed.append(o)
+                continue
+            if o.get("_taxi"):
+                # ☆101(GPT 4) 택시는 **이동 출발 시각에서 다시 재서** 싣는다(제 출발 기준 소요·요금을 다른 시각 출발에 붙이지 않는다).
+                #   더 일찍 떠나야 맞는 택시(_start < start)도 같은 길로 본다 — 그 시각에 못 닿거나 못 재면 이유와 함께 뺀다.
+                g = self._taxi_recheck(o, sdate, start, arrive_by, buf)
+                if g is not None:
+                    listed.append(g)
+                else:
+                    left.append({"_o": o, "label": o["_route"], "code": "not_confirmed" if o["_start"] > start else "earlier_departure",
+                                 "reason": f"택시 — 이동 출발 {at} 에 떠났을 때 도착 목표에 닿는지 확인하지 못했다"
+                                           f"({iso_of(sdate, o['_start'])[11:16]} 출발은 성립 확인 · 소요 {o['eta_min']}분 · 후보별 출발 시각 칸 없음)"})
                 continue
             got, verdict = self._recheck_at(o, start, arrive_by, party, first_visit, case_id)
             if got is not None:
@@ -2176,7 +2367,7 @@ class Planner:
         opts = [o for o in opts if id(o) not in cut]
         taken = set()
         for o in opts:
-            o["id"] = O.make_id(o["_legs"], taken)
+            o["id"] = "taxi" if o.get("_taxi") and "taxi" not in taken else O.make_id(o["_legs"], taken)
             taken.add(o["id"])
         O.add_reasons(opts)
         for o in opts:
@@ -2184,6 +2375,9 @@ class Planner:
                 o["walk_m"] = int(round(o["_walk_m"]))
             if o["_fare"] is not None:
                 o["fare_krw"] = int(o["_fare"])
+                if o["_legs"] and o.get("_lr") is not None and O.fare_is_est(self.v, o["_legs"], o["_lr"]):
+                    # ☆#21 — 공표 역간거리가 없는 구간(9호선·코레일 등)은 OSM 선로 길이 추정으로 낸 값이다. 확정처럼 보이지 않게 밝힌다
+                    o["label"] = o["label"] + " · 요금은 선로 길이 추정"
             elif o["_legs"] and o.get("_lr") is not None:
                 # ☆#20 — 버스가 섞인 환승은 합성 요금 근거가 없다 → 확정 규칙(탈것별 요금의 합 상한)으로 상한을 싣고 밝힌다
                 up = O.fare_upper_of(self.v, o["_legs"], o["_lr"])

@@ -96,19 +96,63 @@ class Runtime:
         return copy.copy(self._v).verify_case(case)
 
 
+_CAR_GRAPHS: dict = {}
+
+
+class _LazyCar:
+    """택시·자동차 판정 서비스 — 속도 프로파일 그래프(약 125MB · 2초)는 **처음 택시를 물을 때** 올린다.
+
+    서버를 띄울 때 올리지 않는 이유: 택시 대안을 한 번도 안 묻는 프로세스(일꾼 등)가 그 메모리를 쓰지 않게 한다.
+    올릴 수 없으면(그래프 자료 없음) RouterDown 으로 답한다 — 판정기는 이를 「택시 소요 근거없음」으로 낸다.
+    ☆101(2026-10-05 · 합치기) 우리 택시 칸·택시로 메우기가 쓰는 `arrive_by`(도착 목표에 맞춘 가장 늦은 출발)도 같은 서비스로
+      넘긴다. 속도 자료가 없을 때의 RouterDown 은 갈래 `no_profile` 을 단다(택시 칸이 이유를 가른다)."""
+
+    def __init__(self, router, rules, holidays):
+        from .paths import PROCESSED
+        self._router, self._rules, self._holidays = router, rules, holidays
+        # 자료 폴더는 **판정기를 세울 때** 정해 둔다 — 첫 택시 때 전역 상태를 읽으면 그 사이 폴더 설정이 바뀐(시험 초기화 · 다시 설정) 뒤를 본다
+        self._graph_dir = Path(PROCESSED) / "mobility" / "graph"
+        self._svc = None
+        self._lock = threading.Lock()
+
+    def _service(self):
+        if self._svc is None:
+            with self._lock:
+                if self._svc is None:
+                    from .car import CarGraph, CarService, RouterDown
+                    # 같은 자료·같은 공휴일이면 그래프를 나눠 쓴다(판정기를 다시 세울 때마다 125MB 를 새로 올리지 않는다)
+                    key = (str(self._graph_dir), frozenset(self._holidays))
+                    cg = _CAR_GRAPHS.get(key)
+                    if cg is None:
+                        cg = CarGraph.load(self._graph_dir, self._holidays)
+                        if cg is None:
+                            raise RouterDown("도로망 속도 자료(graph/topis_class_factor_v1.json 등)가 없다 - 택시·자동차는 근거없음",
+                                             code="no_profile")
+                        _CAR_GRAPHS[key] = cg
+                    self._svc = CarService(cg, self._router, self._rules)
+        return self._svc
+
+    def leg(self, s, e, depart, taxi=False, kind="중형"):
+        return self._service().leg(s, e, depart, taxi=taxi, kind=kind)
+
+    def arrive_by(self, s, e, arrive, taxi=True, kind="중형"):
+        return self._service().arrive_by(s, e, arrive, taxi=taxi, kind=kind)
+
+
 def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul_key=None,
-                   guardrails_path=None, road_graph=None):
+                   guardrails_path=None, local_router=False):
     """전부 올려 Runtime 을 만든다. 약 33초.
 
     paths  : 경로 일부만 바꿔 끼울 수 있다(시험용)
     wanted : None 이면 전부. 배치에서만 집합을 준다
     ☆`[2026-09-29 문제목록 #48]` 서버는 설정 값을 넘긴다 — data_dir(자료 폴더) · seoul_key(따릉이 실시간, "" 이면 끔) ·
       guardrails_path(정책 수치 파일). None 이면 명령줄 관례(환경변수·.env)를 쓴다.
-    ☆77-2(2026-10-03) road_graph — 택시·자동차 소요의 **서버 없는 파이썬 도로 라우터**. None 이면 환경변수
-      MOBILITY_ROAD_GRAPH → "auto"(자료 폴더 mobility/road_graph_v1 이 있으면 켬) · "none"/"" 끔 · 폴더 경로.
-      도로 그래프 적재는 첫 택시 질의 때 한 번(약 13초 · +0.4 GB).
-    ☆99(2026-10-04) 경로 서버(gh_url)를 지웠다 — 택시·자동차 = 파이썬 라우터 → 근거없음 · 자전거 승차 소요 = 근거없음.
-      인자 gh_url 은 없어졌다(연결부 wiring.configure 는 팀 설정 칸 값을 받기만 하고 넘기지 않는다).
+    ☆99(2026-10-04) 경로 서버(gh_url)를 지웠다 — 인자 gh_url 은 없다(연결부 wiring.configure 는 팀 설정 칸 값을 받기만 하고
+      넘기지 않는다).
+    ☆101(2026-10-05 · 합치기) local_router — 저장소 안 도로 그래프 위 파이썬 길찾기(팀장 graph_router)를 켠다. 켜면 택시·
+      자동차 소요, 자전거 승차 소요, 걷기 거리(장소↔역·정류장 · 장소↔장소)가 길 기준이 된다. 기본은 끔(시험·명령줄) — 서버는
+      설정 `mobility_local_router`(기본 켬)를 wiring 이 넘긴다. 우리 옛 인자 road_graph · 환경변수 MOBILITY_ROAD_GRAPH 는 없앴다.
+      도로 그래프 적재는 첫 길 묻기 때 한 번(약 12초 · +0.25 GB) — 서버는 기동 뒤 미리 올린다(wiring._warm_local_router).
     """
     from . import paths as _paths
     if data_dir:
@@ -150,34 +194,36 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
     bus = vt.BusRoutes.load(str(P["bus_route"]), str(P["bus_stops"]))
     sc = vt.StationCoords.load(str(P["station_coords"]))
     ex = vt.StationExits.load(str(P["station_exits"]))
-    # 따릉이(v0.7 · 22번 방). 대여소 목록 + 실시간 거치 조회만 — 승차 소요는 내지 않는다(99 · 자전거 경로 계산 없음).
+    # 따릉이(v0.7 · 22번 방). 대여소 목록 + 실시간 거치 조회. 승차 소요는 길찾기(local_router)가 있을 때만 낸다(101 · 없으면 근거없음).
     bk = vt.BikeStations.load(str(P["bike_stations"]))
-    import os
     # #48 — 서버는 설정 값(seoul_key)을 넘긴다. "" 는 끔, None 은 명령줄 관례(ACOP_SEOUL_OPENAPI_KEY · bike.BikeLive.from_env)
     bike_live = (vt.BikeLive(key=seoul_key) if seoul_key else None) if seoul_key is not None else vt.BikeLive.from_env()
-    # 77-2 · 99 — 택시·자동차: 파이썬 도로 라우터 → 근거없음. 소요 자료(TOPIS 프로파일)가 없으면 CarService 없음(종전).
-    car, car_why = None, "router_off"     # car_why: CarService 가 없는 이유(수단별 후보의 택시 칸이 이유를 가른다)
-    road_spec = road_graph if road_graph is not None else (os.environ.get("MOBILITY_ROAD_GRAPH") or "auto")
-    from .car import CarGraph, CarService
-    from .road_router import resolve as _road_resolve
-    if road_spec not in ("", "none") and _road_resolve(road_spec) is None:
-        car_why = "no_graph"             # 켜라고 했는데 차도 그래프 파일(또는 scipy)이 없다
-    if _road_resolve(road_spec) is not None:              # 폴더 확인만(적재는 첫 택시 질의 때)
-        cgraph = CarGraph.load(None, holidays)          # 약 2초 — 라우터가 있을 때만
-        if cgraph is None:
-            car_why = "no_profile"       # 도로 소요 자료(TOPIS 프로파일 · 도로급 계수)가 없다
+    # ☆101(2026-10-05 · 합치기) 길찾기는 팀장 graph_router.GraphRouter 하나 — 택시·자동차(_LazyCar) · 자전거·걷기(BikeRouter)가 같은
+    #   객체를 나눠 쓴다. 경로 서버 가지(주소 읽기 · make_router(서버))는 99 대로 없다. local_router 가 꺼져 있거나 도로 그래프
+    #   파일이 없으면 라우터 없음 → 택시·자전거 소요는 근거없음, 걷기는 직선 × 우회계수.
+    bike_router = None
+    router_obj, router_kind = None, None
+    car, car_why = None, "router_off"     # car_why: 택시 서비스가 없는 이유(수단별 후보의 택시 칸이 이유를 가른다 · 77-2)
+    if local_router:
+        from .graph_router import GraphRouter
+        gr = GraphRouter.default()
+        if gr.available():
+            router_obj, router_kind = gr, "local"
         else:
-            road = _road_resolve(road_spec, speed=cgraph.static_kmh)    # 정적 시간 가중(평일 낮 평균 · 본인 10/3)
-            if road is not None:
-                car = CarService(cgraph, rules, road=road)
-                car_why = None
+            car_why = "no_graph"          # 켜라고 했는데 도로 그래프 파일이 없다
+    if router_obj is not None:
+        bike_router = vt.BikeRouter(router_obj, {}, (rules.get("bike") or {}).get("pbf_date") or "2026-09-18")
+        # ☆서비스 런타임은 전엔 택시 서비스(car)를 한 번도 끼우지 않았다 - 라우터가 떠 있어도 택시는 늘 「소요 근거없음」이었다.
+        #   속도 프로파일 자료가 없으면 첫 호출에서 RouterDown(근거없음 · 갈래 no_profile)으로 답한다(_LazyCar).
+        car = _LazyCar(router_obj, rules, holidays)
+        car_why = None
     # 혼잡도(v0.8 · 39번 방 · @ 부품) — 파일이 없으면 가산 없음(근거없음). 판정기 CLI 와 같은 두 파일.
     cg_dir = Path(P["timetable"]).parent
     cg_data = vt.Congestion.load([cg_dir / "congestion_v1.jsonl", cg_dir / "congestion_line9_v1.jsonl"], wanted)
     # 버스 구간 통행시간 프로파일(v0.9 · 41번 방) — 파일이 없으면 종전 모델(거리 ÷ 표정속도)
     bus_prof = vt.BusSegProfile.load(P["bus_profile"])
     verifier = vt.Verifier(tt, lo, rules, holidays, tw, bus, sc, ex, car=car, bk=bk, bike_live=bike_live,
-                           cg_data=cg_data, bus_prof=bus_prof)
+                           bike_router=bike_router, cg_data=cg_data, bus_prof=bus_prof)
     verifier.car_why = car_why
 
     # ── 시간표 '판'. meta 의 built_at 이 있으면 그것, 없으면 행의 수집일.
@@ -223,8 +269,8 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
              "station_coords": len(sc.by_key) if sc else 0,
              "station_exits": sum(len(x) for x in ex.exits.values()) if ex else 0,
              "bike_stations": len(bk.rows) if bk else 0,
-             "bike_live": bool(bike_live),
-             "car_router": ("road_graph_v1" if car else None),
+             "bike_live": bool(bike_live), "bike_router": bool(bike_router), "router": router_kind, "car": bool(car),
+             "car_router": (Path(str(router_obj.dir)).name if (car and getattr(router_obj, "dir", None)) else None),
              "timetable_age_days": age_days, "timetable_age_basis": age_basis, "timetable_stale": stale, "data_dir_source": _paths.SOURCE}
     if not quiet:
         # ★ 출발없음을 같이 찍는다(2026-09-14). 수집 행 수(463,326)와 올라간 행 수가 달라서,
@@ -240,7 +286,7 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
         print("[mobility] ! 따릉이 대여소(bike_stations_v1.jsonl)가 없다 — 자전거는 근거없음으로 낸다")
     elif not quiet:
         print(f"[mobility] 따릉이 {len(bk.rows):,}곳 · 실시간 {'on' if bike_live else 'off(근거없음)'} · "
-              f"승차 소요 없음(자전거 경로 계산 없음)")
+              f"라우터 {router_kind if bike_router else 'off(소요 근거없음)'}")
 
     if stale and not quiet:
         print(f"[mobility] ! 시간표 수집이 {age_days}일 전이다(기준 {rules['staleness']['timetable_warn_days']['value']}일) — 재수집이 필요하다")
@@ -249,7 +295,7 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
                    rules_version=rules["rules_version"], stats=stats, source_mtimes=mtimes,
                    build_kw={"paths": paths, "wanted": wanted, "quiet": True, "data_dir": data_dir,
                              "seoul_key": seoul_key, "guardrails_path": guardrails_path,
-                             "road_graph": road_graph})
+                             "local_router": local_router})
 
 
 def get_verifier(**kw):

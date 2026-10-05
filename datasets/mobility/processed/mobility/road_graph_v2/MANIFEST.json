@@ -1,22 +1,22 @@
 {
- "version": "road_graph_v1",
+ "version": "road_graph_v2",
  "source": "Geofabrik south-korea-latest.osm.pbf",
  "source_url": "https://download.geofabrik.de/asia/south-korea-latest.osm.pbf",
  "license": "ODbL 1.0 (© OpenStreetMap contributors)",
- "grade": "확정(OSM 공표)",
+ "grade": "확정(OSM 공표 태그) — 걸음 길은 태그 해석",
  "src_md5": "b4aac9966079cb88204b1d8df495e33c",
  "osm_data_at": "2026-09-18T20:21:10Z",
- "built_at": "2026-09-29T17:50:53+09:00",
+ "built_at": "2026-10-05T11:17:39+09:00",
  "files": {
   "nodes.jsonl.gz": {
-   "bytes": 3237685,
-   "md5": "1742f2eece86fbe6c8195e3224c0b72c",
-   "rows": 280065
+   "bytes": 4763465,
+   "md5": "50dbcf7e95400b4d518901de4f46e549",
+   "rows": 419672
   },
   "edges.jsonl.gz": {
-   "bytes": 12627875,
-   "md5": "5fef4bf787b91ddcbed1c5ec4a1eb49b",
-   "rows": 375651
+   "bytes": 19211589,
+   "md5": "c28daad6e8080b444eeee2784c8c2e74",
+   "rows": 581193
   },
   "region_v1.geojson": {
    "bytes": 90756,

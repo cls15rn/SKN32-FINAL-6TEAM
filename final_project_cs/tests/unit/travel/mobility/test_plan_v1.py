@@ -646,8 +646,16 @@ def test_walk_m_and_fare():
             if o["id"].startswith("subway"):
                 assert o.get("fare_krw") == 1550, f"도심 10km 안 지하철은 1,550(규칙 fare) — {o}"
             assert isinstance(o.get("fare_krw", 0), int)
-    assert fare_of(v, [{"line": "09호선", "from": "노량진", "to": "신논현"}], [_FLR("09호선 노량진→신논현", 600)]) is None, \
-        "거리 모르는 노선(9호선)은 요금을 뺀다"
+    # ☆`[2026-10-04 #21]` 9호선처럼 공표 거리가 없는 노선은 OSM 선로 길이 추정으로 요금을 낸다(추정 — 응답 label 에 밝힌다)
+    from app.modules.travel_ops.mobility.engine.options import fare_is_est
+    l9 = [{"line": "09호선", "from": "노량진", "to": "신논현"}]
+    r9 = [_FLR("09호선 노량진→신논현", 600)]
+    if v.lo.est_edges:
+        assert fare_of(v, l9, r9) == 1550 and fare_is_est(v, l9, r9), "9호선은 선로 길이 추정으로 1,550(추정)"
+    else:
+        assert fare_of(v, l9, r9) is None, "선로 길이 자료가 없으면 거리 모르는 노선(9호선)은 요금을 뺀다"
+    lsb = [{"line": "신분당선", "from": "강남", "to": "양재"}]
+    assert fare_of(v, lsb, [_FLR("신분당선 강남→양재", 600)]) is None, "별도운임 노선(신분당선)은 길이를 알아도 요금을 안 낸다"
     legs = [{"line": "03호선", "from": "경복궁", "to": "을지로3가"}, {"line": "02호선", "from": "을지로3가", "to": "성수"}]
     d = v.tw.lookup("을지로3가", "03호선", "02호선").distance_m
     assert transfer_walk_m(v, legs) == d
@@ -1145,7 +1153,8 @@ def test_fare_subway_bracket():
     assert net.ridden_m(long_) > 10000 >= net.upper_m(long_), "돌아가는 후보도 운임은 최단 기준"
     assert f(long_) == f(short) == 1550
     assert net.lower_m(short) <= net.upper_m(short)
-    assert f([{"line": "09호선", "from": "노량진", "to": "신논현"}]) is None, "9호선 거리 없음"
+    l9 = [{"line": "09호선", "from": "노량진", "to": "신논현"}]
+    assert f(l9) == (1550 if v.lo.est_edges else None), "9호선 — 공표 거리 없음, 선로 길이 추정이 있으면 1,550(추정) · 없으면 뺀다"
     lb, ub = net.lower_m([{"line": "05호선", "from": "김포공항", "to": "광화문"}]), net.upper_m([{"line": "05호선", "from": "김포공항", "to": "광화문"}])
     assert O.subway_fare_at(v.R["fare"], lb, 600) != O.subway_fare_at(v.R["fare"], ub, 600)
     assert f([{"line": "05호선", "from": "김포공항", "to": "광화문"}]) is None, "괄호가 요금 경계를 가로지르면 뺀다"

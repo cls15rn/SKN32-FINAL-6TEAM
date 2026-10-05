@@ -3,8 +3,10 @@
 
 18번 방 `processed/mobility/graph/graph_time.py` 를 모듈로 옮긴 것이다(계산 규칙은 그대로).
 
-  경로 선택은 정적(파이썬 도로 라우터 road_router · 평일 낮 평균 속도) · 소요는 동적(TOPIS 링크×요일형×시간대 프로파일).
-  ☆99(2026-10-04) 경로 서버(GraphHopper) 호출을 지웠다 — 경로는 저장소 안 차도 그래프 파일(road_graph_v1)로만 낸다.
+  경로 선택은 정적(파이썬 길찾기 graph_router · 도로급 고정 속도) · 소요는 동적(TOPIS 링크×요일형×시간대 프로파일).
+  ☆99(2026-10-04) 경로 서버(GraphHopper) 호출을 지웠다 — 경로는 저장소 안 도로 그래프 파일로만 낸다.
+  ☆101(2026-10-05 · 합치기) 길찾기는 팀장 `graph_router.GraphRouter` 하나다(우리 `road_router.py` 는 내렸다 — 같은 그래프를
+    두 번 읽지 않는다). 서버 클라이언트(`GraphHopperClient`)와 `make_router` 의 서버 가지는 팀장 판에도 남기지 않는다(본인 10/5).
     응답 모양(`paths[0].points.coordinates` · `details.osm_way_id` · `details.road_class`)과 출력 칸 이름
     (`gh_time_s` · `gh_distance_m` — 라우터가 준 정적 값 · 파이썬 라우터는 시간을 안 줘 None)은 스키마·골든이 걸려 그대로 둔다.
   응답 edge 마다 세그먼트→링크→프로파일(그 시각) 로 소요를 다시 계산하고 진행하면서 시각을 넘긴다.
@@ -41,18 +43,26 @@ CLASS_MAP = {"motorway": "도시고속도로", "motorway_link": "도시고속도
              "secondary": "보조간선도로", "secondary_link": "보조간선도로",
              "tertiary": "기타도로", "tertiary_link": "기타도로"}
 SOURCE_ID = "topis_link_profile_v1@2025-09~2026-05"
-GRAPH_SOURCE_ID = "osm_road_graph@2026-09-18"   # 합성 경로 픽스처(FixtureRouter · 시험 대역)의 출처 표기 — 골든이 이 값을 잠근다
-ROAD_SOURCE_ID = "road_graph_v1@2026-09-18"      # 77 파이썬 라우터(76 그래프 파일 · 같은 pbf) — road_router 와 같은 값
+GRAPH_SOURCE_ID = "osm_road_graph@2026-09-18"   # 라우터가 제 출처(source_id)를 말하지 않을 때의 표기(합성 경로 픽스처) — 골든이 이 값을 잠근다
 
 
 class RouterDown(Exception):
     """라우터에 닿지 못했다 — 소요·요금을 지어내지 않고 근거없음으로 낸다.
 
     code(77-2): 왜 못 냈는지의 갈래 — `router_down`(기본 · 라우터 없음) · `out_of_area`(도로 그래프 범위 밖) ·
-      `no_snap`(가까운 차도 없음) · `no_path`(이을 길 없음). 수단별 후보의 택시 칸이 이유를 가르는 데 쓴다."""
+      `no_path`(이을 길 없음) · `depart_unconfirmed`(경로는 있는데 출발 시각을 못 정함). 수단별 후보의 택시 칸이 이유를 가르는 데 쓴다.
+      ☆101 — 팀장 길찾기(graph_router)는 갈래를 문장 머리(「out_of_area: …」·「no_path: …」)로 낸다. 코드를 따로 안 주면 그
+        머리를 읽어 채운다(길찾기 파일은 고치지 않는다). 우리 옛 라우터의 `no_snap`(200 m 안 차도 없음)은 없어졌다 — 팀장
+        길찾기는 1,200 m 까지 붙이고 그 밖은 `out_of_area` 다."""
+
+    _HEADS = ("out_of_area", "no_path")
 
     def __init__(self, msg="", code="router_down"):
         super().__init__(msg)
+        if code == "router_down":
+            head = str(msg).split(":", 1)[0].strip()
+            if head in self._HEADS:
+                code = head
         self.code = code
 
 
@@ -292,34 +302,23 @@ class CarGraph:
         return tot
 
 
-# ── 라우터 대역 ────────────────────────────────────────────────────────────
-#   실제 경로 계산은 road_router.RoadRouter(차도 그래프 파일 · 서버 없음) 하나다. ☆99(2026-10-04) 경로 서버
+# ── 라우터 ────────────────────────────────────────────────────────────────
+#   실제 경로 계산은 graph_router.GraphRouter(저장소 안 도로 그래프 파일 · 서버 없음) 하나다. ☆99(2026-10-04) 경로 서버
 #   클라이언트와 「파이썬 라우터 → 서버」 둘째 단을 지웠다 — 라우터가 못 내면 바로 근거없음(RouterDown)이다.
-class FixtureRouter:
-    """시험용 — 합성 경로 파일에서 꺼낸다. 키 = 'lng,lat|lng,lat'(소수 4자리).
-    실제 경로 계산 결과를 담는 자리가 아니다: 18번의 합성 시험(TOPIS 링크 체인)과 같은 종류의 픽스처만 둔다.
-    도로급 커버 경고·골목 과반(근거없음)·라우터 못 닿음처럼 **실제 그래프로는 만들 수 없는 상황**을 회귀(car_legs_v1)가
-    잠그는 데 쓴다. CarService 의 `road` 자리에 끼운다(`--road-graph fixture:<파일>`)."""
-    source_id = GRAPH_SOURCE_ID
-
-    def __init__(self, path):
-        self.doc = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.routes = self.doc["routes"]
-        self.dir = f"fixture:{Path(path).name}"
-        self.calls = 0
-
-    @staticmethod
-    def key(s, e):
-        return f"{s[0]:.4f},{s[1]:.4f}|{e[0]:.4f},{e[1]:.4f}"
-
-    def route(self, s, e, profile="car", via=None):
-        self.calls += 1
-        r = self.routes.get(self.key(s, e))
-        if r is None:
-            raise RouterDown(f"픽스처에 경로가 없다: {self.key(s, e)}")
-        if r.get("down"):
-            raise RouterDown("픽스처가 라우터 다운을 흉내낸다")
-        return r
+#   시험·명령줄 대역(FixtureRouter · NoRouter)은 car_fixtures.py(팀장 #59) — 옛 이름은 파일 끝 __getattr__ 가 이어 준다.
+def make_router(spec):
+    """명령줄·시험용 — "none"/빈 값 = 라우터 없음 · "fixture:<파일>" = 합성 경로 대역 · "local" = 자료 폴더의 도로 그래프 ·
+    "local:<폴더>" = 그 폴더. ☆101 서버 주소(http…)는 받지 않는다 — 경로 서버를 부르는 코드가 없다(99 · 본인 10/5)."""
+    if not spec or spec == "none":
+        from .car_fixtures import NoRouter
+        return NoRouter()
+    if spec.startswith("fixture:"):
+        from .car_fixtures import FixtureRouter
+        return FixtureRouter(spec[len("fixture:"):])
+    if spec == "local" or spec.startswith("local:"):
+        from .graph_router import GraphRouter
+        return GraphRouter(spec[len("local:"):]) if spec.startswith("local:") else GraphRouter.default()
+    raise ValueError(f"라우터 지정을 모른다: {spec!r} — none · fixture:<파일> · local · local:<폴더> 만 받는다(경로 서버 주소는 쓰지 않는다)")
 
 
 # ── 택시 요금 (rules taxi.fare · 15번 방) ───────────────────────────────────
@@ -356,23 +355,23 @@ def taxi_fare(fare, kind, dist_m, slow_s, hhmm, out_of_city=False):
 class CarService:
     """그래프 + 라우터 + 규칙. Verifier 가 자동차/택시 구간과 택시 대안에 쓴다.
 
-    ☆77(2026-09-30) · 99(2026-10-04) 경로는 **`road`(road_router.RoadRouter · 시험은 FixtureRouter) 하나**에 묻는다. 못 내면
-      RouterDown(근거없음) — 다른 서버로 넘기지 않는다(99 에서 경로 서버 단 삭제). 소요는 `CarGraph` 가 낸다 — 판정·요금·
-      등급 규칙은 그대로다. 파이썬 라우터는 회전 제약이 없어 등급은 추정을 넘지 않는다(원래 이 구간 등급은 추정/근거없음
-      둘뿐). 어느 그래프였는지는 `source_id` 둘째 칸으로 남긴다.
+    ☆77(2026-09-30) · 99(2026-10-04) · 101(2026-10-05) 경로는 **`router`(graph_router.GraphRouter · 시험은 FixtureRouter) 하나**에
+      묻는다. 못 내면 RouterDown(근거없음) — 다른 서버로 넘기지 않는다. 소요는 `CarGraph` 가 낸다 — 판정·요금·등급 규칙은
+      그대로다. 파이썬 길찾기는 회전 제약이 없어 등급은 추정을 넘지 않는다(원래 이 구간 등급은 추정/근거없음 둘뿐). 어느
+      그래프였는지는 `source_id` 둘째 칸으로 남긴다(라우터가 말하는 값 · 없으면 GRAPH_SOURCE_ID).
+    ☆101 — 인자 순서는 팀장 판(`CarService(graph, router, rules)`)으로 맞췄다. router 가 None 이면 근거없음.
     """
 
-    def __init__(self, graph, rules, road=None):
-        self.g, self.R = graph, rules
-        self.road = road
+    def __init__(self, graph, router, rules):
+        self.g, self.router, self.R = graph, router, rules
         self.C = rules["car"]
         self.F = rules["taxi"]["fare"]
 
     def _route(self, s, e):
         """(응답, 그래프 출처 id). 라우터가 없거나 못 내면 RouterDown."""
-        if self.road is None:
-            raise RouterDown("도로 경로 계산 없이 실행 중(차도 그래프 없음 · --road-graph none)")
-        return self.road.route(s, e), getattr(self.road, "source_id", None) or ROAD_SOURCE_ID
+        if self.router is None:
+            raise RouterDown("도로 경로 계산 없이 실행 중(도로 그래프 없음 · --road-graph none)")
+        return self.router.route(s, e), getattr(self.router, "source_id", None) or GRAPH_SOURCE_ID
 
     def in_airport_box(self, pt):
         b = self.C["공항_상자"]["value"]
@@ -463,3 +462,12 @@ class CarService:
                         "night_rate": taxi_rate(self.F, kind, hhmm), "out_of_city": None,
                         "fare_basis": "호출료·정차·시계외 미포함 하한"})
         return out, r
+
+
+# ☆`[2026-10-04 문제목록 #59]` 시험·명령줄에서만 쓰는 라우터(FixtureRouter · NoRouter)는 car_fixtures.py 로 옮겼다 — 서비스 경로(CarGraph ·
+#   CarService)만 이 파일에 남는다. 옛 이름은 첫 접근 때 새 파일에서 이어 준다.
+def __getattr__(name):
+    if name in ("FixtureRouter", "NoRouter"):
+        from . import car_fixtures
+        return getattr(car_fixtures, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

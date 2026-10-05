@@ -1,6 +1,6 @@
 {
  "manifest_version": "git_v1",
- "generated_at": "2026-10-02T16:05:10+09:00",
+ "generated_at": "2026-10-05T11:30:50+09:00",
  "room": 75,
  "src_dir": "C:\\final_project\\data\\travel\\processed\\mobility",
  "dst_dir": "C:\\final_project\\SKN32-FINAL-6TEAM\\datasets\\mobility\\processed\\mobility",
@@ -15,8 +15,8 @@
   "gz_policy": "files still > 50 MB after column reduction are replaced by .gz (--gz); loader reads .gz first"
  },
  "totals": {
-  "src_bytes": 293833629,
-  "dst_bytes": 93337091
+  "src_bytes": 302254220,
+  "dst_bytes": 101757682
  },
  "files": [
   {
@@ -384,54 +384,88 @@
    "md5": "f1e123f2610756ac6ec9ecff693b136c"
   },
   {
-   "path": "road_graph_v1/nodes.jsonl.gz",
+   "path": "road_graph_v2/nodes.jsonl.gz",
    "class": "A(그대로)",
-   "source_raw": "Geofabrik south-korea-latest.osm.pbf(raw\\mobility\\osm\\ · OSM 2026-09-18 · ODbL)",
-   "regen_script": "datasets/mobility/scripts/build_road_graph_v1.py(76) → check_road_graph_v1.py",
-   "read_by": "(77) engine/road_router — 서버 없는 파이썬 라우터",
-   "src_bytes": 3237685,
-   "src_sha256": "7fce945290289bece731e3666884cf5ea30f2d308efa42918fb17d9bf443f054",
-   "checked_at": "2026-10-02T14:17:08+09:00",
-   "text_bytes": 3237685,
-   "text_sha256": "7fce945290289bece731e3666884cf5ea30f2d308efa42918fb17d9bf443f054",
-   "rows": 280065,
+   "source_raw": "Geofabrik south-korea-latest.osm.pbf(raw\\mobility\\osm\\ · OSM 2026-09-18 · md5 b4aac996… · ODbL)",
+   "regen_script": "datasets/mobility/scripts/build_road_graph_v2.py(팀장 · build_road_graph_v1.py 를 불러 쓴다)",
+   "read_by": "engine/graph_router.py — 서버 없는 파이썬 길찾기",
+   "src_bytes": 4763465,
+   "src_sha256": "f2086f1f017d0c63273ba23997c02483f41bd4a3e7552b86effabd23d7066bb1",
+   "checked_at": "2026-10-05T11:30:50+09:00",
+   "text_bytes": 4763465,
+   "text_sha256": "f2086f1f017d0c63273ba23997c02483f41bd4a3e7552b86effabd23d7066bb1",
+   "rows": 419672,
    "gz": null,
-   "bytes": 3237685,
-   "sha256": "7fce945290289bece731e3666884cf5ea30f2d308efa42918fb17d9bf443f054",
-   "md5": "1742f2eece86fbe6c8195e3224c0b72c"
+   "bytes": 4763465,
+   "sha256": "f2086f1f017d0c63273ba23997c02483f41bd4a3e7552b86effabd23d7066bb1",
+   "md5": "50dbcf7e95400b4d518901de4f46e549"
   },
   {
-   "path": "road_graph_v1/edges.jsonl.gz",
+   "path": "road_graph_v2/edges.jsonl.gz",
    "class": "A(그대로)",
    "source_raw": "같은 pbf",
-   "regen_script": "datasets/mobility/scripts/build_road_graph_v1.py(76)",
-   "read_by": "(77) engine/road_router",
-   "src_bytes": 12627875,
-   "src_sha256": "6ddf0769c5439581c1680199c66aca86fe390e736a318d8923647587cac80595",
-   "checked_at": "2026-10-02T14:17:08+09:00",
-   "text_bytes": 12627875,
-   "text_sha256": "6ddf0769c5439581c1680199c66aca86fe390e736a318d8923647587cac80595",
-   "rows": 375651,
+   "regen_script": "datasets/mobility/scripts/build_road_graph_v2.py",
+   "read_by": "engine/graph_router.py",
+   "src_bytes": 19211589,
+   "src_sha256": "cbff1896ad874aafd394a797bf5b8c751b9764688d67d62fc2d7ac8964de0f36",
+   "checked_at": "2026-10-05T11:30:50+09:00",
+   "text_bytes": 19211589,
+   "text_sha256": "cbff1896ad874aafd394a797bf5b8c751b9764688d67d62fc2d7ac8964de0f36",
+   "rows": 581193,
    "gz": null,
-   "bytes": 12627875,
-   "sha256": "6ddf0769c5439581c1680199c66aca86fe390e736a318d8923647587cac80595",
-   "md5": "5fef4bf787b91ddcbed1c5ec4a1eb49b"
+   "bytes": 19211589,
+   "sha256": "cbff1896ad874aafd394a797bf5b8c751b9764688d67d62fc2d7ac8964de0f36",
+   "md5": "c28daad6e8080b444eeee2784c8c2e74"
   },
   {
-   "path": "road_graph_v1/region_v1.geojson",
+   "path": "road_graph_v2/region_v1.geojson",
    "class": "A(그대로)",
-   "source_raw": "같은 pbf 의 행정경계 relation(서울+인접 8+영종구+공항고속도로 회랑)",
-   "regen_script": "datasets/mobility/scripts/build_road_graph_v1.py(76)",
-   "read_by": "(77) 범위 판단",
+   "source_raw": "같은 pbf 의 행정경계 relation(서울+인접 8+영종구+공항고속도로 회랑 · v1 과 같은 범위)",
+   "regen_script": "datasets/mobility/scripts/build_road_graph_v2.py",
+   "read_by": "범위 판단(스크립트)",
    "src_bytes": 90756,
    "src_sha256": "bb9f46e02ad7868f8cdb5bcd25462595b7829db72c24cea80881a46c14605141",
-   "checked_at": "2026-10-02T14:17:08+09:00",
+   "checked_at": "2026-10-05T11:30:50+09:00",
    "text_bytes": 90756,
    "text_sha256": "bb9f46e02ad7868f8cdb5bcd25462595b7829db72c24cea80881a46c14605141",
    "gz": null,
    "bytes": 90756,
    "sha256": "bb9f46e02ad7868f8cdb5bcd25462595b7829db72c24cea80881a46c14605141",
    "md5": "94335aee0dc3681cbb3700f4e8e47ab5"
+  },
+  {
+   "path": "rail_edge_track_v1.jsonl.gz",
+   "class": "A(그대로)",
+   "source_raw": "같은 pbf 의 railway=subway|rail|light_rail 선로 + line_station_order_v1.json + station_coords.json",
+   "regen_script": "datasets/mobility/scripts/build_rail_edge_distance_v1.py(팀장)",
+   "read_by": "engine/options.py(fare.subway.distance_estimate · 추정)",
+   "src_bytes": 14409,
+   "src_sha256": "a53aa9d8ffec2298df627c4b5d16e399ad1f0f427bfa161f5f7d647cef3f61ec",
+   "checked_at": "2026-10-05T11:30:50+09:00",
+   "text_bytes": 14409,
+   "text_sha256": "a53aa9d8ffec2298df627c4b5d16e399ad1f0f427bfa161f5f7d647cef3f61ec",
+   "rows": 777,
+   "gz": null,
+   "bytes": 14409,
+   "sha256": "a53aa9d8ffec2298df627c4b5d16e399ad1f0f427bfa161f5f7d647cef3f61ec",
+   "md5": "0bdbfb0e6a8f19afe76a4146eb199cbc"
+  },
+  {
+   "path": "station_gap_v1.jsonl",
+   "class": "A(그대로)",
+   "source_raw": "공공데이터포털 국가철도공단 역간거리 CSV 17개(raw\\mobility\\station_gap\\) + 김포골드라인 운영사 누적 km",
+   "regen_script": "datasets/mobility/scripts/build_station_gap_v1.py(54-2)",
+   "read_by": "(아직 없음 — 다음 합치기 방에서 engine/options.py 가 읽게 한다)",
+   "src_bytes": 296688,
+   "src_sha256": "f56881fb8b5ad7df980abd6d789838f0daa4b9a17db24f2af56b26b32734a8e5",
+   "checked_at": "2026-10-05T11:30:50+09:00",
+   "text_bytes": 296688,
+   "text_sha256": "f56881fb8b5ad7df980abd6d789838f0daa4b9a17db24f2af56b26b32734a8e5",
+   "rows": 688,
+   "gz": null,
+   "bytes": 296688,
+   "sha256": "f56881fb8b5ad7df980abd6d789838f0daa4b9a17db24f2af56b26b32734a8e5",
+   "md5": "e66b38244bef5f72e783148ddc1fdf9b"
   }
  ],
  "reports": [
@@ -496,50 +530,46 @@
    "sha256": "2594940e9c783eabd03f73ede81eb01e5d0d88580777e59bc5a21318f7b6e202"
   },
   {
-   "path": "road_graph_v1/README.md",
-   "bytes": 6148,
-   "sha256": "6079ff304283a67c8834f70fc9f317efacaa18603e11a9aee62e007977b7bffa"
+   "path": "road_graph_v2/README.md",
+   "bytes": 3555,
+   "sha256": "5f515c4ca317261d0a50230a3c38aac59c7a6bd646710fee03031b18d7f409c6"
   },
   {
-   "path": "road_graph_v1/MANIFEST.json",
-   "bytes": 731,
-   "sha256": "4315aff4aaac694a1114e812df40199cb536fca76ca155af5f4e8963e67d853e"
+   "path": "road_graph_v2/MANIFEST.json",
+   "bytes": 770,
+   "sha256": "00e208d22faeb367fbb2f9fdab2f139ad81ddd92828a83482b83396f90d07c86"
   },
   {
-   "path": "road_graph_v1/build_report.json",
-   "bytes": 1148,
-   "sha256": "87e9c6a1dd3806785a649059accbf70ef12bfb1a59d8f2132bbcd3a751cfb8f7"
-  },
-  {
-   "path": "road_graph_v1/check_report.json",
-   "bytes": 8552,
-   "sha256": "377e876a7693a245a9f98da9fb938ba531968e888ad2a2684fc5388951d75a7b"
+   "path": "road_graph_v2/build_report.json",
+   "bytes": 1203,
+   "sha256": "1c78e5e39c0cff7f8f5f346277745f2f67cb8c55c2732ea24f5a83de207ebddd"
   }
  ],
  "sub_manifest_checks": [
   {
-   "path": "road_graph_v1/nodes.jsonl.gz",
-   "expected_md5": "1742f2eece86fbe6c8195e3224c0b72c",
-   "got_md5": "1742f2eece86fbe6c8195e3224c0b72c",
-   "expected_rows": 280065,
-   "got_rows": 280065,
+   "path": "road_graph_v2/nodes.jsonl.gz",
+   "expected_md5": "50dbcf7e95400b4d518901de4f46e549",
+   "got_md5": "50dbcf7e95400b4d518901de4f46e549",
+   "expected_rows": 419672,
+   "got_rows": 419672,
    "ok": true
   },
   {
-   "path": "road_graph_v1/edges.jsonl.gz",
-   "expected_md5": "5fef4bf787b91ddcbed1c5ec4a1eb49b",
-   "got_md5": "5fef4bf787b91ddcbed1c5ec4a1eb49b",
-   "expected_rows": 375651,
-   "got_rows": 375651,
+   "path": "road_graph_v2/edges.jsonl.gz",
+   "expected_md5": "c28daad6e8080b444eeee2784c8c2e74",
+   "got_md5": "c28daad6e8080b444eeee2784c8c2e74",
+   "expected_rows": 581193,
+   "got_rows": 581193,
    "ok": true
   },
   {
-   "path": "road_graph_v1/region_v1.geojson",
+   "path": "road_graph_v2/region_v1.geojson",
    "expected_md5": "94335aee0dc3681cbb3700f4e8e47ab5",
    "got_md5": "94335aee0dc3681cbb3700f4e8e47ab5",
    "expected_rows": null,
    "got_rows": null,
    "ok": true
   }
- ]
+ ],
+ "updated_by": "101(2026-10-05 합치기) — road_graph_v1 3파일 내림 · road_graph_v2 3 + rail_edge_track_v1 + station_gap_v1 등록(p101_manifest.py · reduce_75 재실행 아님)"
 }

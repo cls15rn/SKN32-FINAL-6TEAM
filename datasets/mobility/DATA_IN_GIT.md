@@ -5,16 +5,16 @@
 안 올린 것은 옆 `DATA_NOT_IN_GIT.md` · 갱신 스크립트는 `scripts/README.md`.
 
 > 팀 `.gitignore` 는 `datasets/**/processed/**` 를 막지만 손대지 않고 **`git add -f`** 로 추적한다(전부 공공데이터 · 개인정보 0 · 이 폴더 README 「이동 팀」 절).
-> 파일당 50 MB 미만(GitHub 경고선) · 합계 89.0 MB.
+> 파일당 50 MB 미만(GitHub 경고선) · 합계 97.0 MB(10/5 — 도로 그래프를 걸음 길이 든 v2 로 바꾸고 선로 길이·역간거리 표를 더함).
 
 ## 0. 요약
 
 | | 값 |
 |---|---|
-| 판정기·라우터가 읽는 파일 | **21파일** = 지하철·버스·혼잡도 등 13 + `graph/` 5 + `road_graph_v1/` 3 (+ 엔진 안 규칙 2: `rules_v0.3.json` · `holidays_2026_2027.json`) |
-| 그 21파일 정본 크기 | **279.9 MB** |
-| 줄인 판(git) | **89.0 MB** |
-| 줄인 것 | 시간표 — 판정기가 읽는 **8열만** · 출발 시각 없는 **18,873행 제외**(10/1 판) · **`.gz`**(텍스트 73.6 MB → 1.8 MB) / 9호선 혼잡도 — **급행 2,432행 제외**(8,208 → 5,776) / 나머지 19파일은 정본 그대로 |
+| 판정기·길찾기가 읽는 파일 | **23파일** = 지하철·버스·혼잡도 등 13 + `graph/` 5 + `road_graph_v2/` 3 + 요금 거리 2(`rail_edge_track_v1.jsonl.gz` · `station_gap_v1.jsonl` — 뒤의 것은 엔진이 아직 안 읽는다) (+ 엔진 안 규칙 2: `rules_v0.3.json` · `holidays_2026_2027.json`) |
+| 그 23파일 정본 크기 | **288.3 MB** |
+| 줄인 판(git) | **97.0 MB** |
+| 줄인 것 | 시간표 — 판정기가 읽는 **8열만** · 출발 시각 없는 **18,873행 제외**(10/1 판) · **`.gz`**(텍스트 73.6 MB → 1.8 MB) / 9호선 혼잡도 — **급행 2,432행 제외**(8,208 → 5,776) / 나머지 21파일은 정본 그대로 |
 | 50 MB 넘는 파일 | 없음(최대 `congestion_v1.jsonl` 32.2 MB) |
 | 중복 확인(sha256 동일) | `bus_route_v2 = v1` · `bus_stops_v2 = v1` · `bus_stop_coords_v2 = bus_stop_coords` → v1 만 올림(v2 는 정본에서도 백업으로 옮김 · 9/30) |
 | 검증 | 줄인 판으로 이동 회귀 전체 · pytest 게이트 — 정본과 같은 값(§7) |
@@ -37,7 +37,9 @@
 | `congestion_v1.jsonl` · `congestion_line9_v1.jsonl` | `congestion.Congestion` | 가산 없음(근거없음) |
 | `transfer_car_v1.json` | `options.TransferCar`(표시 안 함) | None |
 | `graph/` 5파일 | `car.CarGraph`(택시·자동차 소요) | 택시·자동차 근거없음 |
-| `road_graph_v1/` 3파일 | 서버 없는 파이썬 라우터(택시·자동차·자전거 경로 · 연결 작업 중) | 지금은 영향 없음 |
+| `road_graph_v2/` 3파일 | `graph_router.GraphRouter`(서버 없는 파이썬 길찾기 — 택시·자동차 · 자전거 · 걷기) | 택시·자전거 소요 근거없음 · 걷기는 직선 × 우회계수 |
+| `rail_edge_track_v1.jsonl.gz` | `options.py`(공표 역간거리가 없는 간선의 요금 거리 추정 · `fare.subway.distance_estimate`) | 그 구간 요금 없음(종전) |
+| `station_gap_v1.jsonl` | **아직 없음**(공표 역간거리 표 · 다음 합치기 방에서 요금 거리 원천으로 잇는다) | 영향 없음 |
 
 시험: `final_project_cs/tests/unit/travel/mobility/test_regression_cases.py` 가 위 경로를 `paths.PROCESSED` 로 읽는다. `.env` 에 `DATA_DIR` 이 없으면 이 저장소 폴더를 자동으로 쓴다(§5).
 
@@ -106,22 +108,32 @@
 | `daytype_calendar_v1.csv` | 8.0 KB · 365행 | `date` `daytype` `is_holiday` | — |
 원자료 TOPIS 속도 xlsx 12개(`raw\mobility\topis\` 465 MB) + OSM pbf. 생성 `graph_01_geom.py → graph_02a_extract_car_ways.py → graph_02b_match.py → graph_03a_convert_xlsx.py → graph_03b_profile.py`(작업 폴더를 cwd 로 · 각 파일 머리말). **경로는 아래 `road_graph_v1/` 를 파이썬 도로 라우터가 계산한다** — 10/4 부터 엔진은 경로 서버(GraphHopper)를 부르지 않는다(그 빌드물 jar · pbf · graph-cache 1,240 MB 는 C · 엔진이 읽지 않음). 이 5파일은 소요(TOPIS 프로파일) 계산에 그대로 쓴다.
 
-### `road_graph_v1/` 3파일 (서울+인접·공항 차도·자전거 그래프 · 15.96 MB · 9/30 추가)
+### `road_graph_v2/` 3파일 (서울+인접·공항 차도·자전거·걸음 그래프 · 22.95 MB · 10/5 — v1 을 대신함)
 
-경로 서버 없이 파이썬에서 택시·자동차 경로를 계산하기 위한 지도 데이터(10/4 부터 유일한 경로 계산 · 자전거 간선도 들어 있지만 자전거 소요는 내지 않는다 — 근거없음). **소요는 이 파일에 없다**(TOPIS 속도 프로파일로 계산). 경로는 저장하지 않는다.
+경로 서버 없이 파이썬에서 택시·자동차 · 자전거 · **걷기** 경로를 계산하기 위한 지도 데이터(`engine/graph_router.py` · 팀장 10/4). **소요는 이 파일에 없다**(택시 = TOPIS 속도 프로파일 · 걷기 = 거리 ÷ 보행 속도). 경로는 저장하지 않는다. v1(차도·자전거만 · 15.96 MB)은 내렸다 — v2 가 v1 의 칸을 다 싣고 걸음 칸을 더한 판이다.
 
 | 파일 | 행 | 크기 | md5 |
 |---|---:|---:|---|
-| `nodes.jsonl.gz` | 280,065 | 3.24 MB | `1742f2eece86fbe6c8195e3224c0b72c` |
-| `edges.jsonl.gz` | 375,651 | 12.63 MB | `5fef4bf787b91ddcbed1c5ec4a1eb49b` |
-| `region_v1.geojson` | 11 도형 | 0.09 MB | `94335aee0dc3681cbb3700f4e8e47ab5` |
+| `nodes.jsonl.gz` | 419,672 | 4.54 MB | `50dbcf7e95400b4d518901de4f46e549` |
+| `edges.jsonl.gz` | 581,193 | 18.32 MB | `c28daad6e8080b444eeee2784c8c2e74` |
+| `region_v1.geojson` | 11 도형 | 0.09 MB | `94335aee0dc3681cbb3700f4e8e47ab5`(v1 과 같은 파일) |
 
 - nodes 열: `id`(OSM node) · `lat` `lon`(WGS84 · 소수 7자리) · `r`(1 = 범위 안 · 0 = 3 km 여백)
-- edges 열: `u` `v`(끝 노드) · `way`(OSM way — `graph/osm_way_seg_topis_link_v1.csv` 의 `osm_way_id`) · `sa` `sb`(way 노드 순번 구간) · `len`(m) · `ow`(차량 일방 0/1/-1) · `hw`(OSM highway) · `ms`(maxspeed · 없으면 null) · `car` · `bike` · `bow`(자전거 일방) · `g`(형상 encoded polyline 1e-6) · `main`(차량 최대 강연결 성분) · `bmain`(자전거 최대 약연결 성분)
-- 범위: 서울 ∪ 고양·성남·과천·하남·구리·광명·부천·김포 ∪ 영종(인천공항) ∪ 공항고속도로 회랑 · 3 km 여백
-- 원자료 Geofabrik `south-korea-latest.osm.pbf`(ODbL 1.0 · © OpenStreetMap contributors · OSM 기준 2026-09-18) · 생성 `build_road_graph_v1.py` · 검수 `check_road_graph_v1.py` → `check_report.json` · 같은 pbf 면 md5 재현
-- 등급 확정(OSM 공표 형상·일방·접근 태그) · 회전 제약은 싣지 않음 → 이걸로 낸 소요는 추정
-- 상세(범위 relation id · 차량/자전거 규칙 · 검수 수치)는 폴더 안 `README.md`
+- edges 열: `u` `v`(끝 노드) · `way`(OSM way — `graph/osm_way_seg_topis_link_v1.csv` 의 `osm_way_id`) · `sa` `sb`(way 노드 순번 구간) · `len`(m) · `ow`(차량 일방 0/1/-1) · `hw`(OSM highway) · `ms`(maxspeed · 없으면 null) · `car` · `bike` · `bow`(자전거 일방) · `g`(형상 encoded polyline 1e-6) · `main`(차량 최대 강연결 성분) · `bmain`(자전거 최대 약연결 성분) · **`foot`(걸음 통행) · `st`(계단) · `fmain`(걸음 최대 연결 성분)**
+- 간선 581,193 = 차량 359,592 · 자전거 404,711 · 걸음 532,732(걸음 전용 166,007 · 계단 5,542)
+- 범위: 서울 ∪ 고양·성남·과천·하남·구리·광명·부천·김포 ∪ 영종(인천공항) ∪ 공항고속도로 회랑 · 3 km 여백(v1 과 같다)
+- 원자료 Geofabrik `south-korea-latest.osm.pbf`(**ODbL 1.0 · © OpenStreetMap contributors** · OSM 기준 2026-09-18T20:21:10Z · md5 `b4aac9966079cb88204b1d8df495e33c`) · 생성 `build_road_graph_v2.py`(팀장 · `build_road_graph_v1.py` 를 불러 쓴다 · 약 4분) · 판 기록 `MANIFEST.json` · `build_report.json`
+- 등급 확정(OSM 공표 형상·일방·접근 태그 — 걸음 길은 태그 해석) · 회전 제약·횡단 대기는 싣지 않음 → 이걸로 낸 소요는 추정
+- 걷기는 이 판(v2)일 때만 길로 잰다 — v1 로 재면 걸음 전용 길이 없어 길게 돈다(도보 20구간 ±25% 안: v2 12/20 · v1 10/20 · 직선 × 1.4 는 16/20 · 10/4 실측). 상세는 폴더 안 `README.md`
+
+### `rail_edge_track_v1.jsonl.gz` (OSM 선로 길이로 낸 역간 거리 · 14.1 KB · 777행 · 10/5 추가)
+
+공표 역간거리가 없는 간선(9호선·코레일 구간·공항철도 등)의 **요금 거리 추정**(팀장 #21 · `engine/options.py` 가 읽는다 · 결과 문구 「요금은 선로 길이 추정」). 열: `line` `a` `b`(역 순서 표의 이웃 두 역) · `official_m`(공표값 · 없으면 null) · `straight_m`(직선) · `track_m`(선로를 따라간 길이 · 못 얻으면 null + `why`) · `snap_m`(역 좌표 → 선로 이격). 777간선 중 선로 길이 얻음 594 · 못 얻음 183. 등급 **추정**(공표가 있는 227간선과의 오차 중앙 3.3% · p90 12.2% — 10/4 실측). 원자료는 위와 같은 pbf(ODbL) + `line_station_order_v1.json` + `station_coords.json` · 생성 `build_rail_edge_distance_v1.py`(팀장 · 약 20초).
+
+### `station_gap_v1.jsonl` (공표 역간거리 표 · 289.7 KB · 688행 · 10/5 등록 — **엔진 미연결**)
+
+공공데이터포털 국가철도공단 역간거리 CSV 17개(이용허락 제한 없음) + 김포골드라인 운영사 누적 km 로 만든 간선 단위 표. 열: `line` `a` `b` `distance_m` `grade`(확정 679 · 추정 9 = 김포골드라인) `basis` `n_sources` `source`(URL) `source_file` `as_of` `checked_at` `order_table_m`. 생성 `build_station_gap_v1.py`. **요금 계산은 아직 이 표를 읽지 않는다** — 거리 원천 순서(공표 → 선로 길이 추정)는 다음 합치기 방에서 잇는다.
+
 
 ### 부속 문서 (코드 안 읽음 · 같이 올림)
 `timetable_v1_coverage.md` `timetable_v1_destfill_report.md` `line_station_order_v1_report.md` `transfer_walk_v1_report.md` `bus_route_v1_report.md` `station_coords_report.md` `bike_stations_v1_report.md` `bus_seg_profile_v1_report.md` `congestion_v1_report.md` `congestion_line9_v1_report.md` `transfer_car_v1_report.md` `graph/README.md` · `road_graph_v1/README.md` `build_report.json` `check_report.json` `MANIFEST.json` — 파일별 커버리지·등급 근거(정본 기준 숫자).
@@ -133,10 +145,10 @@
 | `timetable_v1.jsonl.gz` | B(열·행 제외 · gz) | 191.8 MB | **1.8 MB**(텍스트 73.6 MB) | 453,668 |
 | `congestion_v1.jsonl` | A | 32.2 MB | 32.2 MB | 65,169 |
 | `bus_stops_v1.jsonl` | A | 15.6 MB | 15.6 MB | 41,820 |
-| `road_graph_v1/edges.jsonl.gz` | A | 12.0 MB | 12.0 MB | 375,651 |
+| `road_graph_v2/edges.jsonl.gz` | A | 18.3 MB | 18.3 MB | 581,193 |
 | `bus_seg_profile_v1.jsonl.gz` | A | 9.2 MB | 9.2 MB | 40,777 |
 | `graph/topis_link_profile_v1.jsonl.gz` | A | 5.0 MB | 5.0 MB | 365,798 |
-| `road_graph_v1/nodes.jsonl.gz` | A | 3.1 MB | 3.1 MB | 280,065 |
+| `road_graph_v2/nodes.jsonl.gz` | A | 4.5 MB | 4.5 MB | 419,672 |
 | `congestion_line9_v1.jsonl` | B(급행 행 제외) | 3.0 MB | **2.1 MB** | 5,776 |
 | `graph/osm_way_seg_topis_link_v1.csv` | A | 1.9 MB | 1.9 MB | 67,458 |
 | `graph/osm_way_geom_v1.csv` | A | 1.7 MB | 1.7 MB | 8,664 |
@@ -146,12 +158,14 @@
 | `line_station_order_v1.json` | A | 786.7 KB | 〃 | |
 | `station_coords.json` | A | 528.2 KB | 〃 | |
 | `bus_route_v1.jsonl` | A | 470.0 KB | 〃 | 717 |
-| `road_graph_v1/region_v1.geojson` | A | 88.6 KB | 〃 | |
+| `station_gap_v1.jsonl` | A | 289.7 KB | 〃 | 688 |
+| `road_graph_v2/region_v1.geojson` | A | 88.6 KB | 〃 | |
+| `rail_edge_track_v1.jsonl.gz` | A | 14.1 KB | 〃 | 777 |
 | `transfer_walk_v1.json` | A | 58.0 KB | 〃 | |
 | `graph/daytype_calendar_v1.csv` | A | 8.0 KB | 〃 | 365 |
 | `graph/topis_class_factor_v1.json` | A | 7.9 KB | 〃 | |
 | `timetable_v1_meta.json` | A | 8.7 KB | 〃 | |
-| **합계 21** | | **279.9 MB** | **89.0 MB** | |
+| **합계 23** | | **288.3 MB** | **97.0 MB** | |
 
 (첫 커밋 9/29 는 시간표 텍스트 75.1 MB · 행 제외 없이 148 MB 였다 — 히스토리에 남아 있다.)
 
@@ -159,7 +173,7 @@
 
 - 열 제거는 **시간표만** — 다른 파일은 loader 가 행 dict 를 통째로 들고 있어 열을 빼면 동작이 바뀔 수 있다.
 - 행 제외는 **판정기가 읽고 버리는 행만**: 시간표 출발 없음 18,411(9/30 판 · 10/1 판 18,873) · 9호선 급행 2,432. 뺀 판으로 이동 회귀 전체와 pytest 전체층을 돌려 정본과 같은 값을 확인하고 채택(9/29~30).
-- `.gz` 는 시간표만 새로 만들었다(`bus_seg_profile` · `topis_link_profile` · `road_graph_v1` 은 정본이 원래 gz).
+- `.gz` 는 시간표만 새로 만들었다(`bus_seg_profile` · `topis_link_profile` · `road_graph_v2` · `rail_edge_track` 은 정본이 원래 gz).
 - 「판정에 쓰는 시간대만」 같은 행 필터는 하지 않았다 — 기준이 바뀌면 판정이 달라진다.
 - 안 올린 것(원자료 · 개인 실측 · 라우터 캐시 · 로그 · 중복 사본) → `DATA_NOT_IN_GIT.md`.
 
@@ -169,9 +183,9 @@
 
 ## 6. MANIFEST
 
-`processed/mobility/MANIFEST_git_v1.json` — 파일마다 `path` `class` `source_raw` `regen_script` `read_by` `src_bytes` `src_sha256` `bytes` `sha256` `rows` `checked_at` + `totals` + 시간표 `reduce{rows_in rows_out columns_kept columns_dropped}` · 9호선 행 제외 기록 · `road_graph_v1/MANIFEST.json` 과 md5 대조 결과.
+`processed/mobility/MANIFEST_git_v1.json` — 파일마다 `path` `class` `source_raw` `regen_script` `read_by` `src_bytes` `src_sha256` `bytes` `sha256` `rows` `checked_at` + `totals` + 시간표 `reduce{rows_in rows_out columns_kept columns_dropped}` · 9호선 행 제외 기록 · `road_graph_v2/MANIFEST.json` 과 md5 대조 결과.
 
-## 7. 검증 (2026-09-30 · 노트북 · develop `1ce09a6` 위)
+## 7. 검증 (2026-09-30 · 노트북 · develop `1ce09a6` 위 — 10/5 에 바뀐 5파일은 명세만 다시 씀(`reduce_75.py` 재실행 아님 · `updated_by` 칸))
 
 - `reduce_75.py` 재생성: 21파일 · road_graph md5 3개 일치 · `--src` 가 저장소 안이면 멈춤(rc=2) 확인 · 키 패턴 0건
 - 저장소 데이터로 `pytest tests/unit/travel/mobility -q`: **210 passed · 1 skipped**(`test_check_scripts.py` 의 정본 텍스트 시간표 전용 시험 — 자료 기기에서만 돈다)

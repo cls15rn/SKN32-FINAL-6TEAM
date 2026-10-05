@@ -1,23 +1,17 @@
 # -*- coding: utf-8 -*-
-"""경로 사건 소스 **합치기** — 도로(UTIC) · 지하철(서울교통공사 알림) · 버스(TOPIS 예고 공지).
+"""경로 사건 소스가 쓰는 **대상 표**(이동 계산기 자료 파일) · 대상 표기 규칙.
 
-감시 루프(`trip_watch.py`)·출발 안내(`trip_reminders.py`)는 경로 사건 소스 **하나**에 두 가지를 묻는다 —
-`affecting(targets)`(이 대상들에 지금 걸린 사건)와 `unsupported(targets)`(이 소스가 못 보는 대상). 그 자리에
-이것을 꽂는다(`base.build_travel_sources`). 대상 머리로 나눠 맡긴다:
+감시 루프(`trip_watch.py`)·출발 안내(`trip_reminders.py`)는 경로 사건 소스 하나에 두 가지를 묻는다 — `affecting(targets)`(이 대상들에
+지금 걸린 사건)와 `unsupported(targets)`(이 소스가 못 보는 대상). 대상 머리: `도로:…`(UTIC·ITS) · `<노선>:<역>`(지하철 알림) ·
+`버스:<노선>`(TOPIS 공지).
 
-    도로:…        → UTIC(`UticRouteEvents`)            못 읽으면 None
-    <노선>:<역>   → 지하철 알림(`SeoulMetroAlerts`)     못 읽으면 None
-    버스:<노선>   → TOPIS 공지(`TopisNotices`)          못 읽으면 None
-
-★**맡을 소스가 없는 대상은 `unsupported()`** 로 낸다 — 「사건 없음」과 다르다. 합치면서 이 구분이 사라지면 지하철·버스
-  사고가 없는 것처럼 읽힌다(전에 UTIC 하나만 꽂혀 있을 때 지하철·버스는 전부 「확인 못 한 대상」이었다).
-★**맡은 소스가 못 읽으면 `None`** — 감시 루프가 그 이동 항목을 치명으로 남긴다(결정 15). 다른 소스가 답한
-  것으로 메우지 않는다.
-★그 대상 무리를 맡은 소스에게만 묻는다 — 버스를 안 쓰는 이동 항목은 TOPIS 가 못 읽어도 치명이 되지 않는다.
+☆`[2026-10-05 합치기]` 소스를 하나로 합치는 일은 팀장 `subway_notice.CompositeRouteEvents` 가 한다(`base.build_travel_sources`). 이
+  파일에 있던 `CombinedRouteEvents`(이동 담당 10/1)는 같은 일을 따로 한 것이라 내렸다. 남은 것은 버스 소스(`topis_notice.py`)가 쓰는
+  정류장 표(`MobilityTables.stop_table`)와 대상 표기 함수 둘이다. `station_table`(역 코드 → 대상)은 지금 쓰는 소스가 없다(내린
+  `seoulmetro_alert.py` 가 썼다) — 표는 남겨 둔다.
 """
 from __future__ import annotations
 
-from datetime import datetime
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,50 +96,4 @@ class MobilityTables:
         return self._stops
 
 
-def _group(target: str) -> str:
-    if target.startswith(ROAD):
-        return "road"
-    if target.startswith(BUS):
-        return "bus"
-    return "subway"
-
-
-class CombinedRouteEvents:
-    name = "route_events_combined"
-
-    def __init__(self, *, road: Any = None, subway: Any = None, bus: Any = None) -> None:
-        self.sources = {"road": road, "subway": subway, "bus": bus}
-        if not any(self.sources.values()):
-            raise ValueError("CombinedRouteEvents 에 소스가 하나도 없다")
-
-    def affecting(self, targets: list[str], at: datetime | None = None
-                  ) -> dict[str, dict[str, Any]] | None:
-        found: dict[str, dict[str, Any]] = {}
-        for group, source in self.sources.items():
-            mine = [t for t in targets if _group(t) == group]
-            if not mine or source is None:
-                continue
-            got = source.affecting(mine, at) if at is not None else source.affecting(mine)
-            if got is None:
-                return None
-            found.update({t: e for t, e in got.items() if t in mine})
-        return found
-
-    def unsupported(self, targets: list[str]) -> list[str]:
-        out = []
-        for group, source in self.sources.items():
-            mine = [t for t in targets if _group(t) == group]
-            if not mine:
-                continue
-            if source is None:
-                out += mine
-                continue
-            check = getattr(source, "unsupported", None)
-            # ★unsupported() 가 없는 소스는 맡은 대상을 다 본다고 말하는 셈이다 — 그런 소스는 받지 않는다
-            if not callable(check):
-                raise TypeError(f"{type(source).__name__} 에 unsupported() 가 없다 — 못 보는 대상이 「사건 없음」이 된다")
-            out += [t for t in check(mine) if t in mine]
-        return [t for t in targets if t in out]
-
-
-__all__ = ["CombinedRouteEvents", "MobilityTables", "line_name", "station_name"]
+__all__ = ["MobilityTables", "line_name", "station_name"]

@@ -357,14 +357,15 @@ def _runtime(road_graph=None):
     if road_graph not in _RT:
         from app.modules.travel_ops.mobility.engine.runtime import build_verifier
         try:
-            _RT[road_graph] = build_verifier(quiet=True, road_graph=road_graph)
+            # 101 — 켜고 끄는 칸은 팀장 local_router 하나다. 옛 road_graph None(auto) = 켬 · "none" = 끔
+            _RT[road_graph] = build_verifier(quiet=True, local_router=(road_graph != "none"))
         except RuntimeError as e:
             _RT[road_graph] = e
     rt = _RT[road_graph]
     if isinstance(rt, Exception):
         pytest.skip("시간표 없음(DATA_DIR) — 데이터 축 SKIP")
     if road_graph is None and getattr(rt._v, "car", None) is None:
-        pytest.skip("차도 그래프 없음(road_graph_v1) — 택시 축 SKIP")
+        pytest.skip("도로 그래프 없음(road_graph_v2) — 택시 축 SKIP")
     return rt
 
 
@@ -423,7 +424,7 @@ def test_full_overlap_out_of_area_and_router_off():
     on = P.plan(places, items, runtime=_runtime(), taxi_fallback=True)
     assert on.pop("taxi_fallback") == []
     assert [s["to"] for s in on["skipped"]] == ["잠실", "부산역"] and on["skipped"][0]["taxi"]["code"] == "before_prev_end"
-    # 그래프에서 먼 좌표는 라우터가 「200 m 안 차도 없음(no_snap)」으로 낸다 — out_of_area 는 범위 가장자리 여백에서만(77-2 그대로)
+    # 그래프에서 먼 좌표 — 팀장 길찾기는 1,200 m 안에 길이 없으면 out_of_area 로 낸다(101 · 우리 옛 라우터는 no_snap 이었다)
     assert on["skipped"][1]["taxi"]["code"] in ("out_of_area", "no_snap") and on["skipped"][1]["taxi"]["status"] == "none"
     assert on["skipped"][0]["taxi"]["short_min"] > 0 and all("택시로도 못 채움" in s["reason"] for s in on["skipped"])
     for s, s0 in zip(on["skipped"], off["skipped"]):                               # 덧붙인 것 말고는 같다
@@ -438,7 +439,11 @@ def test_full_overlap_out_of_area_and_router_off():
     on0 = P.plan(places, items, runtime=rt0, taxi_fallback=True)
     assert on0.pop("taxi_fallback") == []
     off0.pop("basis"), on0.pop("basis")
-    assert on0 == off0 and on0 == off
+    assert on0 == off0
+    # ☆101(2026-10-05) 앞 판은 여기서 「길찾기를 끈 결과 == 켠 결과」까지 봤다(켜도 택시 칸만 생겼다). 이제 길찾기를 켜면 걷기가 길 기준이라
+    #   만든 구간(명동→경복궁)의 도보 m·출발이 달라질 수 있다 — 같은 것은 「어느 구간을 못 만들었고 왜인가」다.
+    assert [(s["to"], s["code"]) for s in on0["skipped"]] == [(s["to"], s["code"]) for s in off["skipped"]]
+    assert [it["kind"] for it in on0["items"]] == [it["kind"] for it in off["items"]]
 
 
 @pytest.mark.mobility_full
@@ -449,6 +454,14 @@ def test_full_before_first_train_and_bike_only_modes():
                                                            taxi_fallback=True)
     assert got is None and why["taxi"]["status"] == "found" and "택시로도" not in why["reason"]
     assert datetime.fromisoformat(why["taxi"]["depart_at"]) >= nb
+    # ☆101(2026-10-05) 자전거 승차 소요를 다시 낸다(길찾기 켬) → 명동→잠실은 이제 자전거로 만들어진다(앞 판은 「자전거 경로 계산 없음」으로
+    #   못 만들었고, 그때 택시로 메우지 않는 것을 봤다). 메우지 않는 것은 자전거가 **안 되는** 구간으로 본다 — 부산역은 대여소가 없다.
     got, why = P.Planner(_runtime(), stage="planning", modes=["bike", "walk"]).leg(
         MYEONGDONG, JAMSIL, _at("6T10:00"), {}, True, "x", taxi_fallback=True)
+    assert got is not None and got[0]["planned"] == "bike"
+    got, why = P.Planner(_runtime(), stage="planning", modes=["bike", "walk"]).leg(
+        MYEONGDONG, BUSAN, _at("6T20:00"), {}, True, "x", taxi_fallback=True)
     assert got is None and "taxi" not in why
+    got, why = P.Planner(_runtime("none"), stage="planning", modes=["bike", "walk"]).leg(      # 길찾기 끔 = 99 때와 같다
+        MYEONGDONG, JAMSIL, _at("6T10:00"), {}, True, "x", taxi_fallback=True)
+    assert got is None and "taxi" not in why and "자전거 경로 계산 없음" in why["reason"]

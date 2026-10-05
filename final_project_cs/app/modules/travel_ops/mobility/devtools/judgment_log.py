@@ -248,7 +248,7 @@ def miss_axes(case, result):
     `match` 는 분류 채점용(2값 + 이유)이라 이 축들을 안 본다. 덤프는 둘 중 하나라도 어긋나면 남긴다.
     대안·경고·택시·후보 축은 verify_time 의 MISS 목록이 정본이다(판정기를 안 고치므로 여기서 다시 세지 않는다).
     """
-    from .timeutil import to_service_min
+    from ..engine.timeutil import to_service_min
     o = getattr(result, "out", None) or {}
     bad = []
     ea = case.get("expect_arrive")
@@ -351,7 +351,7 @@ def build_dump(record, case, result):
 def default_log_dir():
     """기본 로그 자리 `<PROCESSED>/mobility/logs`. ☆`[73 후속 · 3-5]` 자료 폴더가 정해지지 않았거나(unset · 자리표시 /data)
     계산기가 꺼졌으면(disabled) 자리를 만들지 않는다 — 엉뚱한 드라이브 루트(C:\data)에 쓰던 것을 막는다. 명시한 log_dir 은 그대로."""
-    from . import paths as _paths
+    from ..engine import paths as _paths
     if _paths.SOURCE in ("unset", "disabled"):
         raise RuntimeError(f"판정 로그 자리를 정할 수 없다 — 자료 폴더 출처 {_paths.SOURCE}(자리표시 {_paths.PROCESSED}). "
                            f"load_cli_env()/configure() 뒤에 만들거나 log_dir 을 준다")

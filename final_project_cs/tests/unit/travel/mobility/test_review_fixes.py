@@ -124,13 +124,15 @@ def test_9_bike_needs_one_per_person():
 
 
 def test_99_bike_ride_is_unknown_and_says_why():
-    """99(2026-10-04) — 자전거 경로 계산이 없다: 대여소는 찾되 승차 소요·도착을 내지 않고 이유를 말한다(다른 수단 값으로 안 바꾼다)."""
+    """99(2026-10-04) — 자전거 경로 계산이 없다: 대여소는 찾되 승차 소요·도착을 내지 않고 이유를 말한다(다른 수단 값으로 안 바꾼다).
+    ☆101(2026-10-05) 뜻이 좁아졌다 — 「늘 없다」가 아니라 **길찾기가 없을 때**(시험·명령줄 기본 · 도로 그래프 없음)다. 길찾기가 있으면
+      승차 소요를 다시 낸다(아래 test_101_bike_ride_comes_back_with_a_router)."""
     from app.modules.travel_ops.mobility.engine.bike import BikeStations
     from app.modules.travel_ops.mobility.engine.verify_time import BIKE_NO_ROUTE
     st = {"stationId": "ST-1", "name": "대여소1", "lat": 37.5000, "lon": 127.0000, "mode": "QR", "rack": 10}
     st2 = {"stationId": "ST-2", "name": "대여소2", "lat": 37.5100, "lon": 127.0100, "mode": "QR", "rack": 10}
     v = _verifier(bk=BikeStations([st, st2]))
-    assert not hasattr(v, "bike_router")
+    assert v.bike_router is None
     leg = {"mode": "bike", "from": {"lat": 37.5001, "lng": 127.0001, "name": "출발"},
            "to": {"lat": 37.5101, "lng": 127.0101, "name": "도착"}}
     r = v.verify_leg_bike(1, leg, 600, "weekday", party={"size": 1},
@@ -138,6 +140,29 @@ def test_99_bike_ride_is_unknown_and_says_why():
     assert r.verdict == "feasible" and r.ride_min is None and r.arrive_min is None and r.ride_grade == "근거없음"
     assert r.grade == "근거없음" and BIKE_NO_ROUTE in r.reason
     assert any(BIKE_NO_ROUTE in (e.get("claim") or e.get("source_id") or "") or BIKE_NO_ROUTE in str(e) for e in r.evidence)
+
+
+def test_101_bike_ride_comes_back_with_a_router():
+    """101(2026-10-05 · 본인 결정) — 길찾기가 있으면 자전거 승차 소요·도착을 다시 낸다(추정) · 근거에 길찾기가 말한 출처가 찍힌다."""
+    from app.modules.travel_ops.mobility.engine.bike import BikeRouter, BikeStations
+
+    class Local:
+        is_local, basis, source_id = True, "로컬 도로그래프", "osm_road_graph_v2@2026-09-18"
+
+        def route(self, s, e, profile="car", via=None):
+            return {"paths": [{"distance": 1500.0 if profile == "bike" else 20.0,
+                               "time": 360000 if profile == "bike" else 15000}]}
+
+    st = {"stationId": "ST-1", "name": "대여소1", "lat": 37.5000, "lon": 127.0000, "mode": "QR", "rack": 10}
+    st2 = {"stationId": "ST-2", "name": "대여소2", "lat": 37.5100, "lon": 127.0100, "mode": "QR", "rack": 10}
+    v = _verifier(bk=BikeStations([st, st2]))
+    v.bike_router = BikeRouter(Local(), {}, "2026-09-18")
+    leg = {"mode": "bike", "from": {"lat": 37.5001, "lng": 127.0001, "name": "출발"},
+           "to": {"lat": 37.5101, "lng": 127.0101, "name": "도착"}}
+    r = v.verify_leg_bike(1, leg, 600, "weekday", party={"size": 1},
+                          live_fixture={"checked_at": "2026-09-29T10:00", "counts": {"ST-1": 2}})
+    assert r.verdict == "feasible" and r.ride_min == 6 and r.ride_grade == "추정" and r.arrive_min is not None
+    assert any((e.get("source_id") or "") == "osm_road_graph_v2@2026-09-18" for e in r.evidence if isinstance(e, dict))
 
 
 def _key_env(monkeypatch, tmp_path, env=None, dot_env=None, apikeys=None):
@@ -218,7 +243,7 @@ def test_16_bus_profile_checks_end_of_last_segment():
 @pytest.mark.parametrize("raw,hidden", [("문의 a@b.com", "a@b.com"), ("010-1234-5678", "1234"),
                                         ("lat=37.5, lon=127.0", "37.5"), ("37.5,127.0", "127.0")])
 def test_51_scrub_hides_pii_and_single_coords(raw, hidden):
-    from app.modules.travel_ops.mobility.engine.judgment_log import scan_blocked, scrub_text
+    from app.modules.travel_ops.mobility.devtools.judgment_log import scan_blocked, scrub_text
     assert hidden not in scrub_text(raw)
     assert scan_blocked(raw), "검사도 잡는다"
 
@@ -227,7 +252,7 @@ def test_51_scrub_hides_pii_and_single_coords(raw, hidden):
                                    # 실행 번호 — 새벽 2시대 + 무작위 뒷자리가 숫자 넷이면 서울 번호 모양이 됐다(시험이 흔들린 원인)
                                    "20260929T024107-1234ab", "20260929T031500-5678cd"])
 def test_51_scrub_leaves_ordinary_text(plain):
-    from app.modules.travel_ops.mobility.engine.judgment_log import scan_blocked, scrub_text
+    from app.modules.travel_ops.mobility.devtools.judgment_log import scan_blocked, scrub_text
     assert scrub_text(plain) == plain and not scan_blocked(plain)
 
 

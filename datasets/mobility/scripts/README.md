@@ -26,7 +26,9 @@
 | `bus_seg_profile_v1.jsonl.gz` | — | `build_bus_seg_profile_v1`(버스 노선 뒤) | 서울 OA-21217 구간 운행시간 zip |
 | `congestion_v1.jsonl` · `congestion_line9_v1.jsonl` | — | `congestion_build` · `congestion_build --line9` | 서울교통공사 혼잡도 CSV · 9호선 xlsx(OA-22197) |
 | `graph/` 5파일(도로 구간별 시간대 속도) | — | `graph_01_geom` → `graph_02a_extract_car_ways` → `graph_02b_match` → `graph_03a_convert_xlsx`(달마다) → `graph_03b_profile fix34` — **작업 폴더를 cwd 로** 돌린다(각 파일 머리말) | TOPIS 속도 xlsx 12개월 · 서울 클립 OSM pbf |
-| `road_graph_v1/`(서버 없는 라우터 도로망) | — | `build_road_graph_v1` → 검사 `check_road_graph_v1` | Geofabrik south-korea pbf |
+| `road_graph_v2/`(서버 없는 길찾기 도로망 — 차도·자전거·걸음) | — | `build_road_graph_v2 --src <pbf> --out <폴더>`(팀장 · `build_road_graph_v1` 을 불러 쓴다 — v1 스크립트·검사 `check_road_graph_v1` 는 그래서 남긴다 · 빌드 때 `osmium`·`shapely`) | Geofabrik south-korea pbf |
+| `rail_edge_track_v1.jsonl.gz`(역간 선로 길이 — 요금 거리 추정) | — | `build_rail_edge_distance_v1`(팀장 · pbf 를 `datasets/mobility/raw/osm/` 에서 읽는다 · 역 순서 표·역 좌표 뒤) | 같은 pbf |
+| `station_gap_v1.jsonl`(공표 역간거리 표 · 엔진 미연결) | — | `build_station_gap_v1 --raw … --ref … --out …` | 국가철도공단 역간거리 CSV 17(`raw\mobility\station_gap\`) |
 | 엔진 `rules/holidays_<시작>_<끝>.json` | `holiday_collect --years …`(연 1회 · 결과는 git 의 엔진 규칙 폴더) | — | — |
 
 검사: `consistency_check`(시간표↔혼잡도↔첫막차↔좌표 접합부 · 옆의 `check_station_names` 를 부른다 · 갱신 뒤 필수).

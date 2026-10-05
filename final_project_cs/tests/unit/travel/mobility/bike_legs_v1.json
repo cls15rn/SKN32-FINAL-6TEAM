@@ -1,11 +1,11 @@
 {
  "_doc": [
   "자전거(따릉이) 회귀 — 규칙 v0.7 · 22번 방 · 2026-09-20. 17번 §4 표의 행마다 케이스 하나.",
-  "★ 99번(2026-10-04)부터 **자전거 경로 계산이 없다** — 승차 소요·도착은 늘 근거없음이고 밖 판정은 불가(no_data · 이유에 「자전거 경로 계산 없음」)다. 경로 서버 요약 픽스처(bike_gh_fixture_v1.json)와 그 인자는 지웠다.",
-  "  살릴 때는 전용 경로 계산을 만들지 않고 보행 경로 거리 ÷ 자전거 평균 속도(단위 환산)로 낸다(본인 10/4 · 보행 그래프 뒤) — 그때 BIKE-02·03·05·08·10·12·14 의 기대를 다시 성립으로 잠근다.",
+  "★ 라우터(GraphHopper) 없이 돌린다 — 승차 소요·도착은 근거없음이 정상이다. 노트북에서 `--gh-url http://localhost:8989 --bike-record tests/mobility/bike_gh_fixture_v1.json` 로 한 번 돌려 픽스처를 만들면",
+  "  그 뒤로는 `--bike-fixture tests/mobility/bike_gh_fixture_v1.json` 으로 클라우드에서도 같은 값이 나온다. 픽스처는 거리·시간 요약뿐(형상 없음).",
   "★ 실시간 거치(bikeList)는 케이스의 bike_live 픽스처로 준다 — 실제 호출은 `--bike-live env`. 픽스처의 개수는 회귀용 가정값이고 실측이 아니다(source_id seoul_bikeList@fixture:*).",
-  "★ 도착 기대값(expect_arrive)은 없다 — 판정(대여소 없음·연령·LCD·거치 부족 = 불가 확정 / 그 밖 = 근거없음)·경고·대안 축만 잠근다.",
-  "★ mode=bike 케이스는 selfcheck:false — 승차 소요가 **설계상 근거없음**이라 탐침에 넣으면 판단불가율에 설계된 근거없음이 섞인다(MIX-05·06 과 같은 처리)."
+  "★ 도착 기대값(expect_arrive)은 픽스처를 기록한 뒤 22번 문서 §4 표대로 넣는다 — 지금은 판정·경고·대안 축만 잠근다.",
+  "★ mode=bike 케이스는 selfcheck:false — 라우터·실시간이 없는 실행에서는 **설계상 근거없음**이라 탐침에 넣으면 판단불가율에 설계된 근거없음이 섞인다(MIX-05·06 과 같은 처리). 라우터가 상주하는 25번에서 다시 넣는다."
  ],
  "cases": [
   {
@@ -30,18 +30,18 @@
    "expect_internal": "infeasible",
    "expect_reason": "after_last",
    "expect_last_depart": "24:50",
-   "expect_alt_min": 1,
+   "expect_alt_min": 2,
    "expect_alt_min_by_mode": {
-    "bus": 1
+    "bus": 1,
+    "bike": 1
    },
+   "expect_warn_codes": [
+    "MOB_W_BIKE_LCD_SKIPPED"
+   ],
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_FOREIGNER_GUIDE"
    ],
-   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금",
-   "expect_alt_max_by_mode": {
-    "bike": 0
-   },
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제 · GPT #1): 따릉이는 도착을 못 내므로(자전거 경로 계산 없음) **성립 대안에 서지 않는다** — 열거 기록에 근거없음으로만 남는다. 그 전 기대(대안 2개 이상 · bike 1개 이상 · 대안의 LCD 건너뜀 경고)에서 대안 1개 이상 · bus 1개 이상 · bike 0개로 바꿈. note 의 「따릉이가 대안으로 선다」는 승차 소요가 다시 생길 때의 모양"
+   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금"
   },
   {
    "id": "BIKE-02",
@@ -56,8 +56,12 @@
      "to": "성수"
     }
    ],
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
    "expect_last_depart_none": true,
    "expect_warn_codes": [
     "MOB_W_BIKE_LIVE_UNKNOWN",
@@ -66,10 +70,7 @@
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_FOREIGNER_GUIDE"
    ],
-   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금",
-   "expect_reason": "no_data",
-   "expect_reason_contains": "자전거 경로 계산 없음",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금"
   },
   {
    "id": "BIKE-03",
@@ -90,17 +91,18 @@
      "ST-840": 5
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
    "expect_last_depart_none": true,
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_LIVE_UNKNOWN",
     "MOB_W_BIKE_FOREIGNER_GUIDE"
    ],
-   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금",
-   "expect_reason": "no_data",
-   "expect_reason_contains": "자전거 경로 계산 없음",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금"
   },
   {
    "id": "BIKE-04",
@@ -149,16 +151,18 @@
      "ST-1868": 3
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
    "expect_last_depart_none": true,
    "expect_reason_contains": "잠실 자전거 수리센터 앞",
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_FOREIGNER_GUIDE"
    ],
-   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금",
-   "expect_reason": "no_data",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금"
   },
   {
    "id": "BIKE-06",
@@ -232,12 +236,13 @@
      "ST-840": 2
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
-   "expect_last_depart_none": true,
-   "expect_reason": "no_data",
-   "expect_reason_contains": "자전거 경로 계산 없음",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart_none": true
   },
   {
    "id": "BIKE-09",
@@ -284,15 +289,17 @@
      "ST-3350": 4
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
    "expect_last_depart_none": true,
    "expect_warn_codes": [
     "MOB_W_BIKE_LCD_SKIPPED"
    ],
-   "expect_reason_contains": "사당역 1번출구",
-   "expect_reason": "no_data",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "expect_reason_contains": "사당역 1번출구"
   },
   {
    "id": "BIKE-11",
@@ -341,16 +348,17 @@
      "ST-840": 5
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:50",
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_FOREIGNER_GUIDE"
    ],
-   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금",
-   "expect_reason": "no_data",
-   "expect_last_depart_none": true,
-   "expect_reason_contains": "자전거 경로 계산 없음",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   "_78": "2026-09-29 73 후속: 따릉이 외국인 안내를 붙이지 않는다(본인 · 자전거 따로 안내 안 함) — 기대 경고에서 빼고 「없어야」로 잠금"
   },
   {
    "id": "BIKE-13",
@@ -411,16 +419,17 @@
      "ST-2168": 7
     }
    },
-   "expect": "infeasible",
-   "expect_internal": "unknown",
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
    "expect_last_depart_none": true,
    "expect_warn_codes_absent": [
     "MOB_W_BIKE_FOREIGNER_GUIDE",
     "MOB_W_BIKE_LIVE_UNKNOWN"
-   ],
-   "expect_reason": "no_data",
-   "expect_reason_contains": "자전거 경로 계산 없음",
-   "_99": "2026-10-04 99번(경로 서버 호출 삭제): 자전거 경로 계산이 없다 → 승차 소요 근거없음 · 예정 도착 없음 → 밖 판정 불가(no_data). 그 전 기대(경로 서버 요약 픽스처로 성립 · @ 10분)에서 바꿈. 대여소 선택·경고 축은 그대로 잠근다"
+   ]
   }
  ],
  "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다."

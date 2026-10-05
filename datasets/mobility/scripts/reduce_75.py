@@ -86,20 +86,27 @@ FILES = [
     ("graph/osm_way_seg_topis_link_v1.csv", A, "OSM pbf + TOPIS 링크 형상 매칭", "datasets/mobility/scripts/graph_02b_match.py(18 · cwd 실행)", "engine/car.py CarGraph"),
     ("graph/osm_way_geom_v1.csv", A, "OSM pbf", "datasets/mobility/scripts/graph_01_geom.py(18 · cwd 실행)", "engine/car.py CarGraph"),
     ("graph/daytype_calendar_v1.csv", A, "holidays KR + 정정(34)", "datasets/mobility/scripts/graph_03b_profile.py(18 · cwd 실행)", "engine/car.py CarGraph"),
-    # 76(서울 차도·자전거 그래프 · 서버 없는 라우터용 · 이미 gz · md5 는 76 MANIFEST.json 과 대조)
-    ("road_graph_v1/nodes.jsonl.gz", A, "Geofabrik south-korea-latest.osm.pbf(raw\\mobility\\osm\\ · OSM 2026-09-18 · ODbL)",
-     "datasets/mobility/scripts/build_road_graph_v1.py(76) → check_road_graph_v1.py", "(77) engine/road_router — 서버 없는 파이썬 라우터"),
-    ("road_graph_v1/edges.jsonl.gz", A, "같은 pbf", "datasets/mobility/scripts/build_road_graph_v1.py(76)", "(77) engine/road_router"),
-    ("road_graph_v1/region_v1.geojson", A, "같은 pbf 의 행정경계 relation(서울+인접 8+영종구+공항고속도로 회랑)", "datasets/mobility/scripts/build_road_graph_v1.py(76)", "(77) 범위 판단"),
+    # 101(2026-10-05 · 합치기) 서울 차도·자전거·**걸음** 그래프 v2(팀장 build_road_graph_v2.py · v1 을 대신한다 — v1 3파일은 내렸다 ·
+    #   이미 gz · md5 는 road_graph_v2/MANIFEST.json 과 대조). 택시·자전거·걷기 길찾기(engine/graph_router.py)가 읽는다.
+    ("road_graph_v2/nodes.jsonl.gz", A, "Geofabrik south-korea-latest.osm.pbf(raw\\mobility\\osm\\ · OSM 2026-09-18 · md5 b4aac996… · ODbL)",
+     "datasets/mobility/scripts/build_road_graph_v2.py(팀장 · build_road_graph_v1.py 를 불러 쓴다)", "engine/graph_router.py — 서버 없는 파이썬 길찾기"),
+    ("road_graph_v2/edges.jsonl.gz", A, "같은 pbf", "datasets/mobility/scripts/build_road_graph_v2.py", "engine/graph_router.py"),
+    ("road_graph_v2/region_v1.geojson", A, "같은 pbf 의 행정경계 relation(서울+인접 8+영종구+공항고속도로 회랑 · v1 과 같은 범위)", "datasets/mobility/scripts/build_road_graph_v2.py", "범위 판단(스크립트)"),
+    # 101 — OSM 선로 길이로 낸 역간 거리 추정(팀장 #21 · 공표 역간거리가 없는 간선의 요금 거리)
+    ("rail_edge_track_v1.jsonl.gz", A, "같은 pbf 의 railway=subway|rail|light_rail 선로 + line_station_order_v1.json + station_coords.json",
+     "datasets/mobility/scripts/build_rail_edge_distance_v1.py(팀장)", "engine/options.py(fare.subway.distance_estimate · 추정)"),
+    # 54-2(2026-10-05) — 공표 역간거리 표(국가철도공단 CSV 17 + 김포골드라인). ★엔진이 아직 읽지 않는다(요금 거리 원천 순서는 다음 합치기 방)
+    ("station_gap_v1.jsonl", A, "공공데이터포털 국가철도공단 역간거리 CSV 17개(raw\\mobility\\station_gap\\) + 김포골드라인 운영사 누적 km",
+     "datasets/mobility/scripts/build_station_gap_v1.py(54-2)", "(아직 없음 — 다음 합치기 방에서 engine/options.py 가 읽게 한다)"),
 ]
 # 정본 폴더의 자체 MANIFEST(md5) 와 대조할 폴더
-SUB_MANIFESTS = {"road_graph_v1": "road_graph_v1/MANIFEST.json"}
+SUB_MANIFESTS = {"road_graph_v2": "road_graph_v2/MANIFEST.json"}
 # 부속 보고서(작은 md · 파일별 커버리지·등급 근거) — 코드는 안 읽는다
 REPORTS = ["timetable_v1_coverage.md", "timetable_v1_destfill_report.md", "line_station_order_v1_report.md",
            "transfer_walk_v1_report.md", "bus_route_v1_report.md", "station_coords_report.md",
            "bike_stations_v1_report.md", "bus_seg_profile_v1_report.md", "congestion_v1_report.md",
            "congestion_line9_v1_report.md", "transfer_car_v1_report.md", "graph/README.md",
-           "road_graph_v1/README.md", "road_graph_v1/MANIFEST.json", "road_graph_v1/build_report.json", "road_graph_v1/check_report.json"]
+           "road_graph_v2/README.md", "road_graph_v2/MANIFEST.json", "road_graph_v2/build_report.json"]
 
 
 def sha256(p: Path) -> str:

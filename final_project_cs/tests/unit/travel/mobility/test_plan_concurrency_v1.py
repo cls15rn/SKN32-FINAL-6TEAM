@@ -44,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[3]))
 
 from app.modules.travel_ops.mobility.engine import plan as plan_mod  # noqa: E402
-from app.modules.travel_ops.mobility.engine import judgment_log as jl  # noqa: E402
+from app.modules.travel_ops.mobility.devtools import judgment_log as jl  # noqa: E402
 from app.modules.travel_ops.mobility.engine.plan import DEFAULT_MODES, Planner, plan  # noqa: E402
 from app.modules.travel_ops.mobility.engine.runtime import Runtime  # noqa: E402
 

@@ -153,8 +153,20 @@ class FareNet:
     하한 = 전 노선 그래프 최단 — **거리 모르는 간선은 0**(입증된 하한이 없다 · GPT 54 #2 — 좌표 직선은 공표 거리보다 길 수 있어 하한이 아니다),
            같은 역명·반경 안 다른 노선 역도 0 으로 잇는다(이음을 넓게 두면 하한이 낮아질 뿐이다)."""
 
-    def __init__(self, lo, sc, tw, cfg):
+    def __init__(self, lo, sc, tw, cfg, est=None, tau=None, est_ok=None, floor=None):
+        """est — {(노선, a, b): 선로 길이 m} 공표 거리가 없는 간선의 **추정 길이**(OSM 선로 · 문제목록 #21). None 이면 종전 그대로(공표만).
+        tau — 간선 하나일 때의 상대 오차 상한. 추정 간선을 n 개 지난 경로의 오차는 tau/√n 로 본다(오차가 서로 상쇄 — 공표가 있는
+        1~8호선으로 연속 n 간선 합을 재니 오차 최대가 n=1 29% · 2 18% · 3 12% · 4 8% · 8 6% · 12 4% 였다).
+        요금 하한·상한은 길이 합 ∓ (추정 간선 길이 합 × tau/√n) 이다.
+        est_ok — 요금을 **내도 되는** 노선(통합 거리비례 운임). est 에는 다른 노선(공항철도·신분당선 등 별도운임)의 길이도 넣는다 —
+        하한 그래프가 길이 모르는 노선의 0 짜리 지름길로 무너지지 않게(그 노선을 실제로 타는 후보의 요금은 내지 않는다).
+        floor — {(노선, a, b): m} 공표도 추정도 없는 간선의 **하한 바닥값**(두 역 직선 × 규칙 비율). 없으면 0(종전)."""
         from .geo import meters
+        self.est = dict(est or {})
+        self.tau = tau or 0.0
+        self.est_ok = set(est_ok or ())
+        floor = floor or {}
+        self._est_pairs = set()                         # (노선, frozenset({a, b})) — 길이가 추정인 간선
         self.exact = collections.defaultdict(dict)     # line → {a: {b: m}}
         self.ub = collections.defaultdict(dict)        # (line, st) → {(line, st): m} — 확정 간선 + 확실한 환승만
         self.lb = collections.defaultdict(dict)        # (line, st) → {(line, st): m}
@@ -166,12 +178,15 @@ class FareNet:
                 self.lb[(ln, s["station_nm"])]
             for e in doc["edges"]:
                 a, b, d = e["a"], e["b"], e.get("distance_m")
-                if d is not None:
-                    self.exact[ln].setdefault(a, {})[b] = int(d)
-                    self.exact[ln].setdefault(b, {})[a] = int(d)
-                    self.ub[(ln, a)][(ln, b)] = int(d)
-                    self.ub[(ln, b)][(ln, a)] = int(d)
-                self._lb_edge((ln, a), (ln, b), int(d) if d is not None else 0)
+                w = int(d) if d is not None else self.est.get((ln, a, b), self.est.get((ln, b, a)))
+                if d is None and w is not None:
+                    self._est_pairs.add((ln, frozenset((a, b))))
+                if w is not None:                       # 공표 거리 또는 추정 길이(중심값) — 추정이면 _est_pairs 가 알려 준다
+                    self.exact[ln].setdefault(a, {})[b] = w
+                    self.exact[ln].setdefault(b, {})[a] = w
+                    self.ub[(ln, a)][(ln, b)] = w
+                    self.ub[(ln, b)][(ln, a)] = w
+                self._lb_edge((ln, a), (ln, b), w if w is not None else floor.get((ln, a, b), floor.get((ln, b, a), 0)))
         by_nm = collections.defaultdict(list)
         for n in nodes:
             by_nm[station_name(n[1])].append(n)
@@ -218,30 +233,110 @@ class FareNet:
                     heapq.heappush(pq, (nd, w))
         return None
 
-    def ridden_m(self, legs):
-        """① 노선별 실제 경로 거리 합 — 한 구간이라도 거리 확정 간선만으로 못 이으면 None."""
-        tot = 0
+    def _walk(self, adj, src, dst, is_est):
+        """최단 경로의 (길이 합, 그중 추정 간선 길이 합, 추정 간선 수) — 길이 합이 같으면 먼저 닿은 경로. 못 이으면 None."""
+        best, pq = {src: (0, 0, 0)}, [(0, 0, src)]
+        cnt = 0
+        while pq:
+            d, _c, u = heapq.heappop(pq)
+            if u == dst:
+                return best[u]
+            if d > best[u][0]:
+                continue
+            for w, c in adj.get(u, {}).items():
+                nd = d + c
+                cur = best.get(w)
+                if cur is None or nd < cur[0]:
+                    e = is_est(u, w)
+                    best[w] = (nd, best[u][1] + (c if e else 0), best[u][2] + (1 if e else 0))
+                    cnt += 1
+                    heapq.heappush(pq, (nd, cnt, w))
+        return None
+
+    def _bounds(self, tot, est_sum, n):
+        """길이 합 ∓ 추정 길이 × tau/√n."""
+        if not n:
+            return tot, tot
+        t = self.tau / math.sqrt(n)
+        return tot - est_sum * t, tot + est_sum * t
+
+    def _ridden(self, legs):
+        """① 노선별 실제 경로 — (길이 합, 추정 길이 합, 추정 간선 수). 한 구간이라도 못 이으면 None."""
+        tot = est = n = 0
         for leg in legs:
-            d = self._dijkstra(self.exact.get(leg["line"], {}), leg["from"], leg["to"])
-            if d is None:
+            ln = leg["line"]
+            if self.est and ln not in self.est_ok and any(k[0] == ln for k in self._est_pairs_lines()):
+                return None                              # 별도운임일 수 있는 노선 — 추정 길이로 요금을 내지 않는다
+            r = self._walk(self.exact.get(ln, {}), leg["from"], leg["to"],
+                           lambda u, v, ln=ln: (ln, frozenset((u, v))) in self._est_pairs)
+            if r is None:
                 return None
-            tot += d
-        return tot
+            tot, est, n = tot + r[0], est + r[1], n + r[2]
+        return tot, est, n
+
+    def _est_pairs_lines(self):
+        """추정 길이를 쓰는 노선 집합(처음 한 번만 만든다)."""
+        got = getattr(self, "_est_lines_cache", None)
+        if got is None:
+            got = self._est_lines_cache = {(ln,) for ln, _p in self._est_pairs}
+        return got
+
+    def _is_est_node(self, x, y):
+        return x[0] == y[0] and (x[0], frozenset((x[1], y[1]))) in self._est_pairs
+
+    def ridden_m(self, legs):
+        """① 노선별 실제 경로 거리 합(**상한값**) — 한 구간이라도 거리 확정(또는 추정) 간선만으로 못 이으면 None."""
+        r = self._ridden(legs)
+        return None if r is None else self._bounds(*r)[1]
 
     def upper_m(self, legs):
         """상한 = min(① 탄 경로, ② 확정 그래프 최단). 둘 다 못 구하면 None."""
         a, b = (legs[0]["line"], legs[0]["from"]), (legs[-1]["line"], legs[-1]["to"])
-        vals = [x for x in (self.ridden_m(legs), self._dijkstra(self.ub, a, b)) if x is not None]
+        vals = [self.ridden_m(legs)]
+        r = self._walk(self.ub, a, b, self._is_est_node)
+        if r is not None:
+            vals.append(self._bounds(*r)[1])
+        vals = [x for x in vals if x is not None]
         return min(vals) if vals else None
 
     def lower_m(self, legs):
         a, b = (legs[0]["line"], legs[0]["from"]), (legs[-1]["line"], legs[-1]["to"])
-        d = self._dijkstra(self.lb, a, b)
-        return None if d is None else math.floor(d)
+        r = self._walk(self.lb, a, b, self._is_est_node)
+        return None if r is None else max(0, math.floor(self._bounds(*r)[0]))
 
 
 _NETS = weakref.WeakKeyDictionary()
 _NETS_LOCK = threading.Lock()      # ☆`[2026-09-29 문제목록 #33]` 요청 스레드가 동시에 처음 부르면 요금망을 두 번 만들었다
+
+
+_NETS_EST = weakref.WeakKeyDictionary()
+
+
+def est_lengths(v):
+    """(추정 길이 {(노선, a, b): m}, 간선 하나의 상대 오차 상한, 요금을 내도 되는 노선, 바닥값 {(노선, a, b): m}) — 규칙
+    fare.subway.distance_estimate. 규칙이 없거나 자료가 없으면 ({}, None, set(), {})."""
+    rule = (_fare(v)["subway"].get("distance_estimate") or {}).get("value") or {}
+    lines, tau, q = set(rule.get("lines") or ()), rule.get("tolerance"), rule.get("unknown_edge_floor")
+    est = getattr(v.lo, "est_edges", None) or {}
+    if not lines or not tau or not est:
+        return {}, None, set(), {}
+    straight = getattr(v.lo, "straight_edges", None) or {}
+    floor = {k: int(m * q) for k, m in straight.items()} if q else {}
+    return dict(est), tau, lines, floor
+
+
+def fare_net_est(v):
+    """공표 거리 + 선로 길이 추정을 합친 요금망. 추정이 없으면 None(= 공표만)."""
+    net = _NETS_EST.get(v.lo)
+    if net is None:
+        with _NETS_LOCK:
+            net = _NETS_EST.get(v.lo)
+            if net is None:
+                est, tau, ok, floor = est_lengths(v)
+                net = (FareNet(v.lo, v.sc, v.tw, {"연결_반경_m": _fare(v)["subway"]["하한_연결_반경_m"]["value"]}, est, tau, ok, floor)
+                       if est else False)
+                _NETS_EST[v.lo] = net
+    return net or None
 
 
 def fare_net(v):
@@ -266,14 +361,7 @@ def early_bird(first_board_min, until_min, gate_window_min):
     return None
 
 
-def subway_fare(v, legs, legs_result):
-    """지하철만 후보의 1인 요금 — 괄호 하한·상한 요금이 같을 때만. 첫 승차 분은 판정기 구간 결과에서(없으면 None).
-    **탄 경로의 모든 간선이 거리 확정이어야 한다**(GPT 54 #1) — 거리 모르는 노선(별도운임일 수 있는 신분당선 등)을 실제로 타면
-    다른 경로의 상한으로 그 운임을 대신할 수 없다."""
-    rides = ride_results(legs, legs_result)
-    if not rides or rides[0].depart_min is None:
-        return None
-    net = fare_net(v)
+def _subway_fare_on(v, net, legs, rides):
     if net.ridden_m(legs) is None:
         return None
     ub = net.upper_m(legs)
@@ -286,6 +374,36 @@ def subway_fare(v, legs, legs_result):
     board = rides[0].depart_min if early else eb["until_min"]          # subway_fare_at 은 분으로 조조를 가른다
     lo_f, hi_f = subway_fare_at(F, lb, board), subway_fare_at(F, ub, board)
     return hi_f if lo_f == hi_f else None
+
+
+def subway_fare(v, legs, legs_result):
+    """지하철만 후보의 1인 요금 — 괄호 하한·상한 요금이 같을 때만. 첫 승차 분은 판정기 구간 결과에서(없으면 None).
+    **탄 경로의 모든 간선이 거리 확정이어야 한다**(GPT 54 #1) — 거리 모르는 노선(별도운임일 수 있는 신분당선 등)을 실제로 타면
+    다른 경로의 상한으로 그 운임을 대신할 수 없다.
+
+    ☆`[2026-10-04 #21]` 공표 거리만으로 못 내면(9호선·코레일 구간 등) **선로 길이 추정 구간**을 더한 요금망으로 다시 낸다
+    (결정 15 — 대체 소스). 값이 나와도 등급은 추정이다 — 부르는 쪽이 `fare_is_est` 로 밝힌다."""
+    rides = ride_results(legs, legs_result)
+    if not rides or rides[0].depart_min is None:
+        return None
+    got = _subway_fare_on(v, fare_net(v), legs, rides)
+    if got is not None:
+        return got
+    est = fare_net_est(v)
+    return None if est is None else _subway_fare_on(v, est, legs, rides)
+
+
+def fare_is_est(v, legs, legs_result):
+    """이 후보의 지하철 요금이 **추정 구간**(선로 길이)을 써서 나왔나 — 공표 거리만으로는 못 낸 값이면 True."""
+    if set(modes_of(legs)) != {"subway"}:
+        return False                                        # 지하철만 후보의 값만 본다(버스 섞인 상한은 이미 「상한」이라 밝힌다)
+    rides = ride_results(legs, legs_result)
+    if not rides or rides[0].depart_min is None:
+        return False
+    if _subway_fare_on(v, fare_net(v), legs, rides) is not None:
+        return False
+    est = fare_net_est(v)
+    return est is not None and _subway_fare_on(v, est, legs, rides) is not None
 
 
 def bus_type(v, leg):
@@ -520,8 +638,10 @@ class TransferCar:
     @classmethod
     def load(cls, path=None):
         if path is None:
-            from .paths import PROCESSED
-            path = PROCESSED / "mobility" / "transfer_car_v1.json"
+            # ☆`[2026-10-04]` cli_processed() — 자료 폴더를 아무도 안 정했으면(시험마다 처음 상태로 초기화한다 · tests/conftest.py) 명령줄 관례로 찾는다.
+            #   PROCESSED 를 바로 읽으면 초기화된 뒤에는 없는 폴더를 가리켜, 표시 칸(transfer_car)이 조용히 빠졌다(test_core_routes_strips_display).
+            from .paths import cli_processed
+            path = cli_processed() / "mobility" / "transfer_car_v1.json"
         p = Path(path)
         if not p.exists():
             return None

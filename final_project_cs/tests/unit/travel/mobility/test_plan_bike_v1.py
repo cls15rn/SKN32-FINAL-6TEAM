@@ -15,10 +15,8 @@
 #   G  골든(시간표 + 따릉이 표가 있는 기기) — 예시 입력 `--modes bike,walk`(자전거 테마 호출 모양) → plan_example_out_bike_v1.json.
 #      자전거는 추천하지 않는다(본인 9/27) — 여행자가 자전거로 이동한다고 했을 때만 bike(+walk). 섞어 주면 left_out 이유만
 #      (그 잠금은 test_plan_concurrency_v1 B).
-#      ☆99(2026-10-04) 자전거 경로 계산이 없다 → 승차 소요 근거없음 → **자전거 후보가 한 건도 안 실린다**. 골든은 「자전거를
-#      골랐는데 못 만든 구간이 이유(자전거 경로 계산 없음 · 대여소 없음)와 함께 skipped·left_out 에 남고, 대중교통으로 몰래
-#      바뀌지 않는다」를 잠근다. 앞 판(58)의 경로 요약 픽스처(plan_bike_gh_fixture_v1.json)는 지웠다. U 축(가짜 판정기 · lfd 식)은
-#      승차 소요가 다시 생길 때를 위해 그대로 둔다.
+#      GraphHopper 대신 **요약 픽스처**(plan_bike_gh_fixture_v1.json · 집 PC 에서 GH 로 기록 · 형상 없음)로 돌린다 →
+#      GH 없는 노트북에서도 같은 값. 픽스처에 없는 좌표는 소요 근거없음 → 자전거가 빠져 골든과 달라진다(의도)
 import copy
 import json
 import sys
@@ -41,6 +39,7 @@ from app.modules.travel_ops.mobility.engine.runtime import Runtime  # noqa: E402
 
 IN = HERE / "plan_example_in_v1.json"
 GOLD_BIKE = HERE / "plan_example_out_bike_v1.json"
+GH_FIX = HERE / "plan_bike_gh_fixture_v1.json"
 MODES_BIKE = ["bike", "walk"]                  # 자전거 테마 호출 모양(58 · 본인)
 KST_DAY = "2026-09-29"
 
@@ -247,11 +246,14 @@ def _runtime():
     return None if isinstance(_RT, Exception) else _RT
 
 
-def no_live_runtime(rt):
-    """실시간 거치 조회 없음 — 싱글턴은 안 건드린다(복사본)."""
+def fixture_runtime(rt):
+    """GH 대신 요약 픽스처 · 실시간 없음 — 싱글턴은 안 건드린다(복사본)."""
+    from app.modules.travel_ops.mobility.engine.bike import BikeRouter
+    fx = json.loads(GH_FIX.read_text(encoding="utf-8"))
     r2 = copy.copy(rt)
     r2._v = copy.copy(rt._v)
     r2._v.bike_live = None
+    r2._v.bike_router = BikeRouter(None, fx["routes"], fx.get("pbf_date"))
     return r2
 
 
@@ -261,8 +263,8 @@ def _need_bike_data():
         _skip("시간표 없음(DATA_DIR) — 데이터 축 SKIP")
     if rt._v.bk is None:
         _skip("따릉이 대여소 표 없음 — 자전거 데이터 축 SKIP")
-    if not GOLD_BIKE.exists():
-        _skip("자전거 골든 없음")
+    if not GOLD_BIKE.exists() or not GH_FIX.exists():
+        _skip("자전거 골든·픽스처 없음(집 PC gen58 이 만든다)")
     return rt
 
 
@@ -276,50 +278,41 @@ def _run(rt, modes):
 
 @_full
 def test_golden_bike():
-    """G(99) — 자전거 테마 예시(bike+walk)가 골든과 같다 · **자전거 후보는 한 건도 없다**(자전거 경로 계산 없음) ·
-    못 만든 구간·뺀 후보의 이유는 「자전거 — …」(대중교통으로 바꾸지 않는다) · 옵션은 도보뿐."""
-    from app.modules.travel_ops.mobility.engine.verify_time import BIKE_NO_ROUTE
+    """G — 자전거 테마 예시(bike+walk)가 골든과 같다 · 자전거가 한 구간 이상 계획 수단 · 옵션 키는 계약 칸뿐
+    · 못 만든 구간은 이유가 「자전거 — …」(대중교통으로 바꾸지 않는다)."""
     rt = _need_bike_data()
-    got = _run(no_live_runtime(rt), MODES_BIKE)
+    got = _run(fixture_runtime(rt), MODES_BIKE)
     want = json.loads(GOLD_BIKE.read_text(encoding="utf-8"))
-    assert got == want, "자전거 포함 예시가 골든과 다르다 — 시간표·규칙·대여소 표가 바뀌었으면 다시 뽑고 이유를 적는다"
-    assert all(o["id"] == "walk" for r in got["routes"].values() for o in r["options"]), got["routes"]
-    assert not any(r["planned"] == "bike" for r in got["routes"].values())
-    assert got["skipped"] and all(s["reason"].startswith("자전거") or s["code"] == "arrive_late" for s in got["skipped"]), got["skipped"]
-    why = [s["reason"] for s in got["skipped"]] + [e["reason"] for v in got["left_out"].values() for e in v]
-    assert any(BIKE_NO_ROUTE in w for w in why), why
-    assert all(s["code"] == "no_data" for s in got["skipped"] if BIKE_NO_ROUTE in s["reason"]), got["skipped"]
-
-
-@_full
-def test_bike_alternative_without_arrival_is_not_a_feasible_alternative():
-    """99(GPT #1) — 지하철 막차 뒤 대안 열거(BIKE-01 모양): 도착을 못 내는 따릉이는 **성립 대안에 들어가지 않는다**.
-    앞 판은 「성립 · 도착 없음」으로 대안 목록(최대_제시 자리)에 섰다. 열거 기록(alt_tried)에 근거없음 + 이유로 남는다."""
-    from app.modules.travel_ops.mobility.engine.verify_time import BIKE_NO_ROUTE, leg_mode
-    rt = _need_bike_data()
-    case = {"id": "BIKE-ALT-99", "date": "2026-09-22", "depart_at": "24:55",
-            "legs": [{"line": "02호선", "from": "잠실", "to": "성수"}],
-            "bike_live": {"checked_at": "fixture:BIKE-01", "counts": {"ST-840": 5}}}
-    r = no_live_runtime(rt).verify_case(case)
-    assert r.verdict == "infeasible" and r.alternatives, r.reason
-    assert all(a.get("arrive_min") is not None for a in r.alternatives), r.alternatives
-    assert not [a for a in r.alternatives if leg_mode(a["leg"]) == "bike"], r.alternatives
-    bike = [(ax, lb, vd) for ax, lb, vd in r.alt_tried if lb.startswith("따릉이")]
-    assert bike and all(vd == "unknown" and BIKE_NO_ROUTE in lb for _ax, lb, vd in bike), r.alt_tried
+    assert got == want, "자전거 포함 예시가 골든과 다르다 — 픽스처·시간표·규칙이 바뀌었으면 gen58 로 다시 뽑고 이유를 적는다"
+    bikes = [o for r in got["routes"].values() for o in r["options"] if o["id"] == "bike"]
+    assert bikes and any(r["planned"] == "bike" for r in got["routes"].values()), "자전거가 한 구간도 계획 수단이 아니다(58 목적)"
+    assert all(o["id"] in ("bike", "walk") for r in got["routes"].values() for o in r["options"]), got["routes"]
+    assert all(s["reason"].startswith("자전거") or s["code"] == "arrive_late" for s in got["skipped"]), got["skipped"]
+    for o in bikes:
+        assert set(o) <= {"id", "label", "eta_min", "fare_krw", "uses"} and o["uses"] == [], o
 
 
 @_full
 def test_bike_only_request():
-    """자전거만 요청(99) — 경로가 하나도 안 만들어지고 구간마다 skipped 에 자전거 이유가 남는다(지하철·버스·도보로 몰래
-    바꾸지 않는다). 대여소가 있는 구간의 이유는 「자전거 경로 계산 없음」(no_data), 없는 구간은 대여소 없음(mode_unavailable)."""
-    from app.modules.travel_ops.mobility.engine.verify_time import BIKE_NO_ROUTE
+    """자전거만 요청하면 옵션은 전부 자전거 · 계획 수단 bike · **이동 끝 + 계획 버퍼 = 다음 일정 시작**(slack 0 — 마지막
+    성립 출발) · 이동 시작 ≥ 앞 일정 끝 (GPT 58 #8 — 설명만 있고 검사가 없던 것)."""
+    from datetime import datetime
     rt = _need_bike_data()
-    got = _run(no_live_runtime(rt), ["bike"])
-    assert got["routes"] == {}, got["routes"]
-    assert got["skipped"] and all(s["reason"].startswith("자전거") for s in got["skipped"]), got["skipped"]
-    codes = {s["code"] for s in got["skipped"]}
-    assert codes <= {"no_data", "mode_unavailable"} and "no_data" in codes, codes
-    assert all((BIKE_NO_ROUTE in s["reason"]) == (s["code"] == "no_data") for s in got["skipped"]), got["skipped"]
+    got = _run(fixture_runtime(rt), ["bike"])
+    assert got["routes"], got["skipped"]
+    for key, r in got["routes"].items():
+        assert [o["id"] for o in r["options"]] == ["bike"] and r["planned"] == "bike", (key, r)
+    buf = rt._v.rv("buffer", "by_stage", "planning")
+    its = got["items"]
+    t = lambda x: datetime.fromisoformat(x)                    # noqa: E731
+    for i, it in enumerate(its):
+        if it["kind"] != "mobility" or it.get("route") not in got["routes"]:
+            continue
+        prev, nxt = its[i - 1], its[i + 1]
+        assert (t(nxt["starts_at"]) - t(it["ends_at"])).total_seconds() == buf * 60, (it, nxt)
+        assert t(it["starts_at"]) >= t(prev.get("ends_at") or prev["starts_at"]), (prev, it)
+        eta = got["routes"][it["route"]]["options"][0]["eta_min"]
+        assert (t(it["ends_at"]) - t(it["starts_at"])).total_seconds() == eta * 60, it
 
 
 if __name__ == "__main__":

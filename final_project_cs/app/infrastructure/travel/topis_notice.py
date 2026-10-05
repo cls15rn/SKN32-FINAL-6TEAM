@@ -302,10 +302,14 @@ class TopisNotices(TravelSource):
         return target.startswith("버스:")
 
     def unsupported(self, targets: list[str]) -> list[str]:
+        # ☆`[2026-10-05 합치기 · GPT 1]` **버스가 아닌 대상은 전부 못 본다**고 답한다. 앞 판은 버스 대상만 넘겨받는 합치기
+        #   (CombinedRouteEvents)를 전제로 버스 대상만 걸렀다 — 팀장 합치기(CompositeRouteEvents)는 모든 대상을 넘기고 「돌려주지 않은
+        #   대상 = 이 소스가 본다」로 읽으므로, 그대로면 도로·지하철 소스가 없을 때 그 대상의 「확인 못 한 대상」 표시가 사라진다.
+        #   단독으로 꽂힐 때(다른 소스 키가 없을 때)도 같다. UticRouteEvents·SubwayRouteEvents 와 같은 계약이다.
         table = self._stops()
         if table is None:
-            return [t for t in targets if self._bus(t)]
-        return [t for t in targets if self._bus(t) and t.partition(":")[2] not in table.routes]
+            return list(targets)
+        return [t for t in targets if not self._bus(t) or t.partition(":")[2] not in table.routes]
 
     def affecting(self, targets: list[str], at: datetime | None = None
                   ) -> dict[str, dict[str, Any]] | None:
