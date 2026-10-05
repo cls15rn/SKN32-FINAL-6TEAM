@@ -1,0 +1,9 @@
+# 실험 산출은 저장소 밖(C:\final_project\exp\)에 둔다 — 혹시 안에 생겨도 올라가지 않게 막는다 (X0 §1-4)
+**/out/
+**/motis/
+**/data/
+*.zip
+*.gz
+*.pbf
+*.log
+__pycache__/

@@ -1,0 +1,6 @@
+station_key,lat,lng,grade,note
+04호선|신길온천,37.3372,126.7672,근거없음(근사),station_coords.json 에 좌표 없음 — 실험용 근사값 · 좌표 질의·거리 계산에 쓰지 말 것
+GTX-A|운정중앙,37.7265,126.7567,근거없음(근사),station_coords.json 에 좌표 없음 — 실험용 근사값
+GTX-A|킨텍스,37.6722,126.7479,근거없음(근사),station_coords.json 에 좌표 없음 — 실험용 근사값
+GTX-A|동탄,37.1999,127.0958,근거없음(근사),station_coords.json 에 좌표 없음 — 실험용 근사값
+인천2호선|서해구청,37.5447,126.6763,근거없음(근사),station_coords.json 에 좌표 없음(역명 변경) — 실험용 근사값
