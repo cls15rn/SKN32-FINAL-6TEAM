@@ -96,11 +96,61 @@ def test_unknown_stations_do_not_break_the_shape():
     assert s["source"] == "straight_line" and "역 좌표" in s["note"], "좌표를 찾은 역이 둘 미만이면 직선"
 
 
+def _wiggle(n, amp=0.002):
+    """한 번 접히는 곳 없이 계속 꺾이는 선 — 점을 많이 줄일 수 없다(상한에 걸리는 모양)."""
+    import math
+    return [[126.9 + i * 2e-5, 37.5 + amp * math.sin(i * 0.9)] for i in range(n)]
+
+
+def _max_dev_m(orig, line):
+    """원본 각 점이 줄인 선(꺾은선)에서 떨어진 최대 거리(미터)."""
+    import math
+
+    def d(p, a, b):
+        kx, ky = math.cos(math.radians(p[1])) * 111320.0, 110574.0
+        vx, vy = (b[0] - a[0]) * kx, (b[1] - a[1]) * ky
+        wx, wy = (p[0] - a[0]) * kx, (p[1] - a[1]) * ky
+        vv = vx * vx + vy * vy
+        t = 0.0 if vv == 0 else max(0.0, min(1.0, (wx * vx + wy * vy) / vv))
+        return math.hypot(wx - t * vx, wy - t * vy)
+    return max(min(d(p, line[i], line[i + 1]) for i in range(len(line) - 1)) for p in orig)
+
+
 def test_point_count_is_capped_and_ends_are_kept():
-    coords = [[126.9 + i * 1e-4, 37.5] for i in range(1000)]
-    thin = RS._thin(coords)
-    assert len(thin) == RS.MAX_POINTS and thin[0] == coords[0] and thin[-1] == coords[-1]
-    assert RS._thin(coords[:5]) == coords[:5]
+    coords = _wiggle(1000)
+    fit = RS._fit(coords, RS.MAX_POINTS)
+    assert len(fit) <= RS.MAX_POINTS and fit[0] == coords[0] and fit[-1] == coords[-1]
+    assert RS._fit(coords[:2], RS.MAX_POINTS) == coords[:2]
+    assert RS._fit(coords[:5], RS.MAX_POINTS) != [], "점이 적으면 그대로 두거나 줄여도 처음·끝은 남는다"
+
+
+def test_corners_are_kept_so_a_zoomed_in_line_still_turns():
+    """★직선 구간의 점을 솎아도 꺾이는 점은 남는다 — 전에는 고르게 건너뛰어 모퉁이가 잘렸다."""
+    east = [[126.9 + i * 1e-4, 37.5] for i in range(200)]
+    north = [[126.9 + 199 * 1e-4, 37.5 + j * 1e-4] for j in range(1, 200)]
+    corner = east[-1]
+    fit = RS._fit(east + north, RS.MAX_POINTS)
+    assert corner in fit and len(fit) <= 5, "한 번 꺾이는 선은 모퉁이만 남기고 접힌다"
+
+
+def test_shape_error_stays_within_the_tolerance_when_under_the_cap():
+    coords = _wiggle(300, amp=0.0004)
+    fit = RS._fit(coords, 10_000)
+    assert _max_dev_m(coords, fit) <= RS.SIMPLIFY_TOLERANCE_M + 1e-6
+    assert len(fit) < len(coords)
+
+
+def test_detail_returns_more_points_than_the_default_for_a_long_road_route():
+    class Dense:
+        def route(self, s, e, profile="car", via=None):
+            n = 400
+            pts = [[s[0] + (e[0] - s[0]) * i / n, s[1] + (e[1] - s[1]) * i / n + 0.0006 * ((i // 7) % 2) + 1e-5 * ((i % 2) * 2 - 1)] for i in range(n + 1)]   # 1 m 안팎 잔물결
+            return {"paths": [{"points": {"coordinates": pts}}]}
+    plain = RS.build_shape(A, B, _rd("taxi"), router=Dense(), sc=SC)
+    full = RS.build_shape(A, B, _rd("taxi"), router=Dense(), sc=SC, detail=True)
+    assert len(plain["line"]["coordinates"]) <= RS.MAX_POINTS
+    assert len(full["line"]["coordinates"]) > len(plain["line"]["coordinates"])
+    assert full["source"] == plain["source"] == "local_road_graph"
 
 
 def _item(seq, kind, lat=None, lon=None, detail=None, name=None):

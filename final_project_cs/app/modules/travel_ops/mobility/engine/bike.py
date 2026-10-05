@@ -65,10 +65,16 @@ class BikeLive:
     URL = "http://openapi.seoul.go.kr:8088/{key}/json/bikeList/1/5/{sid}"
     KEY_NAME = "ACOP_SEOUL_OPENAPI_KEY"
 
-    def __init__(self, fixture=None, key=None, timeout=5.0):
+    #: 한도 문(`source_budget.build_gate`)에 넘기는 이름 — settings 의 하루 한도 이름(`rate_seoul_bike_per_day`)과 같아야 한다
+    GATE_NAME = "seoul_bike"
+
+    def __init__(self, fixture=None, key=None, timeout=5.0, gate=None):
         self.fixture = fixture          # {'checked_at': ..., 'counts': {stationId: n}} — 회귀용
         self.key = key
         self.timeout = timeout
+        # ★`[2026-10-05]` 호출 한도 문. 이 조회는 `TravelSource` 를 거치지 않고 urllib 로 직접 나가 env 의 하루 한도(ACOP_RATE_SEOUL_BIKE_PER_DAY)
+        #   와 DB 예산을 안 거쳤다. `gate.acquire(이름)` 이 한도 초과(`reason` 이 있는 예외)면 **부르지 않고** 모름으로 돌린다. None 이면 문 없음(시험·명령줄).
+        self.gate = gate
         self.calls = 0
         self.last_error = None          # 마지막 조회 실패의 종류(#28) — 키가 든 주소는 싣지 않는다(#50)
 
@@ -105,6 +111,15 @@ class BikeLive:
         if not self.key:
             self.last_error = {"kind": "no_key"}
             return None
+        if self.gate is not None:
+            try:
+                self.gate.acquire(self.GATE_NAME)
+            except Exception as ex:                    # noqa: BLE001 — 한도 예외(RateLimited 갈래)만 모름으로, 그 밖은 코드 결함이라 올린다
+                reason = getattr(ex, "reason", None)
+                if reason is None:
+                    raise
+                self.last_error = {"kind": "budget", "reason": reason}     # 키가 든 주소는 싣지 않는다(#50)
+                return None
         import urllib.error
         import urllib.request
         try:

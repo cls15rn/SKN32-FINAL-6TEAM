@@ -48,7 +48,8 @@ class MobilityUnavailable(RuntimeError):
 
 def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
               guardrails_path: str | Path | None = None, preload: bool = True,
-              verify_hash: bool = True, local_router: bool = True, warm_router: bool = False) -> dict[str, Any]:
+              verify_hash: bool = True, local_router: bool = True, warm_router: bool = False,
+              bike_gate: Any = None) -> dict[str, Any]:
     """계산기를 켜거나 끈다. 켤 때는 자료를 확인하고(없거나 다르면 MobilityUnavailable) 적재까지 한다.
 
     ☆99(2026-10-04) `gh_url` 은 **받기만 하고 쓰지 않는다** — 계산기가 경로 서버를 부르지 않는다. 팀 설정 칸
@@ -70,7 +71,8 @@ def configure(*, data_dir: str | None, gh_url: str = "", seoul_key: str = "",
         raise MobilityUnavailable(f"이동 자료 확인 실패 - 서버를 띄우지 않는다(결정 15): 없음 {dc['missing']} · "
                                   f"다름 {dc['mismatched']} · 자료 폴더 {dc['data_dir']}")
     kw = {"quiet": True, "data_dir": data_dir, "seoul_key": seoul_key or "",
-          "guardrails_path": str(guardrails_path) if guardrails_path else None, "local_router": bool(local_router)}
+          "guardrails_path": str(guardrails_path) if guardrails_path else None, "local_router": bool(local_router),
+          "bike_gate": bike_gate}
     _STATE.update(mode="enabled", kw=kw, datacheck=dc)
     if preload:
         started = time.monotonic()
@@ -106,14 +108,20 @@ def _warm_local_router(rt) -> None:
     threading.Thread(target=run, name="mobility-router-warm", daemon=True).start()
 
 
-def configure_from_settings(settings: Any, *, preload: bool = True) -> dict[str, Any]:
+def configure_from_settings(settings: Any, *, preload: bool = True, bike_gate: Any = None) -> dict[str, Any]:
     """서버 설정(app.core.settings.Settings)으로 켠다. 설정 객체를 받기만 한다 — 여기서 설정을 읽지 않는다."""
     # 칸이 없는 설정(시험이 넣는 일부 칸짜리 대역)은 이동 칸이 빈 것과 같다 — 꺼짐
     gp = Path(getattr(settings, "guardrails_path", "config/guardrails.yaml"))
     if not gp.is_absolute():
         gp = CS_ROOT / gp
+    seoul_key = getattr(settings, "seoul_openapi_key", "")
+    if seoul_key and bike_gate is None:
+        # ★`[2026-10-05]` 따릉이 실시간 조회는 `TravelSource` 를 거치지 않아 호출 한도 문이 필요하다. 문은 조립(`composition.py`)이 만들어 넘긴다
+        #   (Team 코드는 infrastructure 를 직접 import 하지 않는다 — 구조 시험). 문 없이는 **부르지 않는다** — 거치 대수는 근거없음이고 서비스는 계속된다.
+        _SERVER_LOG.warning("따릉이 실시간 호출 한도 문이 없어 실시간 조회를 끈다(조립이 bike_gate 를 넘겨야 켜진다)")
+        seoul_key = ""
     return configure(data_dir=getattr(settings, "mobility_data_dir", ""),
-                     seoul_key=getattr(settings, "seoul_openapi_key", ""), guardrails_path=gp, preload=preload,
+                     seoul_key=seoul_key, bike_gate=bike_gate, guardrails_path=gp, preload=preload,
                      local_router=getattr(settings, "mobility_local_router", True),
                      warm_router=getattr(settings, "mobility_local_router", True))
 

@@ -140,7 +140,7 @@ class _LazyCar:
 
 
 def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul_key=None,
-                   guardrails_path=None, local_router=False):
+                   guardrails_path=None, local_router=False, bike_gate=None):
     """전부 올려 Runtime 을 만든다. 약 33초.
 
     paths  : 경로 일부만 바꿔 끼울 수 있다(시험용)
@@ -197,7 +197,7 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
     # 따릉이(v0.7 · 22번 방). 대여소 목록 + 실시간 거치 조회. 승차 소요는 길찾기(local_router)가 있을 때만 낸다(101 · 없으면 근거없음).
     bk = vt.BikeStations.load(str(P["bike_stations"]))
     # #48 — 서버는 설정 값(seoul_key)을 넘긴다. "" 는 끔, None 은 명령줄 관례(ACOP_SEOUL_OPENAPI_KEY · bike.BikeLive.from_env)
-    bike_live = (vt.BikeLive(key=seoul_key) if seoul_key else None) if seoul_key is not None else vt.BikeLive.from_env()
+    bike_live = (vt.BikeLive(key=seoul_key, gate=bike_gate) if seoul_key else None) if seoul_key is not None else vt.BikeLive.from_env()
     # ☆101(2026-10-05 · 합치기) 길찾기는 팀장 graph_router.GraphRouter 하나 — 택시·자동차(_LazyCar) · 자전거·걷기(BikeRouter)가 같은
     #   객체를 나눠 쓴다. 경로 서버 가지(주소 읽기 · make_router(서버))는 99 대로 없다. local_router 가 꺼져 있거나 도로 그래프
     #   파일이 없으면 라우터 없음 → 택시·자전거 소요는 근거없음, 걷기는 직선 × 우회계수.
@@ -295,7 +295,7 @@ def build_verifier(*, paths=None, wanted=None, quiet=False, data_dir=None, seoul
                    rules_version=rules["rules_version"], stats=stats, source_mtimes=mtimes,
                    build_kw={"paths": paths, "wanted": wanted, "quiet": True, "data_dir": data_dir,
                              "seoul_key": seoul_key, "guardrails_path": guardrails_path,
-                             "local_router": local_router})
+                             "local_router": local_router, "bike_gate": bike_gate})
 
 
 def get_verifier(**kw):

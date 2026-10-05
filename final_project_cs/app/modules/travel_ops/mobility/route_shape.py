@@ -21,7 +21,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-MAX_POINTS = 240                                  # 한 선의 점 상한 — 화면이 그리기에 충분하고 응답이 가볍다
+MAX_POINTS = 240                                  # 기본 응답의 한 선 점 상한 — 축소해 보기에 충분하고 응답이 가볍다
+MAX_POINTS_DETAIL = 5000                          # `detail=true`(확대용 상세 선)의 상한 — 도로 그래프 원본 점이 이 안에 든다(8~15 km 택시 333~365점)
+SIMPLIFY_TOLERANCE_M = 2.0                        # 점을 줄일 때 허용하는 모양 오차(미터) — ★우리가 고른 값이다. 아래 `_fit` 참고
 
 
 def _hav(a, b):
@@ -35,13 +37,50 @@ def _length(coords) -> float:
     return sum(_hav(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
 
 
-def _thin(coords, limit=MAX_POINTS):
-    """점이 limit 보다 많으면 고르게 솎는다(처음·끝은 남긴다)."""
-    if len(coords) <= limit:
+def _simplify(coords, tol_m):
+    """Douglas–Peucker — 모양을 지키며 점을 줄인다. 원본의 모든 점이 줄인 선에서 `tol_m` 미터 안에 든다. 처음·끝은 남긴다."""
+    n = len(coords)
+    if n <= 2 or tol_m <= 0:
         return coords
-    step = (len(coords) - 1) / (limit - 1)
-    out = [coords[round(i * step)] for i in range(limit - 1)]
-    out.append(coords[-1])
+    kx = math.cos(math.radians(sum(c[1] for c in coords) / n)) * 111320.0
+    ky = 110574.0
+    pts = [((c[0]) * kx, (c[1]) * ky) for c in coords]
+    keep = [False] * n
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        (x1, y1), (x2, y2) = pts[i], pts[j]
+        vx, vy = x2 - x1, y2 - y1
+        vv = vx * vx + vy * vy
+        far, far_d = -1, tol_m
+        for k in range(i + 1, j):
+            wx, wy = pts[k][0] - x1, pts[k][1] - y1
+            t = 0.0 if vv == 0 else max(0.0, min(1.0, (wx * vx + wy * vy) / vv))
+            d = math.hypot(wx - t * vx, wy - t * vy)
+            if d > far_d:
+                far, far_d = k, d
+        if far >= 0:
+            keep[far] = True
+            stack.append((i, far))
+            stack.append((far, j))
+    return [c for c, k in zip(coords, keep) if k]
+
+
+def _fit(coords, limit, *, tol_m=SIMPLIFY_TOLERANCE_M):
+    """점이 `limit` 이하가 되도록 **모양을 지키며** 줄인다 — 허용 오차를 `tol_m` 에서 시작해 모자라면 1.5배씩 키운다.
+
+    ★전에는 점을 **고르게 건너뛰었다**(`_thin`). 그러면 모퉁이가 잘려 확대하면 직선처럼 보인다 —
+      실측(2026-10-05 · 이 PC 도로 그래프): 택시 8 km 333점→240점에서 최대 8.1 m, 15 km 365점→240점에서 14.0 m 벗어났다.
+      Douglas–Peucker 는 같은 점 수에서 최대 오차를 `tol_m` 안으로 묶는다(점 수가 상한을 넘으면 그때만 오차를 키운다)."""
+    if len(coords) <= 2:
+        return coords
+    out = _simplify(coords, tol_m)
+    while len(out) > limit:
+        tol_m *= 1.5
+        out = _simplify(coords, tol_m)
     return out
 
 
@@ -115,8 +154,11 @@ def _planned(route_def: dict | None) -> dict | None:
     return next((o for o in route_def.get("options") or [] if o.get("id") == route_def.get("planned")), None)
 
 
-def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict | None, *, router, sc) -> dict[str, Any]:
-    """장소 a → b (둘 다 (경도, 위도)) 한 구간의 경로선. 계획 수단(route_def.planned)을 따른다."""
+def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict | None, *, router, sc,
+                detail: bool = False) -> dict[str, Any]:
+    """장소 a → b (둘 다 (경도, 위도)) 한 구간의 경로선. 계획 수단(route_def.planned)을 따른다.
+
+    `detail=False` 는 축소용(모양 오차 2 m 안 · 점 최대 `MAX_POINTS`), `True` 는 확대용 상세 선(원본에 가깝게 · 최대 `MAX_POINTS_DETAIL`)."""
     option = _planned(route_def)
     mode = _kind(option)
     straight = [list(a), list(b)]
@@ -149,12 +191,12 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
         line, source, grade, note = straight, "straight_line", "근거없음", "버스는 정류장 목록이 일정에 없어(노선 번호만) 직선으로 잇는다"
     else:
         line, source, grade, note = straight, "straight_line", "근거없음", "계획 수단을 몰라 직선으로 잇는다"
-    line = _thin(line)
+    line = _fit(line, MAX_POINTS_DETAIL if detail else MAX_POINTS, tol_m=0.5 if detail else SIMPLIFY_TOLERANCE_M)
     return {"mode": mode, "line": {"type": "LineString", "coordinates": line}, "source": source, "grade": grade,
             "distance_m": round(_length(line)), "note": note}
 
 
-def shapes_for_items(items) -> list[dict[str, Any]]:
+def shapes_for_items(items, *, detail: bool = False) -> list[dict[str, Any]]:
     """여행 항목들에서 **앞뒤에 좌표 있는 장소가 있는 이동 항목마다** 경로선 하나. 좌표 없는 장소가 끼면 그 이동은 건너뛴다(그릴 곳이 없다)."""
     ordered = sorted(items, key=lambda it: it.seq)
 
@@ -172,7 +214,7 @@ def shapes_for_items(items) -> list[dict[str, Any]]:
         after = next((x for x in ordered[n + 1:] if x.kind != "mobility" and xy(x)), None)
         if before is None or after is None:
             continue
-        shape = build_shape(xy(before), xy(after), (it.detail or {}).get("route_def"), router=router, sc=sc)
+        shape = build_shape(xy(before), xy(after), (it.detail or {}).get("route_def"), router=router, sc=sc, detail=detail)
         out.append({"item_id": str(it.item_id), "from_item_id": str(before.item_id), "to_item_id": str(after.item_id),
                     "from": (before.place or {}).get("name") or before.title, "to": (after.place or {}).get("name") or after.title,
                     **shape})
@@ -183,7 +225,7 @@ def shapes_for_items(items) -> list[dict[str, Any]]:
 _REVIEW_MODE_ID = {"walk": "walk", "subway": "subway", "bus": "bus", "transit": "subway_bus"}
 
 
-def shapes_for_review(review: dict[str, Any] | None) -> list[dict[str, Any]]:
+def shapes_for_review(review: dict[str, Any] | None, *, detail: bool = False) -> list[dict[str, Any]]:
     """★`[2026-10-04]` 접수 **확인 화면**(등록 전)의 이동마다 경로선 하나 — 저장된 검사(`items[]` · `moves[]`)에서 만든다. 등록 여행용
     `shapes_for_items` 와 같은 모양(`item_id` 만 없다). `from_item_id`·`to_item_id` 는 확인 화면의 `items[].id`(「0-3」)다.
     좌표 없는 장소가 낀 이동은 건너뛴다. 저장본에 탄 역 정보(`uses`)가 없는 옛 검사의 지하철·대중교통은 직선 + 이유로 내린다."""
@@ -206,12 +248,12 @@ def shapes_for_review(review: dict[str, Any] | None) -> list[dict[str, Any]]:
         mode = m.get("mode")
         uses = m.get("uses") or []
         if mode in ("subway", "transit") and not uses:
-            shape = build_shape(a, b, None, router=router, sc=sc)
+            shape = build_shape(a, b, None, router=router, sc=sc, detail=detail)
             shape["note"] = "저장된 검사에 탄 역 정보가 없어 직선으로 잇는다(새로 접수하면 역 좌표를 따라 그린다)"
         else:
             opt_id = _REVIEW_MODE_ID.get(mode)
             route_def = ({"planned": opt_id, "options": [{"id": opt_id, "uses": uses}]} if opt_id else None)
-            shape = build_shape(a, b, route_def, router=router, sc=sc)
+            shape = build_shape(a, b, route_def, router=router, sc=sc, detail=detail)
         out.append({"from_item_id": str(m["from"]), "to_item_id": str(m["to"]),
                     "from": (a_it.get("place") or {}).get("name") or a_it.get("title"),
                     "to": (b_it.get("place") or {}).get("name") or b_it.get("title"), **shape})
