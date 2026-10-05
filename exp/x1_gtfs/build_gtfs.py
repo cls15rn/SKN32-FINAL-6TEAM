@@ -14,6 +14,7 @@
   row_map.csv.gz          원천 행 번호 → trip_id · stop_sequence (보존 검사·X2 용)
   orphan_rows.csv         편으로 못 묶은 홑행(GTFS 에 못 넣음 — 이유 포함)
   est_stops.csv           우리가 더한 종착역 도착(원천에 없는 유일한 정차)
+  dest_conflict_rows.csv  행선지가 dir 과 어긋나 행선지를 안 쓴 행(원천 값은 그대로 적어 둔다 · GPT 대조 10/5 #9)
   stop_lookup.csv         노선·역명 ↔ stop_id
   build_report.json       숫자 요약
 
@@ -296,6 +297,11 @@ def main():
             cw.writerows(data)
 
     wd("orphan_rows.csv", orphans, ["row_no", "line", "station_nm", "day_type", "dep_time", "dir", "dest_nm", "why"])
+    wd("dest_conflict_rows.csv",
+       [{"row_no": i + 1, "line": rows[i]["line"], "station_nm": rows[i]["station_nm"], "day_type": rows[i]["day_type"],
+         "dep_time": rows[i]["dep_time"], "dir": rows[i]["dir"], "dest_nm": rows[i].get("dest_nm") or "",
+         "trip_id": row_map[i][0] if i in row_map else ""} for i in sorted(conflict)],
+       ["row_no", "line", "station_nm", "day_type", "dep_time", "dir", "dest_nm", "trip_id"])
     wd("est_stops.csv", est, ["trip_id", "line", "day_type", "stop_name", "arrival_time", "kind", "from_station", "from_dep", "hops"])
     wd("stop_lookup.csv", stops, ["line", "stop_name", "stop_id", "fr_code", "station_cd", "station_nm_en", "stop_lat", "stop_lon",
                                   "coord_grade", "stop_desc"])

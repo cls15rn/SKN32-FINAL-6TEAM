@@ -142,6 +142,7 @@ def build(rows, order_doc, log=print):
         d = r.get("dest_nm") or None
         D.append(alias.get(r["line"], {}).get(d, d) if d else None)
 
+    KEY = [(r["station_nm"], r["dir"], r.get("dest_nm") or "") for r in rows]
     groups = collections.defaultdict(list)                 # (line, day) → [i]
     for i, r in enumerate(rows):
         groups[(r["line"], r["day_type"])].append(i)
@@ -175,7 +176,7 @@ def build(rows, order_doc, log=print):
     for i, r in enumerate(rows):
         at[(r["line"], r["day_type"], r["station_nm"])].append(i)
     for v in at.values():
-        v.sort(key=lambda i: T[i])
+        v.sort(key=lambda i: (T[i], KEY[i]))
 
     def from_ok(net, b, s, n):
         """b(at n)가 s 쪽에서 온 열차일 수 있나."""
@@ -261,6 +262,22 @@ def build(rows, order_doc, log=print):
 
     succ, pred, how = {}, {}, {}
 
+    def gate_ok(ln, a, b):
+        """관문역(응암) 규칙 — 새절에서 온 편은 고리(역촌)로, 구산에서 온 편은 새절로. 이미 확정된 반대쪽 이음과 어긋나는 짝은 받지 않는다.
+        (GPT 대조 10/5 #2: 후보 쌍을 만든 뒤 확정 중에 후보가 좁혀져도 이미 만든 쌍은 그대로 확정되던 것)"""
+        g = LOOP_GATE.get(ln)
+        if not g:
+            return True
+        sa, sb = rows[a]["station_nm"], rows[b]["station_nm"]
+        if sb not in (C[a] or []):
+            return False                                   # a 의 다음 역 후보가 그 사이 좁혀졌다
+        want = {g[1]: g[2], g[3]: g[1]}                    # 온 역 → 가야 할 역
+        if sa == g[0] and a in pred and want.get(rows[pred[a]]["station_nm"], sb) != sb:
+            return False
+        if sb == g[0] and b in succ and want.get(sa, rows[succ[b]]["station_nm"]) != rows[succ[b]]["station_nm"]:
+            return False
+        return True
+
     def gate_fix(ln, i):
         """관문역(응암) 행은 어디서 왔는지로 다음 역이 정해진다."""
         g = LOOP_GATE.get(ln)
@@ -300,13 +317,13 @@ def build(rows, order_doc, log=print):
                         if strict_dest and D[a] is not None and D[b] is not None and D[a] != D[b] and b not in term_row \
                                 and not (ln in LOOP_GATE and D[a] == n):
                             continue
-                        pairs.append((abs(dev), T[b] - T[a], T[a], a, b))
+                        pairs.append((abs(dev), T[b] - T[a], T[a], KEY[a], KEY[b], a, b))
             if mutual:
-                ca, cb = collections.Counter(p[3] for p in pairs), collections.Counter(p[4] for p in pairs)
-                pairs = [p for p in pairs if ca[p[3]] == 1 and cb[p[4]] == 1]
-            pairs.sort()
-            for _, _, _, a, b in pairs:
-                if a in succ or b in pred:
+                ca, cb = collections.Counter(p[5] for p in pairs), collections.Counter(p[6] for p in pairs)
+                pairs = [p for p in pairs if ca[p[5]] == 1 and cb[p[6]] == 1]
+            pairs.sort()                                   # 동점은 행 내용(KEY)으로 가른다 — 입력 행 순서에 기대지 않는다(GPT 대조 10/5 #3)
+            for *_, a, b in pairs:
+                if a in succ or b in pred or not gate_ok(ln, a, b):
                     continue
                 succ[a], pred[b], how[a] = b, a, tag
                 made += 1
@@ -353,10 +370,10 @@ def build(rows, order_doc, log=print):
                     hit.append(b)
                 if hit:
                     for b in hit:
-                        pairs.append((k, abs(T[b] - T[a] - acc), a, b))
+                        pairs.append((k, abs(T[b] - T[a] - acc), T[a], KEY[a], KEY[b], a, b))
                     break                                   # 가장 가까운 역에서만 찾는다
-        ca, cb = collections.Counter(p[2] for p in pairs), collections.Counter(p[3] for p in pairs)
-        for k, _, a, b in sorted(p for p in pairs if ca[p[2]] == 1 and cb[p[3]] == 1):
+        ca, cb = collections.Counter(p[5] for p in pairs), collections.Counter(p[6] for p in pairs)
+        for *_, a, b in sorted(p for p in pairs if ca[p[5]] == 1 and cb[p[6]] == 1):
             if a in succ or b in pred:
                 continue
             succ[a], pred[b], how[a] = b, a, "skip"
