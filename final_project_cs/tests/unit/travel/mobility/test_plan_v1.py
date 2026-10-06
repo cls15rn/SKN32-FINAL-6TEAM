@@ -1197,7 +1197,9 @@ def test_fare_ub_join_same_name_only():
     if a in net.lb and b in net.lb:
         assert b not in net.ub.get(a, {}), "양평(경의중앙) ↔ 양평(5호선) 은 다른 역이다"
     joined = {(x, y) for x in net.ub for y in net.ub[x] if x[0] != y[0]}
-    pairs = {((r["from_line"], r["station_nm"]), (r["to_line"], r["station_nm"])) for r in v.tw.pairs.values()}
+    # ☆105 — 거리표 줄을 **판정기 이름으로 맞춘** 노드 쌍(tw.links · 자료 transfer_name_map_v1). 앞 판은 거리표 이름 그대로라 이름이 안 맞는
+    #   6쌍(수서 03↔수인분당선 · 석계 06↔01 · 서울역 01·04↔GTX-A 서울 · 총신대입구(4)↔이수(7))이 상한 그래프에 없었다. 여전히 거리표에 있는 쌍만이다.
+    pairs = set(v.tw.links())
     assert joined and joined <= pairs | {(y, x) for x, y in pairs}
 
 

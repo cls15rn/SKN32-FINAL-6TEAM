@@ -1,6 +1,6 @@
 {
  "manifest_version": "git_v1",
- "generated_at": "2026-10-05T11:30:50+09:00",
+ "generated_at": "2026-10-05T21:55:21+09:00",
  "room": 75,
  "src_dir": "C:\\final_project\\data\\travel\\processed\\mobility",
  "dst_dir": "C:\\final_project\\SKN32-FINAL-6TEAM\\datasets\\mobility\\processed\\mobility",
@@ -15,8 +15,8 @@
   "gz_policy": "files still > 50 MB after column reduction are replaced by .gz (--gz); loader reads .gz first"
  },
  "totals": {
-  "src_bytes": 302254220,
-  "dst_bytes": 101757682
+  "src_bytes": 302428331,
+  "dst_bytes": 101931793
  },
  "files": [
   {
@@ -466,6 +466,38 @@
    "bytes": 296688,
    "sha256": "f56881fb8b5ad7df980abd6d789838f0daa4b9a17db24f2af56b26b32734a8e5",
    "md5": "e66b38244bef5f72e783148ddc1fdf9b"
+  },
+  {
+   "path": "transfer_name_map_v1.json",
+   "class": "A(그대로)",
+   "source_raw": "환승 거리표(transfer_walk_v1)의 이름 ↔ 판정기 이름 맞춤표 — 손으로 쓴 표(105 · 근거는 파일 안 basis)",
+   "regen_script": "(손으로 씀 — 거리표를 다시 받으면 `engine` 시험 test_close_105_v1 의 「213줄이 전부 판정기 이름으로 읽힌다」가 어긋난 줄을 알려 준다)",
+   "read_by": "engine/transfer_walk.py TransferWalk.load(거리표와 같은 폴더) → candidates.py · verify_time.py · options.py",
+   "src_bytes": 3113,
+   "src_sha256": "5b88657e19b8e1274c7a14584c3336a03d662028b046a896293f1dc6cd456f11",
+   "checked_at": "2026-10-05T21:55:21+09:00",
+   "text_bytes": 3113,
+   "text_sha256": "5b88657e19b8e1274c7a14584c3336a03d662028b046a896293f1dc6cd456f11",
+   "gz": null,
+   "bytes": 3113,
+   "sha256": "5b88657e19b8e1274c7a14584c3336a03d662028b046a896293f1dc6cd456f11",
+   "md5": "79211a75b143dd3ddb21b87d9673e530"
+  },
+  {
+   "path": "express_marks_v1.json",
+   "class": "A(그대로)",
+   "source_raw": "timetable_v1(09호선 행) + line_station_order_v1 · 정차역은 서울시메트로9호선(주) 공표",
+   "regen_script": "datasets/mobility/scripts/build_express_marks_v1.py(105)",
+   "read_by": "engine/verify_time.py Timetable.load(시간표와 같은 폴더) → Verifier.candidates",
+   "src_bytes": 170998,
+   "src_sha256": "241be5891ff6f9d7b486e76a358bde4c914a1833906fbee19175d66354cee87f",
+   "checked_at": "2026-10-05T21:55:21+09:00",
+   "text_bytes": 170998,
+   "text_sha256": "241be5891ff6f9d7b486e76a358bde4c914a1833906fbee19175d66354cee87f",
+   "gz": null,
+   "bytes": 170998,
+   "sha256": "241be5891ff6f9d7b486e76a358bde4c914a1833906fbee19175d66354cee87f",
+   "md5": "110924f1096c91e8ef6529d90a3b0b9c"
   }
  ],
  "reports": [
@@ -543,6 +575,11 @@
    "path": "road_graph_v2/build_report.json",
    "bytes": 1203,
    "sha256": "1c78e5e39c0cff7f8f5f346277745f2f67cb8c55c2732ea24f5a83de207ebddd"
+  },
+  {
+   "path": "express_marks_v1_report.md",
+   "bytes": 2786,
+   "sha256": "71b40419b9c591a585a88660fe820fd6bc835615a0818362f9b47b22156cb66f"
   }
  ],
  "sub_manifest_checks": [
@@ -571,5 +608,5 @@
    "ok": true
   }
  ],
- "updated_by": "101(2026-10-05 합치기) — road_graph_v1 3파일 내림 · road_graph_v2 3 + rail_edge_track_v1 + station_gap_v1 등록(p101_manifest.py · reduce_75 재실행 아님)"
+ "updated_by": "101(2026-10-05 합치기) — road_graph_v1 3파일 내림 · road_graph_v2 3 + rail_edge_track_v1 + station_gap_v1 등록(p101_manifest.py · reduce_75 재실행 아님) / 105(2026-10-05 마무리 1) — transfer_name_map_v1 · express_marks_v1 등록(p105_manifest.py · reduce_75 재실행 아님)"
 }

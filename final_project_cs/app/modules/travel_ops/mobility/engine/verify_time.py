@@ -134,6 +134,72 @@ class Dep:
     inferred: str = None   # 행선지가 원천 값이 아니라 채운 값이면 그 방법(28 · `dest_inferred` · chain_v1). 판정 등급을 추정으로 내린다
 
 
+EXPRESS_MARKS_FILE = "express_marks_v1.json"    # 105 — 급행 편 표시(자료 · 시간표와 같은 폴더 · 없으면 표시 없음)
+
+
+class ExpressMarks:
+    """급행 편의 시간표 행 표시(105 · 자료 express_marks_v1.json — datasets/mobility/scripts/build_express_marks_v1.py).
+
+    9호선은 급행이 **전 역 출발 행**으로 들어 있다(원천이 통과 시각도 싣는다 · 급행 표시·열차 번호 없음). 1호선 경인 급행처럼
+    「도착역 시간표에 그 편의 행이 없다」(92)로는 못 거른다 — 통과역에도 행이 있다. 그래서 자료가 어느 행이 급행 편인지 표시하고
+    (추정 — 행선지 · 시발역 · 구간 시차), 판정기는 표시된 편을 **급행 정차역(운영사 공표)끼리만** 쓴다.
+    역 이름·정차역 목록은 전부 자료에서 온다 — 코드에 적지 않는다.
+    """
+
+    def __init__(self, doc):
+        self.built_at = doc.get("built_at", "")
+        # (GPT 105 #1) 이 표시를 만든 시간표의 지문 — 적재한 시간표의 지문과 다르면 stale(판 불일치). 지문이 없는 표시(시험용)는 대조하지 않는다.
+        self.fingerprint = (doc.get("timetable") or {}).get("rows_fingerprint")
+        self.stale = False
+        self.stops, self.src, self._n = {}, {}, collections.Counter()
+        for line, L in (doc.get("lines") or {}).items():
+            self.stops[line] = set(L.get("stops") or ())
+            self.src[line] = L.get("stops_source") or {}
+            for day_type, by_dir in (L.get("marks") or {}).items():
+                for dr, by_st in by_dir.items():
+                    for st, by_dest in by_st.items():
+                        for dest, times in by_dest.items():
+                            for t in times:
+                                m = to_min(t)                    # 시간표 행과 같은 규칙(초 버림) — Dep.min 과 맞춘다
+                                if m is not None:
+                                    self._n[(line, day_type, st, dr, dest, m)] += 1
+
+    @classmethod
+    def load(cls, path):
+        p = Path(path)
+        return cls(json.loads(p.read_text(encoding="utf-8"))) if p.exists() else None
+
+    def has(self, line):
+        return line in self.stops
+
+    def check(self, row_keys):
+        """적재한 시간표의 표시 대상 노선 행(출발 있는 행 전부 — 부분 적재여도 전부)으로 지문을 다시 내 표시 파일의 지문과 맞춘다.
+        다르면 stale — 시간표를 다시 받았는데 표시를 다시 만들지 않은 것이다(옛 표시가 새 완행을 빼거나 새 급행을 놓친다).
+        stale 이면 판정기는 표시를 쓰지 않고, 통과역이 낀 구간은 편을 못 가려 모른다(no_data)로 낸다."""
+        if self.fingerprint is None:
+            return
+        import hashlib
+        got = hashlib.sha256("\n".join(sorted(row_keys)).encode()).hexdigest()
+        self.stale = got != self.fingerprint
+
+    def both_stop(self, line, a, b):
+        """a 에서 타서 b 에서 내리는 것이 급행으로 되는가 — 둘 다 급행 정차역."""
+        return a in self.stops[line] and b in self.stops[line]
+
+    def count(self, line, day_type, station, dep):
+        """그 역 그 분·방향·행선지의 출발 행 가운데 급행 편으로 표시된 수(같은 분에 급행·완행이 겹칠 수 있다)."""
+        return self._n.get((line, day_type, station, dep.dir, dep.dest, dep.min), 0)
+
+    def evidence(self, line, a, b, n):
+        src = self.src.get(line) or {}
+        chk = src.get("checked_at")
+        return {"source_type": "db", "source_id": "express_marks_v1", "grade": "추정", "observed_at": self.built_at,
+                "claim": f"{line} {a}→{b}: 급행으로 가린 {n}편은 급행 정차역끼리만 쓴다 — 통과역 승차·하차에서 뺐다. "
+                         f"급행 편 구분은 시간표 행의 모양(행선지 · 시발역 · 구간 시차)으로 가린 추정이다(원천에 급행 표시 없음) · "
+                         f"정차역은 운영사 공표({src.get('url', '출처 없음')} · "
+                         + (f"확인 {chk}" if chk else "공표 대조 안 함") + ")"}
+
+
 class Timetable:
     """processed/mobility/timetable_v1.jsonl 을 판정에 필요한 만큼만 올린다.
 
@@ -147,10 +213,14 @@ class Timetable:
         self.rows = 0
         self.skipped_no_dep = 0
         self.fetched_at = None
+        self.express = None                           # 105 — ExpressMarks(급행 편 표시) · 자료가 없으면 None
 
     @classmethod
     def load(cls, path, wanted=None):
         tt = cls()
+        tt.express = ExpressMarks.load(Path(path).with_name(EXPRESS_MARKS_FILE))   # 105 — 시간표와 같은 폴더(시험용 축소 시간표 옆에는 없다)
+        x_lines = set(tt.express.stops) if tt.express is not None else set()
+        x_rows = []                                   # (GPT 105 #1) 표시 대상 노선의 행 지문 재료 — wanted 로 걸러도 전부 모은다
         # ☆`[2026-09-29 문제목록 #63]` .gz 도 읽는다 — 시험용 축소 시간표(20MB)를 압축해 두었다(98% 줄어든다)
         opener = gzip.open if str(path).endswith(".gz") else open
         with opener(path, "rt", encoding="utf-8") as f:
@@ -160,6 +230,8 @@ class Timetable:
                     continue
                 r = json.loads(raw)
                 line, nm = r.get("line"), r.get("station_nm")
+                if line in x_lines and r.get("dep_time"):
+                    x_rows.append(f"{r.get('day_type')}|{r.get('dir')}|{nm}|{r.get('dep_time')}|{r.get('dest_nm')}")
                 if wanted is not None and (line, nm) not in wanted:
                     continue
                 tt.stations.add((line, nm))
@@ -174,6 +246,8 @@ class Timetable:
                 tt.rows += 1
         for v in tt.by_key.values():
             v.sort(key=lambda d: d.min)
+        if tt.express is not None:
+            tt.express.check(x_rows)
         return tt
 
     def departures(self, line, station, day_type):
@@ -737,6 +811,12 @@ class Verifier:
         margin = self.rv("last_train", "한바퀴_도착_여유_분")
         closed = self._disr_edges(line)      # 끊긴 간선 — 그 위를 지나는 편성은 쓸 수 없다
         out, drop, unk, weak = [], collections.Counter(), [], set()
+        # ☆105 — 급행 편 표시(자료 express_marks_v1). 표시된 편은 **급행 정차역끼리만** 쓴다 — 출발역이나 도착역이 통과역이면 뺀다.
+        #   92(도착역에 그 편의 행이 없다)와 같은 자리 · 같은 취급(뺀 편의 출발 분을 unknown_mins 에 넣는다 — 편 구분이 추정이라
+        #   그 편만 남은 시간대를 「못 간다(확정)」로 말하지 않는다).
+        xm = getattr(self.tt, "express", None)
+        x_cut = xm is not None and xm.has(line) and not xm.both_stop(line, origin, target)
+        x_seen, x_mins = collections.Counter(), set()
         for d in deps:
             if not d.dest:                                    # ② dest_nm 없음
                 drop["행선지없음"] += 1
@@ -760,6 +840,21 @@ class Verifier:
                     if ride is not None and d.min + math.ceil(ride) > last_at_target + margin:
                         drop["운행종료후_한바퀴"] += 1        # 막차가 한 바퀴 돈다는 판정을 막는다
                         continue
+                if x_cut and xm.stale:
+                    # (GPT 105 #1) 표시가 이 시간표의 것이 아니다 — 어느 편이 급행인지 모른다. 통과역이 낀 구간의 편은 전부 미확인.
+                    drop["급행_표시_판불일치"] += 1
+                    unk.append(d.min)
+                    continue
+                if x_cut and not d.inferred:
+                    # (GPT 105 #3) 행선지를 채운 보충 행(d.inferred)은 표시 대상이 아니다 — 표시는 원천 행으로만 만들었고, 그 보충
+                    #   원천은 그 역에 서는 편만 싣는다. 같은 분에 보충 완행과 원천 급행이 겹쳐도 원천 행만 센다.
+                    xk = (d.min, d.dir, d.dest)
+                    x_seen[xk] += 1
+                    if x_seen[xk] <= xm.count(line, day_type, origin, d):
+                        drop["급행_통과"] += 1
+                        unk.append(d.min)
+                        x_mins.add(d.min)
+                        continue
                 # ☆`[2026-10-02 92번 방]` 지나가는 것과 서는 것은 다르다 — 도착역 시간표에 그 편의 행이 없으면 그 편으로 내리지 못한다.
                 #   시발 열차(행선지가 역 자신)는 어느 묶음인지 몰라 대조하지 않는다(등급은 이미 추정).
                 st = None if (self_dest and is_origin) else self._stop_status(line, origin, target, day_type, d, v)
@@ -775,6 +870,7 @@ class Verifier:
             else:
                 drop["행선지_해석불가"] += 1
         drop.unknown_mins = unk         # 92: 도착역 행이 없어 뺀 편(무정차_통과 + 정차_미확인)의 출발 분 — verify_leg 가 「못 간다」를 말하기 전에 본다
+        drop.express_mins = x_mins      # 105: 급행으로 가려 뺀 편의 출발 분(unknown_mins 에도 들어 있다 — 문구를 가르는 데만 쓴다)
         drop.weak_mins = weak           # 92: 약한 짝(늦은 한 편 · 자정 정각)으로 남긴 편 — 그 편을 쓰면 등급을 추정으로 내린다
         return out, drop, is_origin
 
@@ -838,7 +934,8 @@ class Verifier:
             #   청량리행 12편이 해석불가인 자리를 no_service·확정으로 냈다(그 12편은 실제로 간다). GPT 대조 5·6.
             # ☆`[2026-10-02 92번 방]` 도착역 시간표에 행이 없어 뺀 편(정차_미확인 · 무정차_통과)도 「배제하지 못한 편」이다 —
             #   원천 누락이면 실제로 서는 편이다. 묶음 전체가 0행인 것도 누락과 못 가르므로 같이 센다(GPT 대조 4).
-            stop_unk = drop.get("정차_미확인", 0) + drop.get("무정차_통과", 0)
+            stop_unk = (drop.get("정차_미확인", 0) + drop.get("무정차_통과", 0) + drop.get("급행_통과", 0)
+                        + drop.get("급행_표시_판불일치", 0))
             unresolved = drop.get("행선지_해석불가", 0) + drop.get("행선지없음", 0) + stop_unk
             if drop.get("이슈_구간차단") and not unresolved:
                 # ★ 이슈로 길이 끊긴 것과 원래 열차가 없는 것을 섞어 말하면 안 된다.
@@ -865,7 +962,11 @@ class Verifier:
                     return LegResult(idx, label, "unknown",
                                      f"{a} 에서 {b} 쪽으로 가는 편은 있는데 {b} 의 시간표에서 그 편의 정차 행을 확인하지 못했다 "
                                      f"(이 편만 행 없음 {drop.get('정차_미확인', 0)}편 · 그 행선지 편이 하루 0행 "
-                                     f"{drop.get('무정차_통과', 0)}편){blocked}",
+                                     f"{drop.get('무정차_통과', 0)}편"
+                                     + (f" · 급행으로 가려 뺀 편 {drop['급행_통과']}편" if drop.get("급행_통과") else "")
+                                     + (f" · 급행 편 표시가 이 시간표의 것이 아니라 급행·완행을 못 가린 편 {drop['급행_표시_판불일치']}편"
+                                        if drop.get("급행_표시_판불일치") else "")
+                                     + f"){blocked}",
                                      grade="근거없음", dropped=dict(drop), code="no_data")
                 return LegResult(idx, label, "unknown",
                                  f"{a} 출발 열차의 행선지를 확인할 수 없어 {b} 까지 간다고 말할 수 없다{blocked}",
@@ -900,11 +1001,22 @@ class Verifier:
         unk_until = (after[0][0].min if after else None)
         unk_hit = [m for m in unk if unk_until is None or m < unk_until]
         if unk_hit and (not after or now_min < first or after[0][0].min - now_min > gap_max):
+            x_hit = [m for m in unk_hit if m in getattr(drop, "express_mins", ())]
+            if x_hit and len(x_hit) == len(unk_hit):
+                # ☆105 — 남은 편이 전부 급행으로 가린 편이다. 급행은 통과역에 서지 않지만 편 구분이 추정이라 「못 간다(확정)」로 말하지 않는다.
+                return LegResult(idx, label, "unknown",
+                                 f"{fmt_min(now_min)} 이후 {a} 를 지나 {b} 쪽으로 가는 편 {len(x_hit)}편({fmt_min(x_hit[0])}~)은 "
+                                 f"급행으로 가린 편이라 급행 정차역이 아닌 역에서는 쓰지 않는다(급행 편 구분은 시간표 행으로 가린 추정) — "
+                                 + (f"확인된 다음 편은 {fmt_min(after[0][0].min)}" if after else "확인된 편은 더 없다"),
+                                 grade="근거없음", dropped=dict(drop), code="no_data",
+                                 evidence=[self.tt.express.evidence(line, a, b, drop["급행_통과"])])
             return LegResult(idx, label, "unknown",
                              f"{fmt_min(now_min)} 이후 {a} 를 떠나 {b} 쪽으로 가는 편 {len(unk_hit)}편"
-                             f"({fmt_min(unk_hit[0])}~)이 {b} 에 서는지 시간표에서 확인하지 못했다 — "
+                             f"({fmt_min(unk_hit[0])}~)이 {b} 에 서는지 시간표에서 확인하지 못했다"
+                             + (f"(그중 {len(x_hit)}편은 급행으로 가려 뺀 편 — 급행 편 구분은 추정)" if x_hit else "") + " — "
                              + (f"확인된 다음 편은 {fmt_min(after[0][0].min)}" if after else "확인된 편은 더 없다"),
-                             grade="근거없음", dropped=dict(drop), code="no_data")
+                             grade="근거없음", dropped=dict(drop), code="no_data",
+                             evidence=([self.tt.express.evidence(line, a, b, drop["급행_통과"])] if x_hit else []))
         if not after:
             # ☆`[2026-09-29 문제목록 #4]` 새벽(24 시 이상) 요청의 「첫차를 기다리면 성립」은 **다음 운행일**의 첫차다.
             #   앞 판은 그날(전날 운행일) 요일형의 첫차를 썼다 — 평일 다음 날이 공휴일이면 휴일 시간표의 첫차여야 한다.
@@ -1025,6 +1137,9 @@ class Verifier:
                    "grade": verd.grade, "observed_at": self.lo.built_at, "claim": verd.reason})
         if drop.get("종착열차") or drop.get("단축운행") or drop.get("행선지없음"):
             ev.append(self._ev_rule("last_train.행선지_확인", "확정"))
+        if drop.get("급행_통과"):
+            # ☆105 — 급행 편 구분이 추정이라는 것을 근거에 남긴다(등급은 안 내린다 — 고른 편은 표시 밖의 편이다 · 본인 10/5 (가))
+            ev.append(self.tt.express.evidence(line, a, b, drop["급행_통과"]))
 
         return LegResult(idx, label, "feasible",
                          f"{fmt_min(nxt.min)} {nxt.dest}행 승차 (대기 {wait}분)" + (" [최악]" if worst else ""),
@@ -2650,7 +2765,11 @@ class Verifier:
                 #   않아 A→B 다음 C→D 를 「C 환승 · 도보 0분」으로 성립시켰다. 후보 생성기는 이어진 구간만 만든다 — 직접
                 #   부른 입력의 결함이므로 판정하지 않고 입력 오류로 돌려준다.
                 prev0 = case["legs"][i - 1]
-                if leg_mode(prev0) == "subway" and mode == "subway" and prev0.get("to") != leg.get("from"):
+                # ☆105 — 이름이 다른 같은 환승역(04호선 총신대입구 → 07호선 이수)은 이어진 것이다(자료 transfer_name_map_v1).
+                if (leg_mode(prev0) == "subway" and mode == "subway" and prev0.get("to") != leg.get("from")
+                        and not (self.tw is not None and getattr(self.tw, "same_station", None)
+                                 and self.tw.same_station(prev0.get("line"), prev0.get("to"),
+                                                          leg.get("line"), leg.get("from")))):
                     raise CaseInputError(f"[{case.get('id')}] 구간이 이어지지 않는다 — "
                                          f"{leg_txt(prev0)} 다음 {leg_txt(leg)}")
                 st = leg.get("from")
@@ -2659,7 +2778,9 @@ class Verifier:
                 with_bike = (mode == "bike" or prev_mode == "bike")
                 # ★ 환승역이 무정차면 갈아탈 수 없다. 출발·도착역 검사(verify_leg)로는 안 잡힌다 —
                 #   여기서는 그 역이 앞 구간의 '도착'이자 뒤 구간의 '출발'이라 둘 다 통과해 버린다.
-                dsk = (self._disr("station_skip", line=prev_line, station=st)
+                prev_to = prev0.get("to") if leg_mode(prev0) == "subway" and mode == "subway" else st
+                prev_to = prev_to if isinstance(prev_to, str) else st      # 105 — 앞 노선 쪽은 앞 구간 도착역 이름으로 본다
+                dsk = (self._disr("station_skip", line=prev_line, station=prev_to)
                        or self._disr("station_skip", line=leg.get("line"), station=st))
                 if dsk:
                     legs.append(LegResult(i, f"환승 {st}", "infeasible",
@@ -2677,7 +2798,7 @@ class Verifier:
                 cur_line = leg.get("line") or f"버스{leg.get('route')}"
                 prev_leg = case["legs"][i - 1]
                 mixed = (mode == "bus") != (prev_leg.get("mode", "subway") == "bus")
-                label, w, tg, twarn = f"환승 {st}", None, "추정", []
+                label, w, tg, twarn = f"환승 {st}" if prev_to == st else f"환승 {prev_to}↔{st}", None, "추정", []
                 if mode == "bus" and not with_bike and self.bus is not None and self._bus_stop_row(leg, "from") is None:
                     # ☆`[73 후속 · 탐침 전이표]` 뒤 버스 구간의 정류장 행을 못 찾으면(그 방향으로 안 감 · 수집 밖 노선) 환승 좌표도
                     #   없다. 팀장 #1 뒤로 여기서 「좌표 없음 → 근거없음」으로 먼저 멈춰, 알 수 있는 버스 구간 불가(no_service ·

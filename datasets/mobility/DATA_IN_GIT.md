@@ -1,6 +1,6 @@
 # 이동 모듈 — git 에 올리는 데이터 (DATA_IN_GIT)
 
-작성 서유현 · 2026-09-29 첫 판 · 2026-09-30 갱신(차도 그래프 추가 · 시간표 `.gz` · 필요 없는 행 제외 · 스크립트 자리) · **2026-10-01 시간표 재수집**(89 · 수집일 10/1 · 노선 역 순서 재생성) · 확인 기기 노트북 playdata
+작성 서유현 · 2026-09-29 첫 판 · 2026-09-30 갱신(차도 그래프 추가 · 시간표 `.gz` · 필요 없는 행 제외 · 스크립트 자리) · **2026-10-01 시간표 재수집**(89 · 수집일 10/1 · 노선 역 순서 재생성) · **2026-10-05 105**(환승 이름 맞춤표 · 9호선 급행 편 표시 2파일 추가) · 확인 기기 노트북 playdata
 정본(드라이브) `DATA_DIR\travel\processed\mobility\` → 줄인 판 **저장소 `datasets/mobility/processed/mobility/`**(팀장 배정 9/29 · 「서버가 뜰 때까지 임시 · develop 까지」)
 안 올린 것은 옆 `DATA_NOT_IN_GIT.md` · 갱신 스크립트는 `scripts/README.md`.
 
@@ -11,7 +11,7 @@
 
 | | 값 |
 |---|---|
-| 판정기·길찾기가 읽는 파일 | **23파일** = 지하철·버스·혼잡도 등 13 + `graph/` 5 + `road_graph_v2/` 3 + 요금 거리 2(`rail_edge_track_v1.jsonl.gz` · `station_gap_v1.jsonl` — 뒤의 것은 엔진이 아직 안 읽는다) (+ 엔진 안 규칙 2: `rules_v0.3.json` · `holidays_2026_2027.json`) |
+| 판정기·길찾기가 읽는 파일 | **25파일** = 지하철·버스·혼잡도 등 13 + `graph/` 5 + `road_graph_v2/` 3 + 요금 거리 2(`rail_edge_track_v1.jsonl.gz` · `station_gap_v1.jsonl`) + 105 의 2(`transfer_name_map_v1.json` · `express_marks_v1.json`) (+ 엔진 안 규칙 2: `rules_v0.3.json` · `holidays_2026_2027.json`) |
 | 그 23파일 정본 크기 | **288.3 MB** |
 | 줄인 판(git) | **97.0 MB** |
 | 줄인 것 | 시간표 — 판정기가 읽는 **8열만** · 출발 시각 없는 **18,873행 제외**(10/1 판) · **`.gz`**(텍스트 73.6 MB → 1.8 MB) / 9호선 혼잡도 — **급행 2,432행 제외**(8,208 → 5,776) / 나머지 21파일은 정본 그대로 |
@@ -39,7 +39,9 @@
 | `graph/` 5파일 | `car.CarGraph`(택시·자동차 소요) | 택시·자동차 근거없음 |
 | `road_graph_v2/` 3파일 | `graph_router.GraphRouter`(서버 없는 파이썬 길찾기 — 택시·자동차 · 자전거 · 걷기) | 택시·자전거 소요 근거없음 · 걷기는 직선 × 우회계수 |
 | `rail_edge_track_v1.jsonl.gz` | `options.py`(공표 역간거리가 없는 간선의 요금 거리 추정 · `fare.subway.distance_estimate`) | 그 구간 요금 없음(종전) |
-| `station_gap_v1.jsonl` | **아직 없음**(공표 역간거리 표 · 다음 합치기 방에서 요금 거리 원천으로 잇는다) | 영향 없음 |
+| `station_gap_v1.jsonl` | `line_order.py`·`options.py`(공표 역간거리 표 — 요금 거리 원천 순서의 두 번째 · 102 에서 이음) | 요금 거리는 역 순서 표 → 선로 길이 추정(앞 판) |
+| `transfer_name_map_v1.json` | `transfer_walk.TransferWalk.load`(거리표와 같은 폴더) → `candidates.py` · `verify_time.py` · `options.py` | 거리표 이름 그대로(105 전과 같다 — 총신대입구↔이수 · 서울역↔GTX-A 환승이 안 이어지고 수서·석계는 역 최대값) |
+| `express_marks_v1.json` | `verify_time.Timetable.load`(시간표와 같은 폴더) → `Verifier.candidates` | 급행 편을 못 가린다(105 전과 같다 — 9호선 통과역에서 급행을 태운다) |
 
 시험: `final_project_cs/tests/unit/travel/mobility/test_regression_cases.py` 가 위 경로를 `paths.PROCESSED` 로 읽는다. `.env` 에 `DATA_DIR` 이 없으면 이 저장소 폴더를 자동으로 쓴다(§5).
 
@@ -130,10 +132,18 @@
 
 공표 역간거리가 없는 간선(9호선·코레일 구간·공항철도 등)의 **요금 거리 추정**(팀장 #21 · `engine/options.py` 가 읽는다 · 결과 문구 「요금은 선로 길이 추정」). 열: `line` `a` `b`(역 순서 표의 이웃 두 역) · `official_m`(공표값 · 없으면 null) · `straight_m`(직선) · `track_m`(선로를 따라간 길이 · 못 얻으면 null + `why`) · `snap_m`(역 좌표 → 선로 이격). 777간선 중 선로 길이 얻음 594 · 못 얻음 183. 등급 **추정**(공표가 있는 227간선과의 오차 중앙 3.3% · p90 12.2% — 10/4 실측). 원자료는 위와 같은 pbf(ODbL) + `line_station_order_v1.json` + `station_coords.json` · 생성 `build_rail_edge_distance_v1.py`(팀장 · 약 20초).
 
-### `station_gap_v1.jsonl` (공표 역간거리 표 · 289.7 KB · 688행 · 10/5 등록 — **엔진 미연결**)
+### `station_gap_v1.jsonl` (공표 역간거리 표 · 289.7 KB · 688행 · 10/5 등록 · 102 에서 요금 거리 원천으로 이음)
 
 공공데이터포털 국가철도공단 역간거리 CSV 17개(이용허락 제한 없음) + 김포골드라인 운영사 누적 km 로 만든 간선 단위 표. 열: `line` `a` `b` `distance_m` `grade`(확정 679 · 추정 9 = 김포골드라인) `basis` `n_sources` `source`(URL) `source_file` `as_of` `checked_at` `order_table_m`. 생성 `build_station_gap_v1.py`. **요금 계산은 아직 이 표를 읽지 않는다** — 거리 원천 순서(공표 → 선로 길이 추정)는 다음 합치기 방에서 잇는다.
 
+
+### `transfer_name_map_v1.json` (환승 거리표 이름 맞춤표 · 약 3 KB · 10/5 추가 · 105)
+
+환승 거리표(`transfer_walk_v1.json` · 서울교통공사 환승역거리)의 역·노선 이름을 판정기 이름(역 순서 표 · 시간표)에 맞추는 **손으로 쓴 표**. 거리표 원본은 고치지 않는다(원천 CSV 와 해시가 같다). 칸: `line_alias[]`(`station_nm` `table_line` `line` `basis` `checked_at` — 그 역에서만 거리표의 노선 표기를 판정기 노선으로 읽는다: 수서 「국철」 = 수인분당선 · 석계 「경원선」 = 01호선) · `same_station[]`(`name` `members[{line, station_nm}]` `basis` `checked_at` — 이름이 다른 같은 환승역: 서울역(01·04호선·경의선·공항철도) = GTX-A 「서울」 · 04호선 총신대입구 = 07호선 이수). 등급 확정(거리표가 그 두 노선의 환승 거리를 한 역으로 싣는다) — 거리표에 줄이 없는 노선쌍(서울역 경의선·공항철도 ↔ GTX-A)의 걸음은 그 역 최대값(추정). 거리표를 다시 받으면 시험 `test_close_105_v1.py`(전체층)가 판정기 이름으로 안 읽히는 줄을 알려 준다.
+
+### `express_marks_v1.json` (급행 편 표시 · 약 155 KB · 10/5 추가 · 105) + `express_marks_v1_report.md`
+
+9호선 시간표에는 **급행이 전 역 출발 행**으로 들어 있다(원천 TAGO 가 통과 시각도 싣고 급행 표시·열차 번호가 없다). 이 파일이 **어느 행이 급행 편의 행인지** 표시하고, 판정기는 표시된 편을 **급행 정차역끼리만** 쓴다(통과역 승차·하차·환승에 안 쓴다). 칸: `timetable{fetched_at rows_line_with_dep rows_fingerprint}`(이 표시를 만든 시간표의 지문 — 시간표를 바꾸면 다시 만든다 · 전체층 시험이 대조) · `lines.09호선{stops[16] stops_source{value source url checked_at} method marks{요일형{방향{역{행선지: [출발 시각]}}}}}`. 생성 `scripts/build_express_marks_v1.py`(약 3초). 등급: **편 구분 = 추정**(하행 = 행선지 김포공항인 편 전부 · 상행 = 김포공항 시발 편을 급행·완행 두 갈래 순서 잇기로 따라감 · 05:30 대 중간 역 시발 편은 행 단위) · **정차역 = 운영사 공표**(`stops_source.checked_at` 이 비어 있으면 공표 대조 전). 보고서에 요일·방향별 급행 편수와 신논현↔당산 소요 대조(급행 16~21분 · 완행 23~33분 — 안 겹친다)가 있다.
 
 ### 부속 문서 (코드 안 읽음 · 같이 올림)
 `timetable_v1_coverage.md` `timetable_v1_destfill_report.md` `line_station_order_v1_report.md` `transfer_walk_v1_report.md` `bus_route_v1_report.md` `station_coords_report.md` `bike_stations_v1_report.md` `bus_seg_profile_v1_report.md` `congestion_v1_report.md` `congestion_line9_v1_report.md` `transfer_car_v1_report.md` `graph/README.md` · `road_graph_v1/README.md` `build_report.json` `check_report.json` `MANIFEST.json` — 파일별 커버리지·등급 근거(정본 기준 숫자).
@@ -162,10 +172,12 @@
 | `road_graph_v2/region_v1.geojson` | A | 88.6 KB | 〃 | |
 | `rail_edge_track_v1.jsonl.gz` | A | 14.1 KB | 〃 | 777 |
 | `transfer_walk_v1.json` | A | 58.0 KB | 〃 | |
+| `express_marks_v1.json` | A | 약 155 KB | 〃 | |
+| `transfer_name_map_v1.json` | A | 약 3 KB | 〃 | |
 | `graph/daytype_calendar_v1.csv` | A | 8.0 KB | 〃 | 365 |
 | `graph/topis_class_factor_v1.json` | A | 7.9 KB | 〃 | |
 | `timetable_v1_meta.json` | A | 8.7 KB | 〃 | |
-| **합계 23** | | **288.3 MB** | **97.0 MB** | |
+| **합계 25** | | **288.4 MB** | **97.2 MB** | |
 
 (첫 커밋 9/29 는 시간표 텍스트 75.1 MB · 행 제외 없이 148 MB 였다 — 히스토리에 남아 있다.)
 

@@ -289,7 +289,7 @@ def test_a_transient_router_failure_is_not_cached():
 
 
 def test_plan_version_is_bumped():
-    assert P.PLAN_VERSION == "plan-v2.7"
+    assert P.PLAN_VERSION == "plan-v2.8"
 
 
 # ── ③ 요금 거리 원천 순서 ─────────────────────────────────────────────────────

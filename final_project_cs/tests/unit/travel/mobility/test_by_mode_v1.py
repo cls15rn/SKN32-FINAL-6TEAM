@@ -855,12 +855,15 @@ def test_full_bus_transfer_late_night_formula():
 
 @pytest.mark.mobility_full
 def test_full_mixed_two_transfers_bus_subway_bus():
-    """1회 혼합이 성립하지 않는 구간(개포동 근처 → 광운대 근처) — 버스→지하철→버스가 「지하철+버스」 칸에."""
+    """개포동 근처 → 광운대 근처 — 「지하철+버스」 칸에 환승 2회 대표가 나온다.
+    ☆105 — 앞 판은 이 구간에서 1회 혼합이 성립하지 않아 버스→지하철→버스가 나왔다: 혼합의 지하철 구간 최단(대치→석계)이 **소요 없는
+      간선**(수인분당선 왕십리–청량리 · 역 순서 표 근거없음)을 타 판정기가 시각을 못 이었다. 지금은 그 간선을 안 타는 길을 먼저 찾아
+      (search_solid) 지하철(3호선 → 6호선 석계) → 버스가 성립한다. 버스→지하철→버스 모양 자체는 게이트 시험(가짜 자료)이 잠근다."""
     modes, _calls, _ = _by_mode_of(GAEPO, KWANGWOON)
     m = modes["subway_bus"]
     assert m["status"] == "found" and m["transfers"] == 2, m
     kinds = [x["mode"] for x in m["legs"]]
-    assert kinds[0] == "bus" and kinds[-1] == "bus" and "subway" in kinds and _formula_ok(m, ARR14)
+    assert kinds[-1] == "bus" and "subway" in kinds and _formula_ok(m, ARR14)
 
 
 @pytest.mark.mobility_full
@@ -905,7 +908,7 @@ def test_full_faster_transfer_beats_slow_direct():
 
 # ── 98 — 버스 환승·혼합 2회를 계획 수단·options[] 후보에(늘 만든다 · 계획 수단은 앞 판 후보에서 안 나올 때만) ─────────────
 def test_98_plan_version_and_switch():
-    assert P.PLAN_VERSION == "plan-v2.7" and P.XFER_IN_PLAN is True      # 102 — 환승·혼합 후보 걷기 길 기준·걷기 근거·요금 거리 원천 순서(101 판 = plan-v2.6 · 98 판 = plan-v2.5)
+    assert P.PLAN_VERSION == "plan-v2.8" and P.XFER_IN_PLAN is True      # 102 — 환승·혼합 후보 걷기 길 기준·걷기 근거·요금 거리 원천 순서(101 판 = plan-v2.6 · 98 판 = plan-v2.5)
 
 
 def test_98_planned_is_best_among_all_candidates():

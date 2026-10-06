@@ -105,7 +105,7 @@ def test_taxi_is_not_rechecked_by_the_verifier():
 
 def test_known_modes_and_version():
     assert P.KNOWN_MODES == frozenset({"subway", "bus", "walk", "bike", "taxi"})
-    assert "taxi" not in P.DEFAULT_MODES and P.PLAN_VERSION == "plan-v2.7"      # 102 에서 올림(101 판 = plan-v2.6)
+    assert "taxi" not in P.DEFAULT_MODES and P.PLAN_VERSION == "plan-v2.8"      # 102 에서 올림(101 판 = plan-v2.6)
 
 
 # ── ④ 택시 서비스 ──────────────────────────────────────────────────────────

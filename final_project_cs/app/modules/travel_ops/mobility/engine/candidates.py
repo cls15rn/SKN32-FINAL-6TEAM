@@ -12,7 +12,7 @@
 # ★ 순위를 매기지 않는다 — 후보 목록의 순서는 규칙 candidates.기준 의 순서지 우열이 아니다
 #   (rules alternatives.순위_미부여). 어느 후보가 낫다고 말하는 필드는 없다.
 # ★ 이슈(운행중단 등)를 모른다 — 대안 열거와 같은 원칙으로 판정기가 거른다.
-# ★ 환승은 **같은 역명이 두 노선에 있으면** 가능한 것으로 본다 — 단 규칙 station_names.환승_제외_역명(양평 · 신촌)은
+# ★ 환승은 **같은 역명이 두 노선에 있으면** 가능한 것으로 본다(+ 105: 이름 맞춤표 transfer_name_map_v1 의 같은 역 묶음) — 단 규칙 station_names.환승_제외_역명(양평 · 신촌)은
 #   같은 이름의 **다른 역**이라 잇지 않는다(55 ② · 2026-09-28). 종전 주석(「같은 역명 좌표 차 전부 400 m 안」)은 역명으로
 #   좌표를 붙인 판에서 잰 것이라 동명이역을 못 가렸다 — 57 재생성 뒤 양평 53,610 m · 신촌 702 m(54 발견 · 원덕→영등포구청).
 #   그 역명이 출발·도착이면 노선(origin_lines · dest_lines)을 같이 받아야 후보를 만든다 — 안 받으면 None(한쪽을 조용히 안 집는다).
@@ -64,6 +64,11 @@ class CandidateGraph:
                 self.adj[(ln, e["a"])].append(((ln, e["b"]), w, fb))
                 self.adj[(ln, e["b"])].append(((ln, e["a"]), w, fb))
 
+    def _partners(self, line, station):
+        """(노선, 역)과 이름이 다른 같은 환승역의 [(노선, 역 이름)] — 역 순서 표에 실제로 있는 것만(105)."""
+        f = getattr(self.tw, "partners", None)
+        return [m for m in (f(line, station) if f else ()) if m[0] in self.lines_of.get(m[1], ())]
+
     def transfer_walk_min(self, station, from_line, to_line):
         """환승 도보 분(길찾기 제외). 거리표 → 역 최대값 → 대형역 고정값 → **미상값**.
 
@@ -98,7 +103,7 @@ class CandidateGraph:
         raise ValueError(criterion)
 
     def search(self, origin, dest, criterion, max_transfers=None, time_bound=None, origin_lines=None, dest_lines=None,
-               avoid_lines=None):
+               avoid_lines=None, no_fallback=False):
         """origin → dest 대표안 하나. 상태 = ((line, station), 환승 횟수).
 
         **파레토 라벨 설정** — 상태마다 (1차 목적, 시간) 비지배 라벨을 여럿 둔다. 최소환승·최소도보는
@@ -121,8 +126,21 @@ class CandidateGraph:
         # 같은 역이면 후보가 없다 — 단 동명이역(경의선 양평 → 5호선 양평)은 노선군이 겹치지 않으면 다른 역이다(55 GPT #2)
         if origin == dest and (origin not in self.no_transfer or o_lines & d_lines):
             return None
-        if ((origin in self.no_transfer and not origin_lines) or (dest in self.no_transfer and not dest_lines)
-                or not o_lines or not d_lines):
+        # ☆105 — 끝점이 **이름이 다른 같은 환승역**(총신대입구 = 이수 · 서울역 = GTX-A 「서울」)이면 그 역의 다른 이름 노드에서도
+        #   출발·도착한다(노선을 안 준 경우만 — 노선을 줬으면 그 노선의 역만). 앞 판 없이 환승 이음만 넣으면 「사당→이수」가
+        #   총신대입구에 닿은 뒤 이수로 「갈아타는」 길이 0 인 구간을 만든다. 같은 역끼리는 후보가 없다.
+        o_alt = [] if origin_lines else sorted({m for ln in self.lines_of[origin] for m in self._partners(ln, origin)
+                                                if m[0] not in avoid and m[1] not in self.no_transfer})
+        d_alt = set() if dest_lines else {m for ln in self.lines_of[dest] for m in self._partners(ln, dest)
+                                          if m[0] not in avoid and m[1] not in self.no_transfer}
+        if any(m[1] == dest for m in o_alt):
+            return None
+        o_names = {origin} | {m[1] for m in o_alt}
+        if (origin in self.no_transfer and not origin_lines) or (dest in self.no_transfer and not dest_lines):
+            return None
+        # (GPT 105 #4) 끝점이 비었는지는 **원래 이름 + 다른 이름 노드를 합쳐서** 본다 — 원래 이름의 노선이 전부 avoid 여도
+        #   같은 역의 다른 이름 노드에서 출발·도착할 수 있다.
+        if not (o_lines or o_alt) or not (d_lines or d_alt):
             return None
         cap = max_transfers if max_transfers is not None else 99
         bound = time_bound if time_bound is not None else float("inf")
@@ -145,6 +163,8 @@ class CandidateGraph:
 
         for ln in sorted(o_lines):
             push(((ln, origin), 0), 0.0, 0, 0.0, [], None)
+        for m in o_alt:
+            push((m, 0), 0.0, 0, 0.0, [], None)
         goal = None
         while pq:
             obj, _, state, idx, _o = heapq.heappop(pq)
@@ -156,20 +176,29 @@ class CandidateGraph:
             else:
                 cur = L[idx]
             (line, st), tr = state
-            if st == dest and line in d_lines:
+            if (st == dest and line in d_lines) or (line, st) in d_alt:
                 goal = (state, cur)
                 break
             _, t, _tr, wk, fbs, _prev = cur
             for v, w, fb in self.adj[(line, st)]:          # 같은 노선 다음 역
+                if fb and no_fallback:                      # 105 — 소요 없는 간선(관측 없는 구조만의 이음)을 타지 않는 탐색
+                    continue
                 push((v, tr), t + w, tr, wk, fbs + ([f"{line} {st}–{v[1]}"] if fb else []), (state, obj))
             # 환승 — 같은 역명의 다른 노선. 출발역·제외 역명에서는 안 갈아탄다(출발역에서 갈아타면 그 노선에서 출발한 것과 같다 ·
             #   동명이역 출발은 no_transfer 라 어차피 막힌다 — 55 GPT #2 점검)
-            if st != origin and tr < cap and st not in self.no_transfer:
+            if st not in o_names and tr < cap and st not in self.no_transfer:
                 for ln in self.lines_of[st]:
                     if ln == line or ln in avoid:
                         continue
                     walk, cost = self.transfer_cost(st, line, ln)
                     push(((ln, st), tr + 1), t + cost, tr + 1, wk + walk, fbs, (state, obj))
+                # ☆105 — **이름이 다른 같은 환승역**(04호선 총신대입구 ↔ 07호선 이수 · 서울역 ↔ GTX-A 「서울」). 묶음은 자료
+                #   transfer_name_map_v1.json(거리표 조회 계층이 읽는다)에서만 온다 — 앞 판은 역명이 같아야만 이어 이 환승이 없었다.
+                for ln, st2 in self._partners(line, st):
+                    if ln in avoid or st2 in self.no_transfer:
+                        continue
+                    walk, cost = self.transfer_cost(st2, line, ln)
+                    push(((ln, st2), tr + 1), t + cost, tr + 1, wk + walk, fbs, (state, obj))
         if goal is None:
             return None
         # 경로 복원 — (state, obj) 를 따라 올라간다
@@ -188,12 +217,18 @@ class CandidateGraph:
         return Candidate(self._legs(path), [criterion], round(t, 1), tr, round(wk, 1),
                          "근거없음" if fbs else "추정", fbs, path)
 
+    def search_solid(self, origin, dest, criterion, max_transfers=None, time_bound=None, **kw):
+        """대표안 **하나만** 쓰는 쪽(혼합 후보의 지하철 구간 · 버스 환승 뒤 지하철)이 부른다 — 소요 없는 간선을 타지 않는 길을 먼저,
+        그런 길이 없을 때만 종전 탐색(105 · candidates() 가 둘 다 내는 것과 같은 까닭)."""
+        return (self.search(origin, dest, criterion, max_transfers, time_bound, no_fallback=True, **kw)
+                or self.search(origin, dest, criterion, max_transfers, time_bound, **kw))
+
     @staticmethod
     def _legs(path):
         legs, cur_line, start = [], path[0][0], path[0][1]
         last = path[0][1]
         for ln, st in path[1:]:
-            if ln != cur_line:                      # 환승 노드(같은 역명)
+            if ln != cur_line:                      # 환승 노드(같은 역명 · 105: 이름이 다른 같은 역이면 뒤 구간은 그 노선의 역 이름으로 출발)
                 legs.append({"line": cur_line, "from": start, "to": last})
                 cur_line, start = ln, st
             last = st
@@ -210,7 +245,16 @@ class CandidateGraph:
         shortest = self.search(origin, dest, "최단", max_transfers, **kw)
         if shortest is None:
             return out
-        bound = shortest.est_min * ratio
+        # ☆105 — 최단이 **소요 없는 간선**(역 순서 표에 구조만 있고 열차가 관측되지 않은 이음 — GTX-A 서울–수서 등)을 탔으면, 그 간선을
+        #   타지 않는 최단을 같이 낸다. 소요 없는 간선은 대체 분(몇 분)으로 쳐서 20 km 를 몇 분에 가는 길이 최단이 되고, 판정기가
+        #   「그 방향 열차 없음」으로 떨어뜨리면 진짜 최단이 후보에 없다. 다른 기준의 시간 상한도 진짜 최단 기준으로 잡는다.
+        #   (서울역 ↔ GTX-A 「서울」을 이으면서 서울역→잠실·삼성 등에서 드러났다. 앞 판에도 연신내·수서에서 타는 구간에는 있었다.)
+        solid = self.search(origin, dest, "최단", max_transfers, no_fallback=True, **kw) if shortest.fallback_edges else None
+        bound = (solid or shortest).est_min * ratio
+        if solid is not None:
+            solid.criteria = ["최단"]
+            seen[solid.key()] = solid
+            out.append(solid)
         for c in criteria:
             cand = shortest if c == "최단" else self.search(origin, dest, c, max_transfers, bound, **kw)
             if cand is None:
@@ -631,10 +675,10 @@ class MixedGenerator:
         best = None
         for nm, ls, w in c._tg:
             if c.shape == "A":
-                sub = self.cg.search(c.cut_station, nm, "최단", cap, origin_lines=c._sub_lines, dest_lines=sorted(ls),
+                sub = self.cg.search_solid(c.cut_station, nm, "최단", cap, origin_lines=c._sub_lines, dest_lines=sorted(ls),
                                      avoid_lines=self.avoid)
             else:
-                sub = self.cg.search(nm, c.cut_station, "최단", cap, origin_lines=sorted(ls), dest_lines=c._sub_lines,
+                sub = self.cg.search_solid(nm, c.cut_station, "최단", cap, origin_lines=sorted(ls), dest_lines=c._sub_lines,
                                      avoid_lines=self.avoid)
             if sub is None or not sub.legs:
                 continue
@@ -1074,7 +1118,7 @@ class ChainGenerator:
         cap = self.mg.tlim - 2
         if cap < 0:
             return None
-        s = self.mg.cg.search(a_nm, b_nm, "최단", cap, origin_lines=sorted(a_lines), dest_lines=sorted(b_lines),
+        s = self.mg.cg.search_solid(a_nm, b_nm, "최단", cap, origin_lines=sorted(a_lines), dest_lines=sorted(b_lines),
                               avoid_lines=self.mg.avoid)
         return s if s is not None and s.legs else None
 

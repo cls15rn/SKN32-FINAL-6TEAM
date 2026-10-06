@@ -221,9 +221,22 @@ def build_verifier_for_cases(args, cases):
     for c in cases:
         if c.get("multi"):
             cg = CandidateGraph(lo, tw, rules, c.get("first_visit", True))
-            for cand in cg.candidates(c["multi"]["from"], c["multi"]["to"], rules["candidates"]["기준"]["value"],
-                                      origin_lines=c["multi"].get("from_lines"), dest_lines=c["multi"].get("to_lines")):
-                pre_legs += cand.legs
+            # ☆105 — 판정기(verify_multi)는 환승 상한(limits.transfers · 동행별)을 주고 후보를 만든다. 상한 없이만 미리 돌리면
+            #   최소환승·최소도보 후보가 달라져 그 역 시간표를 안 올릴 수 있다(「시간표에 역이 없다」 근거없음 — 명령줄에서만).
+            #   상한 없는 것과 있는 것(기본 · 동행별) 후보를 다 올린다.
+            _caps = {None}
+            for _n in rules["limits"]["transfers"].values():
+                _v = _n.get("value") if isinstance(_n, dict) else None
+                if _v is None and isinstance(_n, dict) and isinstance(_n.get("value_from"), str):
+                    from .guardrails import lookup as _gl          # 정책 수치의 정본은 guardrails(판정기 rv 와 같은 길)
+                    _v = _gl(_n["value_from"])
+                if isinstance(_v, int):
+                    _caps.add(_v)
+            for _cap in sorted(_caps, key=lambda x: (x is not None, x or 0)):
+                for cand in cg.candidates(c["multi"]["from"], c["multi"]["to"], rules["candidates"]["기준"]["value"],
+                                          max_transfers=_cap,
+                                          origin_lines=c["multi"].get("from_lines"), dest_lines=c["multi"].get("to_lines")):
+                    pre_legs += cand.legs
     all_legs = [l for c in cases for l in c.get("legs") or []] + pre_legs
     wanted = {(l["line"], nm) for l in all_legs if l.get("line") for nm in (l["from"], l["to"])}
     # 87 — 혼합 후보(multi.mixed)는 끊는 역이 어디일지 미리 모른다 → 그런 케이스가 있으면 시간표를 통째로 올린다(런타임과 같다)

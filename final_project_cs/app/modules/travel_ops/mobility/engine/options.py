@@ -224,8 +224,12 @@ class FareNet:
                 if x[0] != y[0] and abs(xa - ya) < 0.01 and meters(xa, xo, ya, yo) <= join_m:
                     self._lb_edge(x, y, 0)
         known = set(nodes)
-        for rec in (getattr(tw, "pairs", None) or {}).values():
-            x, y = (rec["from_line"], rec["station_nm"]), (rec["to_line"], rec["station_nm"])
+        # ☆105 — 거리표 줄을 판정기 이름으로 맞춘 노드 쌍(tw.links)으로 잇는다. 앞 판은 거리표 이름 그대로라 이름이 안 맞는
+        #   6쌍(수서 「국철」 · 석계 「경원선」 · 서울역↔GTX-A 「서울」 · 총신대입구↔이수)이 상한 그래프에서 빠졌다.
+        links = (tw.links() if getattr(tw, "links", None) else
+                 [((r["from_line"], r["station_nm"]), (r["to_line"], r["station_nm"]))
+                  for r in (getattr(tw, "pairs", None) or {}).values()])
+        for x, y in links:
             if x in known and y in known:
                 self.ub[x][y] = 0
                 self.ub[y][x] = 0

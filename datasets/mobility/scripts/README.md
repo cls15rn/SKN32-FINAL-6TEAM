@@ -29,6 +29,7 @@
 | `road_graph_v2/`(서버 없는 길찾기 도로망 — 차도·자전거·걸음) | — | `build_road_graph_v2 --src <pbf> --out <폴더>`(팀장 · `build_road_graph_v1` 을 불러 쓴다 — v1 스크립트·검사 `check_road_graph_v1` 는 그래서 남긴다 · 빌드 때 `osmium`·`shapely`) | Geofabrik south-korea pbf |
 | `rail_edge_track_v1.jsonl.gz`(역간 선로 길이 — 요금 거리 추정) | — | `build_rail_edge_distance_v1`(팀장 · pbf 를 `datasets/mobility/raw/osm/` 에서 읽는다 · 역 순서 표·역 좌표 뒤) | 같은 pbf |
 | `station_gap_v1.jsonl`(공표 역간거리 표 · 엔진 미연결) | — | `build_station_gap_v1 --raw … --ref … --out …` | 국가철도공단 역간거리 CSV 17(`raw\mobility\station_gap\`) |
+| `express_marks_v1.json`(9호선 급행 편 표시 · 105) | — | `build_express_marks_v1 [--dir …] [--stops-checked-at …]` | `timetable_v1` + `line_station_order_v1`(시간표를 다시 만들면 이것도 다시 · 정차역은 스크립트 안 공표 값) |
 | 엔진 `rules/holidays_<시작>_<끝>.json` | `holiday_collect --years …`(연 1회 · 결과는 git 의 엔진 규칙 폴더) | — | — |
 
 검사: `consistency_check`(시간표↔혼잡도↔첫막차↔좌표 접합부 · 옆의 `check_station_names` 를 부른다 · 갱신 뒤 필수).

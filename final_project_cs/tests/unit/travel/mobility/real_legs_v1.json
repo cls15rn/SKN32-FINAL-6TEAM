@@ -987,8 +987,97 @@
    "expect_last_depart": "24:44",
    "expect_arrive": "08:39",
    "expect_reason_contains": "석남"
+  },
+  {
+   "id": "R-L9X-01",
+   "note": "★105 — 급행 통과역 승차 · 하행. 09호선 구반포→당산 10:10. 10:13 김포공항행은 급행으로 가린 편이다(원천은 급행도 전 역 출발 행으로 싣는다 — 구반포는 급행 정차역이 아니다) → 그 편을 쓰지 않고 10:16 개화행. 앞 판은 10:13 편으로 10:30 도착·확정을 냈다",
+   "date": "2026-09-23",
+   "depart_at": "10:10",
+   "legs": [
+    {
+     "line": "09호선",
+     "from": "구반포",
+     "to": "당산"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:14",
+   "expect_arrive": "10:33",
+   "expect_reason_contains": "개화행"
+  },
+  {
+   "id": "R-L9X-02",
+   "note": "★105 — 급행 통과역 하차 · 상행. 09호선 당산→구반포 10:10. 상행은 급행·완행의 행선지가 같다(중앙보훈병원) — 10:14 편은 김포공항 시발 급행(시발역·구간 시차로 가린 표시 · 추정) → 10:19 완행. 앞 판은 10:14 편으로 10:31",
+   "date": "2026-09-23",
+   "depart_at": "10:10",
+   "legs": [
+    {
+     "line": "09호선",
+     "from": "당산",
+     "to": "구반포"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:33",
+   "expect_arrive": "10:36",
+   "expect_reason_contains": "10:19"
+  },
+  {
+   "id": "R-L9X-03",
+   "note": "★105 — 급행 정차역끼리는 급행을 그대로 탄다. 09호선 신논현→당산 10:13 — 10:13 김포공항행(급행) 승차 성립(두 역 다 급행 정차역). 도착 시각은 여전히 완행 소요 합이다(알려진 한계)",
+   "date": "2026-09-23",
+   "depart_at": "10:13",
+   "legs": [
+    {
+     "line": "09호선",
+     "from": "신논현",
+     "to": "당산"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:22",
+   "expect_arrive": "10:38",
+   "expect_reason_contains": "10:13 김포공항행"
+  },
+  {
+   "id": "R-L9X-04",
+   "note": "★105 — 완행은 그대로. 09호선 신논현→당산 10:10 — 먼저 떠나는 10:12 개화행(완행) · 앞 판과 같은 값",
+   "date": "2026-09-23",
+   "depart_at": "10:10",
+   "legs": [
+    {
+     "line": "09호선",
+     "from": "신논현",
+     "to": "당산"
+    }
+   ],
+   "expect": "feasible",
+   "expect_internal": "feasible",
+   "expect_margin_min": [
+    10,
+    10
+   ],
+   "expect_last_depart": "24:22",
+   "expect_arrive": "10:37",
+   "expect_reason_contains": "개화행"
   }
  ],
  "note_v0.8": "2026-09-24 · 39번 방 — 기대값 재정의. expect = 밖 판정 둘(feasible/infeasible) · expect_internal = 옛 4값(내부 판정) · expect_reason = 이유 코드 · expect_slack_min/expect_margin_min = [하한, 상한] · expect_last_depart = 마지막 성립 출발(worst 역산 · 없으면 expect_last_depart_none). 옛 expect 값은 expect_internal 로 옮겼다 — 값을 바꾼 것이 아니라 축을 나눈 것이다.",
- "note_v92": "2026-10-02 · 92번 방 — R-EXPRESS-01~08(전체층). 「지나간다」와 「선다」를 가른다 — 도착역 시간표에 그 편의 출발 행이 없으면 그 편으로 내리지 않는다(급행 무정차 · 섞인 묶음 · 잘못 적힌 행선지 · 원천에 행이 없는 편). 지나가는 것은 유지. 값은 10/1 수집 시간표 기준"
+ "note_v92": "2026-10-02 · 92번 방 — R-EXPRESS-01~08(전체층). 「지나간다」와 「선다」를 가른다 — 도착역 시간표에 그 편의 출발 행이 없으면 그 편으로 내리지 않는다(급행 무정차 · 섞인 묶음 · 잘못 적힌 행선지 · 원천에 행이 없는 편). 지나가는 것은 유지. 값은 10/1 수집 시간표 기준",
+ "note_v105": "2026-10-05 · 105번 방(마무리 1) — R-L9X-01~04(전체층). 9호선 급행은 원천에 전 역 출발 행으로 들어 있어 92 방식(도착역에 행이 없다)으로 못 거른다 → 자료 express_marks_v1.json 이 급행 편의 행을 표시하고(추정), 판정기는 표시된 편을 급행 정차역(운영사 공표)끼리만 쓴다. 값은 10/1 수집 시간표 · 길찾기 끈 값"
 }

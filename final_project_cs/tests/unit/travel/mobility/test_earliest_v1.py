@@ -297,7 +297,7 @@ def test_walk_only_earliest_real_planner():
 
 
 def test_plan_version_bumped():
-    assert P.PLAN_VERSION == "plan-v2.7"      # 102 — 합치기 2(환승·혼합 후보 걷기 길 기준 · 걷기 근거 · 요금 거리 원천 순서) · 101 판 = plan-v2.6 · 98 판 = plan-v2.5 · 87 판 = plan-v2.4
+    assert P.PLAN_VERSION == "plan-v2.8"      # 102 — 합치기 2(환승·혼합 후보 걷기 길 기준 · 걷기 근거 · 요금 거리 원천 순서) · 101 판 = plan-v2.6 · 98 판 = plan-v2.5 · 87 판 = plan-v2.4
 
 
 # ── E3 — 답 문장에 등급 없음 ───────────────────────────────────────────
