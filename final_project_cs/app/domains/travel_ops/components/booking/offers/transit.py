@@ -99,7 +99,32 @@ BOOKING_SITES = {
 
 #: `[2026-10-15]` 서울 ↔ 인천공항 버스(공항리무진) 안내 — 운행표 · 예매 대신 노선 · 시간표 페이지. 공항리무진 공지(2026-04, 10-15 확인):
 #: 서울 → 공항은 「온라인을 포함한 사전 예약제가 없음」(선착순, 교통카드 · 현금), 공항 → 서울은 매표소 · 무인발권기. 일부 노선만 앱 예매(노선마다 다름)
-AIRPORT_BUS_SITES = [{"name": "공항리무진 노선 · 시간표", "url": "https://www.airportlimousine.co.kr/sub/sub01.php"}]
+AIRPORT_BUS_SITES = [{"name": "공항리무진 노선 · 시간표(서울 정류장별 시각)", "url": "https://www.airportlimousine.co.kr/sub/sub01.php"}]
+
+
+def _airport_board(routes: list[dict[str, Any]], pair: tuple[str, str], depart_date: str) -> dict[str, Any]:
+    """공항버스 노선 → 답에 쓸 판. 공항 → 서울이면 그 터미널의 그날(평일 · 주말) 공항 출발 시각, 서울 → 공항이면 노선 · 요금만."""
+    dep, arr = pair
+    from_airport = dep != arex.SEOUL
+    terminal = "T2" if (dep if from_airport else arr) == arex.T2 else "T1"
+    try:
+        weekend = datetime.strptime(depart_date, "%Y-%m-%d").weekday() >= 5
+    except ValueError:
+        weekend = False
+    day_type = "weekend" if weekend else "weekday"
+    listed = []
+    for route in routes:
+        if not route.get("number"):
+            continue                                       # 번호 없는 줄(서울 6줄 · 시간표도 없음) — 무엇인지 몰라 싣지 않는다
+        at = (route.get("terminals") or {}).get(terminal) or {}
+        listed.append({"number": route["number"], "route": route.get("route"), "grade": route.get("grade"), "price": route.get("price"),
+                       "company": route.get("company"), "ride": at.get("ride"),
+                       "times": list(at.get(day_type) or []) if from_airport else [],
+                       "first": at.get("first"), "last": at.get("last")})
+    listed.sort(key=lambda route: route["number"])
+    return {"direction": "from_airport" if from_airport else "to_airport", "terminal": terminal, "day_type": day_type,
+            "routes": listed, "skipped_unnumbered": sum(1 for route in routes if not route.get("number")),
+            "confirmed_at": next((route.get("confirmed_at") for route in routes), None)}
 
 
 FAILED = object()      # 어댑터가 못 불렀다(장애 · 한도) — 「이름을 못 찾음」과 가른다(검토 10-14)
@@ -204,12 +229,23 @@ def search_transit(travel: Any, *, mode: str, origin: str, destination: str, dep
                                      "seconds": round(time.perf_counter() - started, 1), "via": "arex_timetable",
                                      **({} if got else {"unresolved": [origin, destination]})}
         return result
-    if mode == "bus" and arex.pair(origin, destination):
+    if mode == "bus" and (pair := arex.pair(origin, destination)):
         # `[2026-10-15]` 서울 ↔ 인천공항 버스는 공항리무진(공항버스) — TAGO 고속 · 시외에 운행이 없다(10-15 실호출: 고속 서울경부 · 동서울 → T1 · T2,
-        #   시외 동서울 → 인천공항2터미널 · 인천공항행 전부 0편, 13회). 부르지 않고 안내로 답한다(`airport_bus`). 지방 ↔ 인천공항 시외는 그대로 묻는다
+        #   시외 동서울 → 인천공항2터미널 · 인천공항행 전부 0편, 13회). TAGO 는 부르지 않는다(`airport_bus`). 지방 ↔ 인천공항 시외는 그대로 묻는다.
+        #   인천국제공항공사 버스정보(`travel.airport_bus`)가 있으면 노선 · 요금 · 승차 위치 · **공항 출발** 시간표를 싣는다(서울 → 공항은 노선만)
         result["elsewhere"] = [dict(site) for site in AIRPORT_BUS_SITES]
-        result["sources"]["tago"] = {"status": "airport_bus", "count": 0, "calls": [], "seconds": round(time.perf_counter() - started, 1),
-                                     "via": "airport_bus_guide"}
+        calls_bus: list[str] = []
+        source = getattr(travel, "airport_bus", None) if travel is not None else None
+        board = None
+        if source is not None:
+            calls_bus.append("airport_bus:서울")
+            routes = source.routes("서울")
+            if routes is not None:
+                board = _airport_board(routes, pair, depart_date)
+        if board is not None:
+            result["airport_bus"] = board
+        result["sources"]["tago"] = {"status": "airport_bus", "count": 0, "calls": calls_bus, "seconds": round(time.perf_counter() - started, 1),
+                                     "via": "airport_bus_api" if board is not None else "airport_bus_guide"}
         return result
     if adapter is None:
         result["sources"]["tago"] = {"status": "failed", "reason": "transit_schedule 소스 없음(ACOP_TAGO_API_KEY)"}

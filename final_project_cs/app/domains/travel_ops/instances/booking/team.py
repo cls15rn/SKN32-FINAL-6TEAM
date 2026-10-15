@@ -216,6 +216,41 @@ def _transit_line(option: dict[str, Any], adults: int | None) -> str:
             f"{option.get('destination') or '?'} {option.get('arrive') or '?'} ({took}) · 어른 {fare} {total}").rstrip()
 
 
+#: 공항버스 답에 보여 줄 노선 수 · 노선마다 시각 수
+AIRPORT_ROUTES_SHOWN, AIRPORT_TIMES_SHOWN = 10, 4
+
+
+def _airport_bus_lines(name: str, board: dict[str, Any], bands: list[str], how: str) -> list[str]:
+    """`[10-15]` 공항버스(인천국제공항공사 버스정보) — 공항 → 서울은 그 터미널 공항 출발 시각(말한 시간대 안 앞 몇 개), 서울 → 공항은 노선 · 요금만."""
+    terminal, routes = board["terminal"], board["routes"]
+    day = "주말" if board.get("day_type") == "weekend" else "평일"
+    out = [f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이에요. {how}"]
+    if board["direction"] == "from_airport":
+        def fits(clock: str) -> bool:
+            return not bands or _band_of(clock) in bands
+        running = [(route, [clock for clock in route["times"] if fits(clock)]) for route in routes]
+        running = [(route, clocks) for route, clocks in running if clocks]
+        said = " · ".join(BAND_LABEL[band] for band in bands if band in BAND_LABEL)
+        out.append(f"  인천공항{terminal} 출발 {day} 시간표 기준(인천국제공항공사 공항버스 정보) — {said + ' ' if said else ''}출발이 있는 노선 "
+                   f"{len(running)}개 중 {min(len(running), AIRPORT_ROUTES_SHOWN)}개:")
+        for route, clocks in running[:AIRPORT_ROUTES_SHOWN]:
+            fare = f"{route['price']:,}원" if isinstance(route.get("price"), int) else "요금 모름"
+            ride = f" · 타는 곳 {route['ride']}" if route.get("ride") else ""
+            out.append(f"   · {route['number']} {route.get('grade') or ''} · 성인 {fare}{ride} — {' · '.join(clocks[:AIRPORT_TIMES_SHOWN])}"
+                       + (f" 외 {len(clocks) - AIRPORT_TIMES_SHOWN}회" if len(clocks) > AIRPORT_TIMES_SHOWN else ""))
+        if len(running) > AIRPORT_ROUTES_SHOWN:
+            out.append(f"  노선 번호순 앞 {AIRPORT_ROUTES_SHOWN}개만 보여 드렸어요 — 나머지 {len(running) - AIRPORT_ROUTES_SHOWN}개 노선은 아래 운영사 시간표에서 확인해 주세요.")
+        out.append("  시각은 공항 출발 기준이고 그날 운행 · 결행 · 남은 좌석은 매표소에서 확인해 주세요. 공휴일은 따로 확인하지 못했어요.")
+    else:
+        out.append(f"  인천공항{terminal}로 가는 노선 {len(routes)}개(인천국제공항공사 공항버스 정보) — 서울 정류장별 출발 시각은 이 정보에 없어 아래 운영사 시간표에서 확인해 주세요:")
+        for route in routes[:AIRPORT_ROUTES_SHOWN]:
+            fare = f"{route['price']:,}원" if isinstance(route.get("price"), int) else "요금 모름"
+            out.append(f"   · {route['number']} {route.get('grade') or ''} · 성인 {fare}")
+        if len(routes) > AIRPORT_ROUTES_SHOWN:
+            out.append(f"   · 그 밖에 {len(routes) - AIRPORT_ROUTES_SHOWN}개 노선")
+    return out
+
+
 def _carriers(option: dict[str, Any]) -> list[str]:
     """다리마다 운항 항공사 코드(편명 앞 두 글자, 없으면 `carrierCode`). 모르면 빈 글자."""
     found = []
@@ -783,10 +818,15 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                 lines.append(f"[{name}] 공항철도 직통은 {revised_from[5:7].lstrip('0')}월 {revised_from[8:10].lstrip('0')}일부터 시간표가 전면 바뀌어요"
                              "(공항철도 공지 10-14). 새 시각을 아직 반영하지 못해 그날 시각은 드리지 않을게요 — 아래 공지의 새 시간표를 확인해 주세요.")
                 continue
-            if state == "airport_bus":                   # `[10-15]` 서울 ↔ 인천공항 버스 = 공항리무진 — 운행표에 없다, 지어내지 않고 타는 법만
-                lines.append(f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요. "
-                             "서울 → 공항은 사전 예약 없이 정류장에서 타고(교통카드 · 현금), 공항 → 서울은 공항 매표소 · 무인발권기에서 표를 삽니다"
-                             "(공항리무진 공지 기준 — 노선마다 다를 수 있어요). 시간표가 필요하시면 「공항철도」로 물어봐 주세요 — 직통열차 시각을 드려요.")
+            if state == "airport_bus":                   # `[10-15]` 서울 ↔ 인천공항 버스 = 공항리무진 — TAGO 운행표에 없다
+                board = (got or {}).get("airport_bus")
+                how = ("서울 → 공항은 사전 예약 없이 정류장에서 타고(교통카드 · 현금), 공항 → 서울은 공항 매표소 · 무인발권기에서 표를 삽니다"
+                       "(공항리무진 공지 기준 — 노선마다 다를 수 있어요).")
+                if not board or not board.get("routes"):
+                    lines.append(f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요. {how} "
+                                 "시간표가 필요하시면 「공항철도」로 물어봐 주세요 — 직통열차 시각을 드려요.")
+                    continue
+                lines += _airport_bus_lines(name, board, list(times or []), how)
                 continue
             if state == "not_yet":                       # 팀장 점검 LB-03 — 공급자가 먼 날짜 버스 운행을 아직 안 준다
                 lines.append(f"[{name}] 그날 버스 운행은 아직 확인할 수 없습니다 — 공급자가 가까운 날(보통 출발 1~2일 전)부터 운행표를 줍니다. "

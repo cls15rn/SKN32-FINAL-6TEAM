@@ -618,7 +618,7 @@ def test_an_airport_bus_sentence_explains_how_to_ride_and_points_to_the_timetabl
     assert tago.calls == [] and result.decisions[0]["tago_calls"] == 0 and result.decisions[0]["via"] == ["airport_bus_guide"]
     assert "[가는 편] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요." in answer
     assert "시간표가 필요하시면 「공항철도」로 물어봐 주세요" in answer
-    assert "노선 · 시간표는 아래에서 확인해 주세요:" in answer and "공항리무진 노선 · 시간표: https://www.airportlimousine.co.kr/sub/sub01.php" in answer
+    assert "노선 · 시간표는 아래에서 확인해 주세요:" in answer and "공항리무진 노선 · 시간표(서울 정류장별 시각): https://www.airportlimousine.co.kr/sub/sub01.php" in answer
     assert "예매는 아래" not in answer and "어른 1인 기준 조회 시점 참고값" not in answer
 
 
@@ -744,3 +744,91 @@ def test_a_rental_sentence_gives_the_booking_pages_with_the_dates_said():
     assert f"{GO.isoformat()}(" in answer and f"~{BACK.isoformat()} · 성인 2명 — 렌터카 상품이에요." in answer
     assert "롯데렌터카 · 내륙 단기 렌터카 예약 — 대여 · 반납 일시와 지점은 그 화면에서 고르세요: https://www.lotterentacar.net/" in answer
     assert "https://rent.skdirect.co.kr/short-rent/location-list?branchOrder=inlandFirst" in answer
+
+
+# ── `[2026-10-15]` 공항리무진 — 인천국제공항공사 공항버스 정보(노선 · 요금 · 승차 위치 · 공항 출발 시간표) ───────────────
+_BUS_ROWS = [  # 10-15 탐침의 칸 이름 · 값 모양 그대로(값은 줄임)
+    {"area": "1", "busnumber": "6009(가락1동주민센터)", "routeinfo": "가락1동…잠실…", "busclass": "우등", "adultfare": "17000", "cpname": "공항리무진",
+     "toawfirst": "0520", "toawlast": "2252", "t1endfirst": "0540", "t1endlast": "2312", "t2endfirst": "0520", "t2endlast": "2252",
+     "t1wdayt": "0540, 0610, 0630, 1240, 1310, 1900", "t1wt": "0610, 1310", "t2wdayt": "0520, 0550, 1220", "t2wt": "0550",
+     "t1ridelo": "4B", "t2ridelo": "28"},
+    {"area": "1", "busnumber": "6100(수락/노원/망우)", "routeinfo": "…", "busclass": "우등", "adultfare": "18000", "cpname": "…",
+     "t1wdayt": "0630, 1330", "t1wt": "0630", "t2wdayt": "0610", "t2wt": "0610", "t1ridelo": "3B", "t2ridelo": "27"},
+    {"area": "1", "busnumber": None, "busclass": "우등", "adultfare": "16000", "toawfirst": "0700", "toawlast": "1400",
+     "t1wdayt": "", "t1wt": "", "t2wdayt": "", "t2wt": ""},
+]
+
+
+def test_the_airport_bus_adapter_reads_the_documented_address_and_times():
+    from app.domains.travel_ops.ports.data_sources.incheon_airport_bus import URL, AirportBusInfo
+    seen = []
+
+    def transport(url, params):
+        seen.append((url, dict(params)))
+        return _Response({"response": {"header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE."},
+                                       "body": {"items": {"item": _BUS_ROWS}, "totalCount": 3}}})
+    routes = AirportBusInfo(service_key="k", transport=transport).routes("서울")
+    assert seen[0][0] == URL == "https://apis.data.go.kr/B551177/BusInformation/getBusInfo"
+    assert {k: seen[0][1][k] for k in ("area", "type", "numOfRows")} == {"area": "1", "type": "json", "numOfRows": "200"}
+    first = routes[0]
+    assert (first["number"], first["price"], first["terminals"]["T1"]["ride"]) == ("6009(가락1동주민센터)", 17000, "4B")
+    assert first["terminals"]["T1"]["weekday"][:3] == ["05:40", "06:10", "06:30"] and first["terminals"]["T2"]["weekend"] == ["05:50"]
+    assert routes[2]["number"] is None and routes[2]["terminals"]["T1"]["weekday"] == []
+    failed = AirportBusInfo(service_key="k", transport=lambda url, params: _Response(
+        {"response": {"header": {"resultCode": "30", "resultMsg": "SERVICE KEY IS NOT REGISTERED"}}})).routes("서울")
+    assert failed is None
+
+
+class _FakeAirportBus:
+    def __init__(self, rows):
+        self.calls, self.rows = [], rows
+
+    def routes(self, area="서울"):
+        from app.domains.travel_ops.ports.data_sources.incheon_airport_bus import AirportBusInfo
+        self.calls.append(area)
+        return AirportBusInfo(service_key="k", transport=lambda url, params: _Response(
+            {"response": {"header": {"resultCode": "00"}, "body": {"items": {"item": self.rows}}}})).routes(area)
+
+
+def test_airport_to_seoul_buses_carry_airport_departures_and_seoul_to_airport_only_routes():
+    bus = _FakeAirportBus(_BUS_ROWS)
+    travel = SimpleNamespace(transit_schedule=FakeTago(), airport_bus=bus)
+    friday = "2026-10-16"
+    back = search_transit(travel, mode="bus", origin="인천공항", destination="서울", depart_date=friday)
+    board = back["airport_bus"]
+    assert back["sources"]["tago"]["via"] == "airport_bus_api" and back["sources"]["tago"]["calls"] == ["airport_bus:서울"]
+    assert (board["direction"], board["terminal"], board["day_type"], board["skipped_unnumbered"]) == ("from_airport", "T1", "weekday", 1)
+    assert [route["number"] for route in board["routes"]] == ["6009(가락1동주민센터)", "6100(수락/노원/망우)"]
+    assert board["routes"][0]["times"] == ["05:40", "06:10", "06:30", "12:40", "13:10", "19:00"]
+    go = search_transit(travel, mode="bus", origin="서울", destination="인천공항 2터미널", depart_date="2026-10-17")
+    assert go["airport_bus"]["direction"] == "to_airport" and go["airport_bus"]["terminal"] == "T2"
+    assert all(route["times"] == [] for route in go["airport_bus"]["routes"]), "공항 출발 시각을 서울 출발처럼 쓰지 않는다"
+    plain = search_transit(SimpleNamespace(transit_schedule=FakeTago()), mode="bus", origin="서울", destination="인천공항", depart_date=friday)
+    assert "airport_bus" not in plain and plain["sources"]["tago"]["via"] == "airport_bus_guide", "소스가 없으면 전처럼 안내만"
+
+
+def test_an_airport_to_seoul_bus_sentence_lists_routes_with_times_in_the_band_said():
+    toolbox_bus = _FakeAirportBus(_BUS_ROWS)
+    result, tools = _run(f"{GO.month}월 {GO.day}일 인천공항에서 서울 리무진 2명 오후", FakeTago())
+    assert "공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요" in result.answer, "소스 없는 도구 묶음 — 전처럼 안내"
+    from app.domains.travel_ops.components.booking.offers import search_transit as real
+
+    class Tools(FakeTools):
+        def call(self, name, context, arguments, allowed_tools, seen, budget=None):
+            seen.add(name + repr(sorted(arguments.items())))
+            self.calls.append((name, dict(arguments)))
+            return real(SimpleNamespace(transit_schedule=FakeTago(), airport_bus=toolbox_bus), **arguments)
+    from app.domains.travel_ops.instances.booking import team as team_module
+    toolbox, case_id = Tools(FakeTago()), uuid4()
+    pack = ContextPack(pack_id=uuid4(), case_id=case_id, team_id="flight", tenant_id="t", knowledge_scope=["flight"],
+                       current_state={"customer_id": str(uuid4())}, estimated_input_tokens=1)
+    task = TeamTask(task_id=uuid4(), run_id=uuid4(), case_id=case_id, team_id="flight", capability="flight.assist", case_version=1,
+                    input_text=f"{GO.month}월 {GO.day}일 인천공항에서 서울 리무진 2명 오후", context=pack,
+                    allowed_tools=BookingTeam.manifest.allowed_tools, deadline_at=datetime.now(UTC) + timedelta(seconds=90))
+    answer = asyncio.run(team_module.BookingTeam(toolbox, None).execute(task)).answer
+    day = "주말" if GO.weekday() >= 5 else "평일"
+    assert f"  인천공항T1 출발 {day} 시간표 기준(인천국제공항공사 공항버스 정보) — 오후 출발이 있는 노선" in answer
+    if day == "평일":
+        assert "   · 6009(가락1동주민센터) 우등 · 성인 17,000원 · 타는 곳 4B — 12:40 · 13:10" in answer and "05:40" not in answer
+        assert "   · 6100(수락/노원/망우) 우등 · 성인 18,000원 · 타는 곳 3B — 13:30" in answer
+    assert "시각은 공항 출발 기준이고" in answer and "공항리무진 노선 · 시간표(서울 정류장별 시각): https://www.airportlimousine.co.kr/sub/sub01.php" in answer

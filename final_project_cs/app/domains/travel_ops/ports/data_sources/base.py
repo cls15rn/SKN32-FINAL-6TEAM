@@ -340,6 +340,8 @@ class TravelSources:
     stay_google: Any | None = None
     #: `[2026-10-14]` 국토교통부 TAGO 열차 · 고속버스 · 시외버스 운행 정보(`tago_transit.py`) — 예약 모듈(기차 · 버스). 공공데이터포털 키(`tago_api_key` → 공통 키).
     transit_schedule: Any | None = None
+    #: `[2026-10-15]` 인천국제공항공사 공항버스(리무진) 노선 · 요금 · 공항 출발 시간표(`incheon_airport_bus.py`) — 예약 모듈(서울 ↔ 인천공항 버스). 공통 키.
+    airport_bus: Any | None = None
     #: 키가 없어 못 붙인 소스 이름들. ★조용히 비워 두지 않는다.
     unavailable: dict[str, str] = field(default_factory=dict)
     #: 소스 전부가 같은 것을 공유한다 - 따로 두면 한 키를 두 소스가 나눠
@@ -503,6 +505,13 @@ def build_travel_sources(settings: Any, *, cache_only: bool = False, low_priorit
         sources.transit_schedule = TagoTransit(service_key=tago_key, limiter=limiter, cache=cache)
     else:
         sources.unavailable["transit_schedule"] = "ACOP_TAGO_API_KEY(또는 공통 키) 없음 — 기차 · 버스 운행 비교 안 함"
+    # ★`[2026-10-15]` 예약 모듈 공항리무진 — 인천국제공항공사 버스정보(활용신청됨, 공통 키). 정적 시간표라 어댑터가 6시간 캐시한다
+    airport_bus_key = _public_data_key(settings, "")
+    if airport_bus_key:
+        from .incheon_airport_bus import AirportBusInfo
+        sources.airport_bus = AirportBusInfo(service_key=airport_bus_key, limiter=limiter, cache=cache)
+    else:
+        sources.unavailable["airport_bus"] = "공통 공공데이터 키 없음 — 공항리무진 시간표 안 함"
     # ── 기상: 1차 + 대체 (v11 §0-4 결정 15) ─────────────────────────
     # ★`weather_provider` 는 **어느 쪽이 먼저인가**만 정한다. 붙일 수 있는 것은
     #   전부 붙이고 나머지를 대체로 둔다 — 1차가 못 주면 대체가 값을 낸다.
