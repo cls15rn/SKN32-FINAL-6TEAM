@@ -18,6 +18,8 @@ TAGO 지하철정보 `SubwayInfo/GetSubwaySttnAcctoSchdulList` 수집)에 공항
 `--express-pdf` 로 주면 그 표(시 | 서울역 | 인천공항2터미널 | 인천공항1터미널, 칸마다 「분」 목록, 출발 시각 기준)를 읽어 `revisions` 에 넣는다.
 pdf 를 읽으려면 pdfplumber 가 있어야 한다(저장소 의존성에는 넣지 않았다 — `pip install pdfplumber`). 안 주면 지금 파일의 `revisions` 를 그대로 둔다.
 pdf 는 저장소에 넣지 않는다(공항철도 배포 파일 — 공지에서 받는다).
+개정 판의 `minutes`(직통 소요 분, 「출발역>도착역」: 분)는 같은 공지 첨부 「열차운행시각표(10.23.부).xlsx」의 직통 도착 시각에서 손으로 옮겼다
+(10-15 — 직통 112편 출발 시각이 pdf 와 모두 같고, 도착 − 출발이 편마다 같다). pdf 로 같은 판을 다시 만들면 그 값을 그대로 이어 받는다.
 
 실행 위치: final_project_cs
   python -m scripts.build_arex_direct                      # 기본 입력 ../datasets/mobility/processed/mobility/timetable_v1.jsonl.gz
@@ -118,8 +120,12 @@ def main() -> None:
     revisions = [rev for rev in previous if rev.get("from") != args.since] if args.express_pdf else previous
     if args.express_pdf:
         express = read_express_pdf(args.express_pdf)
-        revisions.append({"from": args.since, "source": f"공항철도 공지 첨부 「{args.express_pdf.name}」(출발 시각 기준 · 평일 · 휴일 같은 표, 도착 시각 없음)",
-                          "runs": {"weekday": express, "holiday": express}})
+        kept = next((rev for rev in previous if rev.get("from") == args.since and rev.get("minutes")), None)
+        revision = {"from": args.since, "source": f"공항철도 공지 첨부 「{args.express_pdf.name}」(출발 시각 기준 · 평일 · 휴일 같은 표, 도착 시각 없음)",
+                    "runs": {"weekday": express, "holiday": express}}
+        if kept:                                          # xlsx 에서 옮긴 소요 분은 이어 받는다
+            revision.update(source=kept["source"], minutes=kept["minutes"], minutes_note=kept.get("minutes_note"))
+        revisions.append(revision)
         revisions.sort(key=lambda rev: rev["from"])
     if not args.timetable.exists():
         sys.exit(f"시간표 파일 없음: {args.timetable}")

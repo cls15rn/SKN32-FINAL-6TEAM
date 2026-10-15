@@ -126,18 +126,30 @@ def test_a_train_without_a_number_is_matched_by_its_stations_on_recheck():
     assert _same_run(dict(ktx), dict(ktx)) and not _same_run({**ktx, "number": "103"}, ktx), "번호가 있는 열차는 번호로(그대로)"
 
 
-def test_the_october_23_revision_is_its_own_edition_without_arrival_times():
-    """`[10-15]` 공항철도 10-23 일반 · 직통 전면 개정(공지 10-14) — 10-22 까지 기본 판, 10-23 부터 공지 첨부표(출발 시각만)."""
+def test_the_october_23_revision_is_its_own_edition_with_its_own_ride_minutes():
+    """`[10-15]` 공항철도 10-23 일반 · 직통 전면 개정(공지 10-14) — 10-22 까지 기본 판, 10-23 부터 공지 첨부표(출발 pdf + 도착 xlsx)."""
     before = arex.runs("서울", "인천공항", "2026-10-22")
     assert before["timetable"]["edition"] is None and before["options"][0]["minutes"] == 43
     after = arex.runs("서울", "인천공항", "2026-10-23")
     revision = next(rev for rev in arex.table()["revisions"] if rev["from"] == "2026-10-23")
     assert [option["depart"] for option in after["options"]] == revision["runs"]["weekday"]["서울역"]
     assert after["timetable"]["edition"] == "2026-10-23" and "10.23" in after["timetable"]["edition_source"]
-    assert all(option["arrive"] is None and option["minutes"] is None for option in after["options"]), "개정표엔 도착 시각이 없다 — 옛 43분을 옮기지 않는다"
+    assert revision["minutes"] == {"서울역>인천공항1터미널": 43, "서울역>인천공항2터미널": 51, "인천공항1터미널>서울역": 43, "인천공항2터미널>서울역": 51}
+    assert all(option["minutes"] == 43 for option in after["options"])
+    assert (after["options"][0]["depart"], after["options"][0]["arrive"]) == ("06:00", "06:43"), "xlsx 첫 직통 A1001 서울 06:00 → T1 06:43:30(초 버림)"
+    back = arex.runs("인천공항T2", "서울", "2026-10-24")
+    assert (back["options"][0]["depart"], back["options"][0]["arrive"], back["options"][0]["minutes"]) == ("05:16", "06:07", 51)
     t1 = [int(c[:2]) * 60 + int(c[3:]) for c in revision["runs"]["weekday"]["인천공항1터미널"]]
     t2 = [int(c[:2]) * 60 + int(c[3:]) for c in revision["runs"]["weekday"]["인천공항2터미널"]]
     assert {a - b for a, b in zip(t1, t2)} == {8}, "공항 → 서울: T1 출발 = T2 출발 + 8분(개정표에서도)"
+
+
+def test_a_revision_without_its_own_minutes_leaves_arrival_blank(monkeypatch):
+    """판에 `minutes` 가 없으면 다른 판의 분을 옮기지 않는다 — 출발 시각만."""
+    bare = [{key: value for key, value in rev.items() if key not in ("minutes", "minutes_note")} for rev in arex.table()["revisions"]]
+    monkeypatch.setattr(arex, "table", lambda: {**_BASE, "revisions": bare})
+    after = arex.runs("서울", "인천공항", "2026-10-23")
+    assert after["options"] and all(option["arrive"] is None and option["minutes"] is None for option in after["options"])
 
 
 def test_a_date_after_a_known_revision_without_its_table_gets_no_old_times(monkeypatch):
@@ -152,6 +164,6 @@ def test_an_arex_sentence_after_the_revision_uses_the_new_table_and_says_so():
         pytest.skip("다음 달이 개정일 전")
     result, _ = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 공항철도 2명 오전", FakeTago())
     answer = result.answer
-    assert "공항철도 직통은 10월 23일 개정 시간표 기준이에요(공항철도 공지 첨부 · 평일 · 휴일 같은 표)." in answer
-    assert "[오전] AREX 직통 — 서울역 " in answer and " 출발 → 인천공항1터미널 · 요금은 예매 화면에서" in answer
-    assert "(0시간 43분)" not in answer
+    assert "공항철도 직통은 10월 23일 개정 시간표 기준이에요(공항철도 공지 첨부 · 평일 · 휴일 같은 표). 그날 운휴" in answer
+    assert "AREX 직통 — 서울역 " in answer and "→ 인천공항1터미널 " in answer and "(0시간 43분) · 어른 요금은 예매 화면에서" in answer
+    assert "도착 시각이 없어" not in answer

@@ -909,10 +909,11 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
             for number, option in enumerate(picked, start=1):
                 lines.append(f"  {number}. {_transit_line(option, found.adults)}")
             timetable = (got or {}).get("timetable") or {}
-            if timetable.get("kind") == "arex" and timetable.get("edition"):   # `[10-15]` 개정 판(10-23~) — 공지 첨부표, 도착 시각 없음
+            if timetable.get("kind") == "arex" and timetable.get("edition"):   # `[10-15]` 개정 판(10-23~) — 공지 첨부표
                 since = timetable["edition"]
+                blank = "" if any(option.get("arrive") for option in picked) else " 개정표에는 도착 시각이 없어 소요 시간은 비워 뒀어요."
                 lines.append(f"  공항철도 직통은 {since[5:7].lstrip('0')}월 {since[8:10].lstrip('0')}일 개정 시간표 기준이에요(공항철도 공지 첨부 · "
-                             "평일 · 휴일 같은 표). 개정표에는 도착 시각이 없어 소요 시간은 비워 뒀어요. "
+                             f"평일 · 휴일 같은 표).{blank} "
                              "그날 운휴 · 임시 변경 · 남은 좌석 · 요금은 예매 화면에서 확인해 주세요.")
             elif timetable.get("kind") == "arex":              # `[10-15]` AREX 직통 — 그날 운행이 아니라 요일 시간표라고 밝힌다
                 table = "주말 · 공휴일" if timetable.get("day_type") == "holiday" else "평일"

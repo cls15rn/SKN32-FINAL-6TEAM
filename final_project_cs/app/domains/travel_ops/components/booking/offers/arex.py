@@ -11,7 +11,9 @@ TAGO 기차에는 AREX 직통이 없다(서울→인천공항T1 0편). 이동 �
 - ★`[10-15]` **2026-10-23 부터 일반 · 직통 시간표 전면 개정**(공항철도 공지 10-14, 첨부 xlsx · pdf). 표가 **판(edition)** 으로 나뉜다:
   기본 판 = 10-01 수집본(공식 시간표 페이지 `/train/express/info` 현행표와 첫 · 막차 · 편수 일치, 10-15 확인) — 10-22 까지,
   개정 판 = 공지 첨부 「직통열차 운행시각표(평일,휴일),10.23.부.pdf」(출발 시각 기준 · 평일 · 휴일 같은 표, 28편씩) — 10-23 부터.
-  개정 판에는 **도착 시각이 없어** 소요 · 도착을 비운다(개정 전 43 · 51분을 옮기지 않는다). 판이 없는 개정일 뒤 날짜는 `revised`.
+  판이 없는 개정일 뒤 날짜는 `revised`.
+- `[10-15]` 개정 판의 소요 분은 판에 적힌 `minutes`(같은 공지 첨부 「열차운행시각표(10.23.부).xlsx」의 직통 도착 시각에서 —
+  편마다 같다)만 쓴다. 판에 `minutes` 가 없으면 소요 · 도착을 비운다(다른 판의 분을 옮기지 않는다).
 - 직통은 서울역 ↔ 인천공항1 · 2터미널만 선다. 그 밖의 역(공덕 · 홍대입구 · 김포공항 …)은 일반열차(교통카드, 예매 없음) — 이동 모듈 몫이다.
 """
 from __future__ import annotations
@@ -33,7 +35,7 @@ STATION_OF: dict[str, str] = {
 }
 
 #: 직통 소요 분(기본 판만) — AREX 예매 화면 · 공식 시간표 페이지(2026-10-15): 서울역 ↔ T1 43분, 서울역 ↔ T2 51분.
-#: 시간표 파일에는 종착역 도착 행이 없어 여기서만 온다. 개정 판에는 쓰지 않는다.
+#: 시간표 파일에는 종착역 도착 행이 없어 여기서만 온다. 개정 판은 판의 `minutes` 를 쓴다.
 RIDE_MINUTES: dict[tuple[str, str], int] = {(SEOUL, T1): 43, (T1, SEOUL): 43, (SEOUL, T2): 51, (T2, SEOUL): 51}
 
 SITE = {"name": "AREX 공항철도 직통열차 예매", "url": "https://www.airportrailroad.com/intro"}
@@ -71,15 +73,25 @@ def day_type(day: date, holiday: Any = None) -> tuple[str, str]:
     return "weekday", "holiday_unknown"
 
 
+def _minutes_of(revision: dict[str, Any]) -> dict[tuple[str, str], int]:
+    """판의 `minutes`(「출발역>도착역」: 분) → {(출발역, 도착역): 분}. 없거나 모양이 다르면 빈 표(→ 소요 · 도착 비움)."""
+    table: dict[tuple[str, str], int] = {}
+    for key, value in (revision.get("minutes") or {}).items():
+        dep, _, arr = str(key).partition(">")
+        if dep and arr and isinstance(value, int):
+            table[(dep, arr)] = value
+    return table
+
+
 def edition(day: date) -> dict[str, Any] | None:
     """그날 쓸 판 — 개정 판 중 시작일이 그날 이전인 가장 늦은 것, 없으면 기본 판(개정일 전 날짜만). 아무것도 없으면 None(→ `revised`)."""
     data = table()
     later = [rev for rev in data.get("revisions") or [] if date.fromisoformat(rev["from"]) <= day]
     if later:
         latest = max(later, key=lambda rev: rev["from"])
-        return {"from": latest["from"], "runs": latest["runs"], "source": latest.get("source"), "minutes": False}
+        return {"from": latest["from"], "runs": latest["runs"], "source": latest.get("source"), "minutes": _minutes_of(latest)}
     if day < REVISED_FROM:
-        return {"from": None, "runs": data.get("runs") or {}, "source": data.get("source"), "minutes": True}
+        return {"from": None, "runs": data.get("runs") or {}, "source": data.get("source"), "minutes": RIDE_MINUTES}
     return None
 
 
@@ -100,7 +112,7 @@ def runs(origin: str, destination: str, depart_date: str, *, holiday: Any = None
                               "collected": table().get("collected")}}
     kind, basis = day_type(day, holiday)
     clocks = (book["runs"].get(kind) or {}).get(dep) or []
-    minutes = RIDE_MINUTES.get((dep, arr)) if book["minutes"] else None
+    minutes = book["minutes"].get((dep, arr))
     options = []
     for clock in clocks:
         start = datetime.combine(day, datetime.strptime(clock, "%H:%M").time())
