@@ -19,12 +19,22 @@ export function visibleShapes(shapes: RouteShape[] | undefined, stops: TripStop[
   return shapes.filter((shape) => placed.has(shape.fromItemId) && placed.has(shape.toItemId));
 }
 
+/**
+ * `[2026-10-15 사용자 결정 — ST4F-495]` The walked stretches of a shape, as the server said them (`walks`). A server that does not say (`null`) has only a move that is all walking drawn so —
+ * the walks at the two ends of a subway line are inside its one line, and the screen does not guess where they end. A line whose road is not known is never drawn as walking.
+ */
+export function walksOf(shape: RouteShape): [number, number][] {
+  if (isGuess(shape)) return [];
+  return shape.walks ?? (shape.mode === "walk" ? [[0, shape.points.length - 1]] : []);
+}
+
 export function toMapLines(shapes: RouteShape[]): MapLine[] {
   return shapes.map((shape) => ({
     id: shape.itemId,
     points: shape.points,
     dashed: isGuess(shape),
     mode: shape.mode,
+    walks: walksOf(shape),
     title: `${shape.from ?? "출발"} → ${shape.to ?? "도착"} · ${MODE_NAMES[shape.mode]}${shape.distanceM !== null ? ` ${shape.distanceM >= 1000 ? `${(shape.distanceM / 1000).toFixed(1)}km` : `${Math.round(shape.distanceM)}m`}` : ""}`,
   }));
 }
@@ -33,6 +43,8 @@ export function toMapLines(shapes: RouteShape[]): MapLine[] {
 export function routeNotes(shapes: RouteShape[]): string[] {
   const notes: string[] = [];
   if (shapes.some(isGuess)) notes.push("점선은 길을 몰라 두 곳을 직선으로 이은 구간이에요.");
+  // `[2026-10-15 ST4F-495]` Walking is drawn as round dots: when a map also has a guess, the dots are told apart from its dashes.
+  if (shapes.some(isGuess) && shapes.some((shape) => walksOf(shape).length > 0)) notes.push("동그란 점은 걷는 구간이에요.");
   if (shapes.some((shape) => shape.source === "stations" || (shape.source === "transit_stops" && shape.rides.some((ride) => ride.mode !== "bus")))) notes.push("지하철 구간은 역 위치를 순서대로 이은 선이라 실제 선로 모양이 아니에요.");
   if (shapes.some((shape) => shape.source === "bus_stops" || (shape.source === "transit_stops" && shape.rides.some((ride) => ride.mode === "bus")))) notes.push("버스 구간은 정류장 위치를 순서대로 이은 선이라 실제 도로 모양이 아니에요.");
   if (shapes.some((shape) => (shape.mode === "bus" || shape.mode === "mixed") && shape.source !== "bus_stops" && shape.source !== "transit_stops")) notes.push("버스는 정류장 정보가 없어 직선으로 이어요.");

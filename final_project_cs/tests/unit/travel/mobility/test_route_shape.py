@@ -275,3 +275,48 @@ def test_a_transfer_fills_each_ride_on_its_own_line():
 def test_rides_are_only_reported_for_station_lines():
     assert "rides" not in RS.build_shape(A, B, _rd("taxi"), router=FakeRouter(), sc=SC3)
     assert "rides" not in RS.build_shape(A, B, _rd("bus_405", uses=["버스:405"]), router=FakeRouter(), sc=SC3)
+
+
+# ── `[2026-10-15 사용자 결정 — ST4F-495]` 걷는 구간(`walks`) — 화면이 그 구간만 걸음 모양(회색 점)으로 그린다 ──
+
+def test_a_walk_is_one_walking_stretch_and_rides_by_car_or_bike_have_none():
+    walk = RS.build_shape(A, B, _rd("walk"), router=FakeRouter(), sc=SC)
+    assert walk["walks"] == [[0, len(walk["line"]["coordinates"]) - 1]]
+    for planned in ("taxi", "bike"):
+        assert RS.build_shape(A, B, _rd(planned), router=FakeRouter(), sc=SC)["walks"] == []
+
+
+def test_straight_lines_have_no_walking_stretch_even_for_a_walk():
+    """직선 대체는 길을 모르는 선이다 — 걸음으로 그리지 않는다(화면은 흐린 긴 점선)."""
+    assert RS.build_shape(A, B, _rd("walk"), router=None, sc=None)["walks"] == []
+    assert RS.build_shape(A, B, _rd("bus_405", uses=["버스:405"]), router=FakeRouter(), sc=SC)["walks"] == []
+
+
+def test_a_subway_walks_from_the_start_to_the_first_station_and_from_the_last_station_to_the_end():
+    s = RS.build_shape(A, B, _rd("subway_1", uses=["3호선:경복궁", "2호선:을지로입구", "2호선:성수"]), router=FakeRouter(), sc=SC)
+    coords, walks = s["line"]["coordinates"], s["walks"]
+    assert len(walks) == 2
+    (h0, h1), (t0, t1) = walks
+    assert h0 == 0 and coords[h1] == [126.9735, 37.5759], "첫 걸음은 처음 → 탄 역(경복궁)"
+    assert coords[t0] == [127.0560, 37.5446] and t1 == len(coords) - 1, "마지막 걸음은 내린 역(성수) → 끝"
+    assert h1 < t0, "그 사이가 타는 구간"
+
+
+def test_a_failed_walk_is_still_a_walking_stretch():
+    s = RS.build_shape(A, B, _rd("subway_1", uses=["2호선:을지로입구", "2호선:성수"]), router=FakeRouter(fail="경로 없음"), sc=SC)
+    coords = s["line"]["coordinates"]
+    assert s["walks"] == [[0, coords.index([126.9822, 37.5660])], [len(coords) - 2, len(coords) - 1]]
+
+
+def test_simplifying_keeps_the_boundaries_between_walking_and_riding():
+    """걸음 길이 점이 많아 줄어도 경계 점(탄 역 · 내린 역)은 남고, 번호는 줄인 선을 가리킨다."""
+    class Wiggly:
+        def route(self, s, e, profile="car", via=None):
+            n = 600
+            return {"paths": [{"points": {"coordinates": [[s[0] + (e[0] - s[0]) * i / n, s[1] + (e[1] - s[1]) * i / n + 0.002 * ((i % 2) * 2 - 1)]
+                                                          for i in range(n + 1)]}}]}
+    s = RS.build_shape(A, B, _rd("subway_1", uses=["2호선:을지로입구", "2호선:성수"]), router=Wiggly(), sc=SC)
+    coords, ((h0, h1), (t0, t1)) = s["line"]["coordinates"], s["walks"]
+    assert len(coords) <= RS.MAX_POINTS
+    assert h0 == 0 and t1 == len(coords) - 1
+    assert coords[h1] == [126.9822, 37.5660] and coords[t0] == [127.0560, 37.5446]

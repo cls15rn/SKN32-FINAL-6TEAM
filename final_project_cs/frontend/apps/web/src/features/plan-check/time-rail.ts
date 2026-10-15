@@ -11,6 +11,9 @@
  */
 export const RAIL_GAP = { wait: 8, travel: 36, slack: 12, none: 56 } as const;
 
+/** `[2026-10-15 사용자 결정 — ST4F-494 · ①]` The plan check (and the edit of a registered trip) draws its line to scale again: a minute is this long. 90 minutes = 108 px. */
+export const RAIL_PX_PER_MIN = 1.2;
+
 /** One row as the line reads it: a stop (start and end) or the way after it (when it leaves and arrives). Minutes since midnight; null = not known. */
 export type RailRow =
   | { kind: "stay"; start: number | null; end: number | null }

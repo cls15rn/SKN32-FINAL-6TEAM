@@ -32,6 +32,8 @@ for (const width of [375, 1280]) {
     await expect(page.locator("#trip-card-i-a")).toHaveCSS("border-top-color", "rgb(195, 205, 198)");   // `[2026-10-13 ④]` 접힌 카드는 테두리를 두른다(10-10 무테를 바꿈)
     await dayTab(page, /^2일차/).click(); await aligned(page);
     await openPane(page, "채팅"); await openPane(page, "일정"); await aligned(page);
+    // `[2026-10-15 ST4F-493]` 목록 끝 출처가 접힌 한 줄이 되어 2일차(일정 하나)는 반 높이 시트에서 스크롤할 길이가 없다 — 스크롤 숨김은 1일차(일정 셋)에서 본다
+    await dayTab(page, /^1일차/).click(); await aligned(page);
     await body.evaluate(el => { el.scrollTop = 100; });
     await expect(strip).toHaveAttribute("data-quiet", "true");
     await body.evaluate(el => { el.scrollTop = 0; });

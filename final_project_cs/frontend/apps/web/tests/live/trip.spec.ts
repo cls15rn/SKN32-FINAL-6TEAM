@@ -52,8 +52,15 @@ test("여행 화면(지도 + 시트)은 서버가 준 일정·고정·다른 안
   await expect(leg).toContainText("버스 · 640m");
   await leg.getByRole("button").click();
   await expect(leg).toContainText("길을 몰라 두 곳을 직선으로 이은 구간이에요.");
-  await expect(schedule.getByRole("link", { name: "지도 앱에서 길찾기" })).toHaveCount(1);
-  await expect(schedule.getByRole("link", { name: "지도 앱에서 길찾기" })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&origin=a&destination=b&travelmode=transit");
+  // `[2026-10-14 ST4F-492]` 「지도 앱에서 길찾기」 is a button that opens the sheet of three map apps; its Google link is the server's directions address
+  await expect(schedule.getByRole("button", { name: "지도 앱에서 길찾기" })).toHaveCount(1);
+  await schedule.getByRole("button", { name: "지도 앱에서 길찾기" }).click();
+  const directions = page.getByRole("dialog", { name: "지도 앱에서 길찾기" });
+  await expect(directions.locator('[data-map-app="google"]')).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&origin=a&destination=b&travelmode=transit");
+  await expect(directions.locator('[data-map-app="naver"]')).toHaveAttribute("href", /^https:\/\/map\.naver\.com\/p\/directions\/.+\/-\/transit$/);
+  await expect(directions.locator('[data-map-app="kakao"]')).toHaveAttribute("href", /^https:\/\/map\.kakao\.com\/link\/by\/traffic\//);
+  await directions.getByRole("button", { name: "닫기" }).click();
+  await expect(directions).toHaveCount(0);
 
   // 고정한 일정 표시와 서버가 남겨 둔 다른 안
   await expect(page.locator("#stop-button-i-b").getByText("고정한 일정")).toBeVisible();
@@ -61,8 +68,8 @@ test("여행 화면(지도 + 시트)은 서버가 준 일정·고정·다른 안
   await expect(page.locator("#stop-button-i-b")).toContainText("주소 정보 없음");
   await page.locator("#stop-button-i-b").click();
   await expect(page.locator("#stop-detail-i-b")).not.toContainText("다른 안");
-  await expect(page.locator("#stop-detail-i-b").getByRole("button", { name: "이 일정 질문하기" })).toBeVisible();   // 상세가 열려 있는데
-  await expect(page.locator("#stop-detail-i-b").getByRole("link", { name: "지도 앱으로 열기" })).toHaveCount(0);  // 지도 링크가 없으면 단추도 없다
+  await expect(page.locator("#stop-detail-i-b").getByRole("button", { name: "이 일정 질문하기" })).toHaveCount(0);  // `[ST4F-492]` 카드에는 없다(상세 보기에만)
+  await expect(page.locator("#stop-detail-i-b").getByRole("button", { name: "지도 앱으로 열기" })).toHaveCount(0);  // 지도 링크가 없으면 단추도 없다
   await page.getByRole("button", { name: "경복궁 관람 상세 보기" }).click();
   await expect(page.locator('[data-card-id="i-b"]')).toContainText("다른 안");
   await expect(page.locator('[data-card-id="i-b"]')).toContainText("창덕궁");
@@ -73,11 +80,15 @@ test("여행 화면(지도 + 시트)은 서버가 준 일정·고정·다른 안
   await page.locator("#stop-button-i-a").click();
   const detail = page.locator("#stop-detail-i-a");
   // 지도 앱으로 열기 — 서버가 준 구글 지도 링크를 새 창으로(서버가 링크를 안 준 일정에는 단추가 없다)
-  await expect(detail.getByRole("link", { name: "지도 앱으로 열기" })).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=%EC%95%84%EC%B9%A8");
-  await expect(detail.getByRole("link", { name: "지도 앱으로 열기" })).toHaveAttribute("target", "_blank");
+  // `[ST4F-492]` the card opens the sheet of three map apps; the detail (below) has the three links in a row
+  await expect(detail.getByRole("button", { name: "지도 앱으로 열기" })).toHaveCount(1);
   await page.getByRole("button", { name: "아침 식당 상세 보기" }).click();
   const facts = page.locator('[data-card-id="i-a"]');
   for (const text of ["서울특별시 종로구 율곡로1길 7", "02-000-0000", "한식", "월 08:00–21:00", "셀렉티드 (2026)", "카드 결제"]) await expect(facts).toContainText(text);
+  const mapApps = facts.getByRole("group", { name: "지도 앱으로 열기" });
+  await expect(mapApps.locator('[data-map-app="google"]')).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=%EC%95%84%EC%B9%A8");
+  await expect(mapApps.locator('[data-map-app="google"]')).toHaveAttribute("target", "_blank");
+  await expect(mapApps.locator('[data-map-app="naver"]')).toHaveAttribute("href", /^https:\/\/map\.naver\.com\/p\/search\//);
   await expect(facts).not.toContainText("michelin_selected");
   await page.keyboard.press("Escape");
 
@@ -114,7 +125,9 @@ test("서버가 경로선을 주지 않으면 이동 줄은 수단·거리를 �
   await expect(move).not.toContainText("km");
   const unknownLeg = schedule.locator('[data-entry-id="i-a>i-b"]');
   await expect(unknownLeg).toContainText("이동 정보가 아직 없어요");
-  await expect(unknownLeg.getByRole("link", { name: "지도 앱에서 길찾기" })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&origin=a&destination=b&travelmode=transit");
+  await unknownLeg.getByRole("button", { name: "지도 앱에서 길찾기" }).click();                                   // `[ST4F-492]` 단추 → 지도 앱 시트
+  await expect(page.getByRole("dialog", { name: "지도 앱에서 길찾기" }).locator('[data-map-app="google"]')).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&origin=a&destination=b&travelmode=transit");
+  await page.keyboard.press("Escape");
   await expect(unknownLeg).not.toContainText(/\d+분|km/);
   await expect(schedule.locator('[data-entry-id="i-a>i-b"]')).not.toContainText("버스");
 });

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { beforeTheTrip, mockServer, openTitle, start, TRIP_ID, tripScreen, openPane, chatButton } from "./helpers";
+import { beforeTheTrip, mockServer, openTitle, start, TRIP_ID, tripScreen, openPane } from "./helpers";
 
 async function openTrip(page: Page) {
   await page.goto(`/trips/${TRIP_ID}`);
@@ -64,7 +64,7 @@ test("알림의 일정에서 보기는 채팅·상세에서 목록을 열고 해
     await expect(target).toHaveAttribute("aria-expanded", "true");
     await expect(target).toBeFocused();
     expect(await target.evaluate(element => Boolean(element.closest("[inert]")))).toBe(false);
-    await expect(chatButton(page)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#trip-pane-schedule")).not.toHaveAttribute("inert");                            // `[ST4F-493]` 일정 칸(시트 머리의 채팅 단추는 없다)
   }
   await goFromNotice();
   await page.getByRole("button", { name: "점심 식당 상세 보기", exact: true }).click();

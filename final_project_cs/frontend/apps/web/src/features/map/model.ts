@@ -42,6 +42,8 @@ export interface MapLine {
   dashed: boolean;
   /** `[2026-10-06 사용자 지시 — 선 색으로 수단을 알아보게]` Absent = the theme's primary colour. */
   mode?: MapLineMode;
+  /** `[2026-10-15 사용자 결정 — ST4F-495]` Stretches of `points` (`[first, last]` indexes) that are walked: drawn as round grey dots, the rest as `mode`. Absent = none. */
+  walks?: readonly (readonly [number, number])[];
   /** Said to a screen reader and as the line's tooltip: 「A → B · 지하철」. */
   title: string;
 }

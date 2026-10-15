@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { LocateFixed, MessageCircle, Send, X } from "lucide-react";
+import { ArrowLeft, LocateFixed, MessageCircle, Send, X } from "lucide-react";
 import { tripGateway } from "@/lib/gateway";
 import { undoChange, warmup } from "@/lib/live/extras";
 import { LiveError } from "@/lib/live/client";
@@ -209,36 +209,65 @@ export function ChatPane({ trip, chat, day, dayText, selected, logRef, active }:
 /**
  * `[2026-10-07 사용자 결정 — 목업 C안]` The chat bar at the bottom of the frame. Closed: a round chat button. Pressed: it grows into the bar WITHOUT focusing the field (no phone keyboard);
  * the keyboard focus goes to its close button. Pressing the field (or tabbing into it) takes the sheet to the chat pane and the message is written there. In the chat pane it stays open.
+ * `[2026-10-14 사용자 결정 — ST4F-493]` In the chat pane only, a round grey ← at the bar's left (where ✕ is outside it) goes back to the schedule — the sheet head has no chat button any more.
+ * `subject`: the chosen stop's place name — the field's hint asks about it (the chat answers about the chosen stop) instead of 「일정」.
+ * `[2026-10-14 사용자 지시 — ST4F-493]` The field keeps the width between the buttons and grows downward line by line as the message wraps, up to three lines; past that its height stays
+ * and it scrolls. Enter still sends (as the one-line field did); Shift+Enter is a new line, and the Enter the browser reports while a Korean syllable is still being composed is not a
+ * send (Chrome reports that Enter once more when the syllable is done — sending on both sends the last syllable twice). On a phone (no mouse, a finger — there is no Shift+Enter)
+ * Enter is always a new line and the send button sends. The hint is drawn over the empty field so a long one ends in 「…」(a textarea's own placeholder cannot).
+ * `[2026-10-14 사용자 결정]` Opening, the round button becomes the send button in its place (💬 turns into ➤ — `chatSendFrom` · `chatSendTo`, CSS in trip-screen.module.css).
  */
-export function ChatBar({ chat, open, inChat, onOpen, onClose, onEnterChat }: { chat: TripChat; open: boolean; inChat: boolean; onOpen: () => void; onClose: () => void; onEnterChat: () => void }) {
+const touchKeyboard = () => typeof matchMedia === "function" && matchMedia("(hover: none) and (pointer: coarse)").matches;
+
+export function ChatBar({ chat, open, inChat, subject, onOpen, onClose, onEnterChat, onLeaveChat }: { chat: TripChat; open: boolean; inChat: boolean; subject: string | null; onOpen: () => void; onClose: () => void; onEnterChat: () => void; onLeaveChat: () => void }) {
   const t = useT();
   const closeButton = useRef<HTMLButtonElement>(null);
   const fab = useRef<HTMLButtonElement>(null);
   const shown = open || inChat;
   const wasShown = useRef(shown);
+  const wasInChat = useRef(inChat);
   const backToFab = useRef(false);
+  const field = useRef<HTMLTextAreaElement>(null);
   // The keyboard focus follows the bar: to its close button when it opens from the round button (which is gone), back to the round button when its close button shut it.
   useEffect(() => {
     if (shown && !wasShown.current && !inChat && document.activeElement === document.body) closeButton.current?.focus({ preventScroll: true });
+    // `[2026-10-15 검토]` ← left the chat but the bar stays open (a draft is kept): ← is gone and ✕ stands in its place — the focus goes there, not to the page.
+    if (shown && !inChat && wasInChat.current && backToFab.current) { backToFab.current = false; closeButton.current?.focus({ preventScroll: true }); }
     if (!shown && backToFab.current) { backToFab.current = false; fab.current?.focus({ preventScroll: true }); }
     wasShown.current = shown;
+    wasInChat.current = inChat;
   }, [shown, inChat]);
+  // The field's height follows its text (the CSS `max-height` stops it at three lines, then it scrolls) — and the width (a turned phone wraps the same text differently).
+  useLayoutEffect(() => {
+    const box = field.current;
+    if (!box) return;
+    const fit = () => { box.style.height = "auto"; box.style.height = `${box.scrollHeight}px`; };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [chat.draft, shown, inChat]);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     chat.ask(chat.draft, true);
   }
+  const hint = subject ? t(`${subject}에 대해 궁금한 점을 입력하세요`, `Ask about ${subject}`) : t("일정에 대해 궁금한 점을 입력하세요", "Ask about your itinerary");
   if (!shown) {
     return <div className={styles.chatBar}><button ref={fab} type="button" className={styles.chatFab} onClick={onOpen} aria-label={t("채팅 입력 열기", "Open the chat")}><MessageCircle size={26} strokeWidth={1.7} aria-hidden="true" /></button></div>;
   }
   return <div className={styles.chatBar} data-open>
     {!inChat && <button ref={closeButton} type="button" className={styles.chatClose} onClick={() => { backToFab.current = true; onClose(); }} aria-label={t("채팅 막대 접기", "Close the chat bar")}><X size={18} strokeWidth={1.8} aria-hidden="true" /></button>}
+    {inChat && <button type="button" className={styles.chatClose} onClick={() => { backToFab.current = true; onLeaveChat(); }} aria-label={t("일정으로 돌아가기", "Back to the itinerary")} title={t("일정으로 돌아가기", "Back to the itinerary")}><ArrowLeft size={18} strokeWidth={1.8} aria-hidden="true" /></button>}
     <form className={styles.chatForm} onSubmit={submit} noValidate>
       <label className="sr-only" htmlFor="trip-chat-message">{t("여행 메시지", "Travel message")}</label>
-      <input id="trip-chat-message" className={styles.chatInput} value={chat.draft} maxLength={600} autoComplete="off" placeholder={t("일정에 대해 궁금한 점을 입력하세요", "Ask about your itinerary")} readOnly={chat.message.isPending} aria-disabled={chat.message.isPending || undefined}
+      <span className={styles.chatField}>
+      <textarea ref={field} id="trip-chat-message" className={styles.chatInput} rows={1} value={chat.draft} maxLength={600} autoComplete="off" placeholder={hint} readOnly={chat.message.isPending} aria-disabled={chat.message.isPending || undefined}
         aria-invalid={Boolean(chat.inputError)} aria-describedby={chat.inputError ? "trip-chat-error" : undefined}
         onFocus={() => { if (!inChat) onEnterChat(); }}
+        onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !touchKeyboard()) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
         onChange={(event) => { chat.setDraft(event.target.value); if (chat.inputError) chat.setInputError(""); }} />
-      <button type="submit" className={styles.chatSend} aria-disabled={chat.message.isPending || undefined} style={chat.message.isPending ? { opacity: .5, cursor: "not-allowed" } : undefined} aria-label={t("메시지 전송", "Send message")}><Send size={18} strokeWidth={1.8} aria-hidden="true" /></button>
+      {!chat.draft && <span className={styles.chatHint} aria-hidden="true">{hint}</span>}
+      </span>
+      <button type="submit" className={styles.chatSend} aria-disabled={chat.message.isPending || undefined} style={chat.message.isPending ? { opacity: .5, cursor: "not-allowed" } : undefined} aria-label={t("메시지 전송", "Send message")}><MessageCircle className={styles.chatSendFrom} size={18} strokeWidth={1.8} aria-hidden="true" /><Send className={styles.chatSendTo} size={18} strokeWidth={1.8} aria-hidden="true" /></button>
     </form>
     {chat.inputError && <p id="trip-chat-error" className={styles.chatError} role="alert">{chat.inputError}</p>}
   </div>;

@@ -81,6 +81,23 @@ def taxi_call_product_enabled(tenant_id: str) -> bool:
     return guardrail_default()
 
 
+TRIP_NOW_LABEL = "travel.trip_screen.now_label_enabled"
+
+
+def trip_now_label_enabled(tenant_id: str) -> bool:
+    """여행 화면에 「지금 HH:MM」 시각 꼬리표를 보이나. `[2026-10-15 사용자 결정 — ST4F-494]` 시험 기간에 켜 두고 배포 때 관리 콘솔에서 끈다.
+
+    운영자가 화면에서 바꾼 값이 먼저, 없거나 못 읽으면 가드레일(`app.core.settings.trip_now_label_enabled`, 기본 켜짐).
+    ★참/거짓이 아닌 값은 바꾼 값으로 보지 않는다. 읽는 곳은 여행 조회 응답의 `now_label`(`trip_api._trip_view`) 하나다.
+    """
+    value = operator_setting(tenant_id, TRIP_NOW_LABEL)
+    if isinstance(value, bool):
+        return value
+    from app.core.settings import trip_now_label_enabled as guardrail_default
+
+    return guardrail_default()
+
+
 ACTIVITY_LIVE_CHECK = "travel.activity_judge.live_status_batch_enabled"
 
 

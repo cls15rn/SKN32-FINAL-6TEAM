@@ -1,5 +1,5 @@
 import type { Coordinates, MapAdapter, MapLine, MapPoint, MyLocation, StayPoint } from "../model";
-import { lineStyle, linesKey } from "./lines";
+import { linePieces, lineStyle, linesKey, walkStyle } from "./lines";
 import { ACCURACY_STYLE, accuracyRadius, createMeDot, createStayDot, ME_LABEL, meKey, staysKey } from "./me";
 import { createPin, geometryKey, layoutPins, paintPinGroups, pinArea, pinPriority, placePin, pointLabel, pulsePin, setPinSelected, type PinSlot } from "./pin";
 import { createSdkLoader } from "./sdk-loader";
@@ -32,7 +32,7 @@ interface GoogleCircleOptions {
 }
 interface GooglePolylineOptions {
   map: GoogleMap; path: Coordinates[]; strokeColor: string; strokeOpacity: number; strokeWeight: number; clickable: boolean;
-  icons?: { icon: { path: string; strokeOpacity: number; scale: number }; offset: string; repeat: string }[];
+  icons?: { icon: { path: string | number; strokeOpacity: number; scale: number; fillColor?: string; fillOpacity?: number }; offset: string; repeat: string }[];
 }
 interface GoogleSdk {
   Map: new (container: HTMLElement, options: {
@@ -202,18 +202,21 @@ export function createGoogleAdapter(apiKey: string, mapId: string): MapAdapter {
         clearLines();
         const Polyline = sdk.Polyline;
         if (!Polyline) return;
-        routes = nextLines.map((line) => {
+        routes = nextLines.flatMap((line) => linePieces(line).map(({ points, walk }) => {
           const style = lineStyle(container, line);
+          const dots = walk ? walkStyle(container) : null;
           // A dashed line is drawn as repeated dots of an icon (the way the SDK does it): the line itself is invisible.
+          // `[2026-10-15 ST4F-495]` A walked stretch is a row of round dots — the SDK's circle symbol (`google.maps.SymbolPath.CIRCLE` is 0) — in the walking colour.
           const route = new Polyline({
-            map, path: line.points, strokeColor: style.color, strokeWeight: style.weight, clickable: Boolean(options.onSelectLine),
-            strokeOpacity: style.dash ? 0 : style.opacity,
-            ...(style.dash ? { icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: style.opacity, scale: 3 }, offset: "0", repeat: `${style.dash[0] + style.dash[1]}px` }] } : {}),
+            map, path: points, strokeColor: dots?.color ?? style.color, strokeWeight: dots?.weight ?? style.weight, clickable: Boolean(options.onSelectLine),
+            strokeOpacity: dots || style.dash ? 0 : style.opacity,
+            ...(dots ? { icons: [{ icon: { path: 0, scale: dots.weight / 2, fillColor: dots.color, fillOpacity: dots.opacity, strokeOpacity: 0 }, offset: "0", repeat: `${dots.dots}px` }] }
+              : style.dash ? { icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: style.opacity, scale: 3 }, offset: "0", repeat: `${style.dash[0] + style.dash[1]}px` }] } : {}),
           });
           // `[2026-10-06 사용자 지시]` A press on a route line picks it (the SDK's own listener; a test double without one simply does not take the press).
           (route as unknown as { addListener?: (name: string, run: () => void) => void }).addListener?.("click", () => options.onSelectLine?.(line.id));
           return route;
-        });
+        }));
       }
 
       function update(nextPoints: MapPoint[], nextSelectedId?: string, nextLines: MapLine[] = []) {

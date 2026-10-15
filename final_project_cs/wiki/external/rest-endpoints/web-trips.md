@@ -73,7 +73,7 @@ domain: travel
 | 경로 | `GET /v1/web/trips/{trip_id}/route-shapes` | `GET /v1/web/trip-intakes/{intake_id}/route-shapes` |
 | 응답 | `{trip_id, detail, shapes[], attribution}` | `{intake_id, revision, detail, shapes[], attribution}` |
 | 원천 | 여행 항목의 `route_def` | **저장된 확인 검사**(`items[]` · `moves[]`) — 없으면 이동을 다시 계산하지 않고 `shapes: []` |
-| `shapes[]` | `{item_id, from_item_id, to_item_id, from, to, mode, line, source, grade, distance_m, note}` | 같은 모양, **`item_id` 없음**. `from_item_id`·`to_item_id` 는 확인 화면 `review.items[].id`(「0-3」) |
+| `shapes[]` | `{item_id, from_item_id, to_item_id, from, to, mode, line, walks, source, grade, distance_m, note}` | 같은 모양, **`item_id` 없음**. `from_item_id`·`to_item_id` 는 확인 화면 `review.items[].id`(「0-3」) |
 
 - `mode`: walk · bike · taxi · subway · bus · mixed · unknown. `source`: `local_road_graph`(도로 그래프) · `stations`(탄 역 좌표 순서 + 양 끝 걸음) · `straight_line`(직선 — 이유는 `note`). `grade`: 추정 · 근거없음(확정은 없다).
 - 좌표 없는 장소가 낀 이동은 건너뛴다. 접수용은 저장된 검사에 탄 역 정보(`uses`)가 없는 **옛 검사**의 지하철·대중교통을 직선 + `note` 로 내린다 — **새로 접수한** 검사부터 역 좌표를 따라 그린다(고쳐도 바뀌지 않은 이동은 저장된 값을 다시 쓰므로 옛 검사는 그대로 직선).
@@ -82,7 +82,19 @@ domain: travel
 - ★`[2026-10-05]` **지하철은 탄 역~내린 역 사이의 모든 역을 잇는다.** 일정에는 탄·갈아탄·내린 역만 담기므로(`plan.uses_of`), 사이 역은 호선별 역 순서(`LineOrder.path`)로 채우고 좌표는 역 좌표표로 얻는다 — 전에는 그 사이가 직선 한 줄이라 확대해도 같았다. 좌표를 못 찾는 역은 건너뛰고 선은 끊기지 않는다. **실제 선로·터널 곡선은 아니다**(곡선 자료 없음) — `source=stations` · `grade=추정` · `note` 가 그렇게 말한다. 순환선은 짧은 쪽으로 이으므로 운행 방향과 다를 수 있다(`note` 에 적는다). 계산기가 꺼져 있으면 노선 순서를 못 읽어 일정에 담긴 역만 잇고, `note` 가 「중간 역을 못 채웠다」고 말한다.
 - ★`rides[]`(지하철·혼합이 `source=stations` 일 때만): 탄 구간마다 `{line, from, to, stations[], count, filled}` — 화면이 「지하철 3호선 · 경복궁→을지로3가 · 4개 역 · 역 사이는 직선」처럼 밝힐 수 있게 한다. `filled=false` 면 중간 역을 못 채운 구간이다. 버스·택시·걷기·직선에는 이 칸이 없다. `[2026-10-12 추가]` 선택 편성의 종류가 확인되면 선택 필드 `service: local | express`를 전달해 일반/급행을 표시한다. 저장 문맥 `station_services`와 구간 순서를 맞추며 종류 혼재·누락·미확인은 필드를 생략한다. 역 개수 `count`는 출발역을 포함한다. 소비자 지도의 출발역 제외 정차 수와 같은 정의로 비교하지 않는다.
 - ★한계(2026-10-05): 버스는 정류장 목록이 일정에 없어 항상 직선이다(일정 `route_def` 에 탄·내린 정류장을 같이 저장하는 일이 먼저 — 진행 예정).
+- ★`[2026-10-15 사용자 결정 — ST4F-495]` **`walks` — 걷는 구간의 위치.** `[[처음, 끝], …]` 은 `line.coordinates` 의 번호(0부터, 양 끝 포함)다. 화면은 이 구간을 걸음 모양(회색 점)으로, 나머지는 그 이동의 수단 모양으로 그린다 — **화면이 걸음 구간을 짐작해 자르지 않게** 서버가 경계를 준다(지하철 이동의 선 하나에 양 끝 걸음이 이어 붙어 있어 화면은 경계를 모른다).
+  - 걷기 이동(`mode=walk`, 도로 그래프)은 선 전체 `[[0, 마지막]]`.
+  - 지하철 · 버스 · 혼합(`source` 가 `stations` · `bus_stops` · `transit_stops`)은 출발 장소→첫 역·정류장, 갈아타는 걸음, 마지막 역·정류장→도착 장소. 한 걸음 구간은 **앞 탑승 조각의 마지막 점**(첫 걸음은 선의 처음)부터 **다음 탑승 조각의 첫 점**(마지막 걸음은 선의 끝)까지 — 탑승 조각과 끝점을 나눠 가져 선이 끊기지 않는다. 길찾기로 못 그려 직선으로 이은 걸음 조각도 걸음이다(`note` 가 「걸음은 직선」이라 말한다).
+  - 직선 대체(`straight_line`) · 택시 · 자전거는 `[]`. 점을 줄일 때(`detail` 어느 쪽이든) 경계 점은 지우지 않으며 번호는 **줄인 뒤의 선** 기준이다.
+  - 웹: 이 칸이 없는 응답(이 칸을 만들기 전 서버)은 걷기 이동만 걸음으로 그린다.
 
+### 여행 화면 「지금」 시각 표시 — 여행 조회의 `now_label` `[2026-10-15 사용자 결정]`
+
+`[2026-10-15 사용자 결정 — ST4F-494]` 여행 화면 일정 줄의 빨간 「지금」 점 옆에 「지금 HH:MM」 시각을 보일지를 운영자가 정한다. 시험 기간에 확인하려고 **기본 켜짐**, 배포 때 관리 콘솔에서 끈다.
+
+**여행 조회의 `now_label`**(`GET /v1/web/trips/{id}` · `/v1/trips/{id}` — 여행을 돌려주는 응답 모두, 맨 위 칸) — `true` 면 화면이 시각 꼬리표를 보이고, `false` 면 점과 채워지는 줄만 보인다(점은 이 값과 상관없다). `[2026-10-15 사용자 지시]` 등록한 여행의 수정 모드 목록도 같은 값을 따른다.
+- 값: 관리 콘솔 「운영 설정」 의 스위치 `travel.trip_screen.now_label_enabled`(운영자가 바꾼 값이 먼저) → 없거나 못 읽으면 가드레일 `travel.trip_screen.now_label_enabled`(기본 `true`). 참/거짓이 아닌 값은 바꾼 값으로 보지 않는다. 읽는 곳은 `settings_hook.trip_now_label_enabled(tenant)` 하나.
+- 웹: 이 칸이 없는 응답(이 칸을 만들기 전 서버)은 켜짐으로 본다 — 사용자가 정한 기본값이다.
 
 ## 관계
 

@@ -1,5 +1,5 @@
 import type { Coordinates, MapAdapter, MapLine, MapPoint, MyLocation, StayPoint } from "../model";
-import { lineStyle, linesKey } from "./lines";
+import { linePieces, lineStyle, linesKey, walkStyle } from "./lines";
 import { ACCURACY_STYLE, accuracyRadius, createMeDot, createStayDot, ME_BOX, ME_LABEL, meKey, STAY_BOX, staysKey } from "./me";
 import { createPin, geometryKey, layoutPins, paintPinGroups, pinArea, PIN_BOX, pinPriority, placePin, pointLabel, pulsePin, setPinSelected, type PinSlot } from "./pin";
 import { createSdkLoader } from "./sdk-loader";
@@ -34,7 +34,7 @@ interface NaverCircleOptions {
 }
 interface NaverPolylineOptions {
   map: NaverMap; path: NaverLatLng[]; strokeColor: string; strokeOpacity: number; strokeWeight: number;
-  strokeStyle: "solid" | "shortdash"; strokeLineCap: "round"; strokeLineJoin: "round"; clickable: boolean;
+  strokeStyle: "solid" | "shortdash" | "dot"; strokeLineCap: "round"; strokeLineJoin: "round"; clickable: boolean;
 }
 interface NaverListener { eventName: string }
 interface NaverSdk {
@@ -208,16 +208,17 @@ export function createNaverAdapter(clientId: string): MapAdapter {
         clearLines();
         const Polyline = sdk.Polyline;
         if (!Polyline) return;
-        routes = nextLines.map((line) => {
-          const style = lineStyle(container, line);
+        routes = nextLines.flatMap((line) => linePieces(line).map(({ points, walk }) => {
+          // `[2026-10-15 ST4F-495]` A walked stretch is the SDK's own round-capped dots (`strokeStyle: "dot"`) in the walking colour.
+          const style = walk ? { ...walkStyle(container), dash: null } : lineStyle(container, line);
           const route = new Polyline({
-            map, path: line.points.map(({ lat, lng }) => new sdk.LatLng(lat, lng)), strokeColor: style.color, strokeOpacity: style.opacity, strokeWeight: style.weight,
-            strokeStyle: style.dash ? "shortdash" : "solid", strokeLineCap: "round", strokeLineJoin: "round", clickable: Boolean(options.onSelectLine),
+            map, path: points.map(({ lat, lng }) => new sdk.LatLng(lat, lng)), strokeColor: style.color, strokeOpacity: style.opacity, strokeWeight: style.weight,
+            strokeStyle: walk ? "dot" : style.dash ? "shortdash" : "solid", strokeLineCap: "round", strokeLineJoin: "round", clickable: Boolean(options.onSelectLine),
           });
           // `[2026-10-06 사용자 지시]` A press on a route line picks it.
           (sdk as unknown as { Event?: { addListener?: (target: unknown, name: string, run: () => void) => void } }).Event?.addListener?.(route, "click", () => options.onSelectLine?.(line.id));
           return route;
-        });
+        }));
       }
 
       function update(nextPoints: MapPoint[], nextSelectedId?: string, nextLines: MapLine[] = []) {

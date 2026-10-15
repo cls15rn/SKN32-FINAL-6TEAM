@@ -88,6 +88,8 @@
   --color-test-input-ink: #226765;
   --color-test-input-soft: #e6f3f1;
   --color-test-input-border: #bcdcd7;
+  /* `[2026-10-15 ST4F-496]` 엔딩 크레딧의 머리글 · 쿠키 글자(어두운 `--color-inverse` 위의 금빛 — 목업 2026-10-08 C안) */
+  --color-credits-accent: #c9b98f;
 }
 
 /* White theme — the plan-check streaming mockup (`mockups/tripilot-plan-check-streaming.html`). */
@@ -168,4 +170,6 @@
   --color-test-input-ink: #226765;
   --color-test-input-soft: #e6f3f1;
   --color-test-input-border: #bcdcd7;
+  /* `[2026-10-15 ST4F-496]` 엔딩 크레딧의 머리글 · 쿠키 글자(어두운 `--color-inverse` 위의 금빛 — 목업 2026-10-08 C안) */
+  --color-credits-accent: #c9b98f;
 }

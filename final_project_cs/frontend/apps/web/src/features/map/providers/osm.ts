@@ -1,5 +1,5 @@
 import type { MapAdapter, MapLine, MapPoint, MyLocation, StayPoint } from "../model";
-import { lineStyle, linesKey } from "./lines";
+import { linePieces, lineStyle, linesKey, walkStyle } from "./lines";
 import { ACCURACY_STYLE, accuracyRadius, createMeDot, createStayDot, ME_BOX, meKey, STAY_BOX, staysKey } from "./me";
 import { createPin, createPinLeader, geometryKey, layoutPins, paintPinGroups, pinArea, PIN_BOX, pinPriority, placePin, pointLabel, popPin, pulsePin, setPinSelected, type PinSlot } from "./pin";
 import { setMarkerHidden } from "./visibility";
@@ -80,12 +80,12 @@ export function createOsmAdapter(tileUrl: string): MapAdapter {
       const routes = L.layerGroup().addTo(map);
       let previousLines = "";
       // `[2026-10-06 사용자 지시 — 경로를 누르면 그 경로가 나온다]` Each route is two lines: the one drawn, and a wider invisible one over it that takes the press (a thin road is hard to hit, and a phone has no hover).
-      let lineLayers: { id: string; shown: ReturnType<typeof L.polyline>; dashed: boolean; mode: MapLine["mode"] }[] = [];
+      let lineLayers: { id: string; shown: ReturnType<typeof L.polyline>; dashed: boolean; mode: MapLine["mode"]; walk: boolean }[] = [];
       let pickedLine: string | undefined;
       function styleLines() {
-        lineLayers.forEach(({ id, shown, dashed, mode }) => {
+        lineLayers.forEach(({ id, shown, dashed, mode, walk }) => {
           const picked = id === pickedLine;
-          const base = lineStyle(container, { id, points: [], dashed, mode, title: "" });
+          const base = walk ? walkStyle(container) : lineStyle(container, { id, points: [], dashed, mode, title: "" });
           const accent = getComputedStyle(container).getPropertyValue("--color-selected").trim();
           shown.setStyle(picked ? { weight: base.weight + 3, opacity: 1, ...(accent ? { color: accent } : {}) } : { weight: base.weight, opacity: base.opacity, color: base.color });
           if (picked) shown.bringToFront();
@@ -190,12 +190,18 @@ export function createOsmAdapter(tileUrl: string): MapAdapter {
           const style = lineStyle(container, line);
           const path = line.points.map(({ lat, lng }) => [lat, lng] as [number, number]);
           // `className` hooks the screen own CSS and the tests; the options are what Leaflet draws.
-          const shown = L.polyline(path, {
-            pane: "routes", color: style.color, weight: style.weight, opacity: style.opacity, lineCap: "round", lineJoin: "round",
-            ...(style.dash ? { dashArray: style.dash.join(" ") } : {}), interactive: false, className: `trip-route-line${line.dashed ? " trip-route-line--dashed" : ""}`,
-          }).addTo(routes);
-          lineLayers.push({ id: line.id, shown, dashed: line.dashed, mode: line.mode });
-          if (!options.onSelectLine) { shown.bindTooltip(line.title, { sticky: true }); return; }
+          // `[2026-10-15 ST4F-495]` A walked stretch is its own piece: round dots (a near-zero dash with a round cap is a dot) in the walking colour.
+          linePieces(line).forEach(({ points, walk }) => {
+            const dots = walk ? walkStyle(container) : null;
+            const shown = L.polyline(points.map(({ lat, lng }) => [lat, lng] as [number, number]), {
+              pane: "routes", color: dots?.color ?? style.color, weight: dots?.weight ?? style.weight, opacity: dots?.opacity ?? style.opacity, lineCap: "round", lineJoin: "round",
+              ...(dots ? { dashArray: `0.1 ${dots.dots}` } : style.dash ? { dashArray: style.dash.join(" ") } : {}), interactive: false,
+              className: `trip-route-line${line.dashed ? " trip-route-line--dashed" : ""}${walk ? " trip-route-line--walk" : ""}`,
+            }).addTo(routes);
+            lineLayers.push({ id: line.id, shown, dashed: line.dashed, mode: line.mode, walk });
+            if (!options.onSelectLine) shown.bindTooltip(line.title, { sticky: true });
+          });
+          if (!options.onSelectLine) return;
           L.polyline(path, { pane: "routes", color: "#000", weight: 22, opacity: 0, lineCap: "round", lineJoin: "round", interactive: true, className: "trip-route-hit" })
             .bindTooltip(line.title, { sticky: true }).on("click", () => options.onSelectLine?.(line.id)).addTo(routes);
         });

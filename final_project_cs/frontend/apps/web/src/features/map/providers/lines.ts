@@ -29,7 +29,36 @@ export function lineStyle(container: HTMLElement, line: MapLine): LineStyle {
   return line.dashed ? { color, weight: 4, opacity: 0.55, dash: [8, 10] } : { color, weight: 5, opacity: 0.85, dash: null };
 }
 
+/**
+ * `[2026-10-15 사용자 결정 — ST4F-495]` A walked stretch: round dots in the walking colour (grey) — never the pale long dash of a line whose road is not known.
+ * `dots` = one dot every `dots` px (each provider draws a round dot of the line's weight).
+ */
+export interface WalkStyle { color: string; weight: number; opacity: number; dots: number }
+
+export function walkStyle(container: HTMLElement): WalkStyle {
+  return { color: toneColor(container, "walk"), weight: 5, opacity: 0.9, dots: 10 };
+}
+
+/** One piece of a line to draw: a walked stretch or the rest of it (`walk: false`, drawn as the line's own mode). Pieces share their end points, so the line is not broken. */
+export interface LinePiece { points: MapLine["points"]; walk: boolean }
+
+/** A line cut at its walked stretches (`walks`); a line with none is one piece. A line whose road is not known (`dashed`) is never cut — it is one pale dash. */
+export function linePieces(line: MapLine): LinePiece[] {
+  const last = line.points.length - 1;
+  const walks = line.dashed ? [] : (line.walks ?? []).filter(([first, end]) => first >= 0 && end <= last && end > first);
+  if (walks.length === 0) return [{ points: line.points, walk: false }];
+  const pieces: LinePiece[] = [];
+  let at = 0;
+  for (const [first, end] of walks) {
+    if (first > at) pieces.push({ points: line.points.slice(at, first + 1), walk: false });
+    pieces.push({ points: line.points.slice(first, end + 1), walk: true });
+    at = end;
+  }
+  if (at < last) pieces.push({ points: line.points.slice(at), walk: false });
+  return pieces;
+}
+
 /** Presentation-only updates must not redraw the lines. */
 export function linesKey(lines: MapLine[]): string {
-  return JSON.stringify(lines.map(({ id, points, dashed, mode }) => [id, dashed, mode ?? null, points.map(({ lat, lng }) => [lat, lng])]));
+  return JSON.stringify(lines.map(({ id, points, dashed, mode, walks }) => [id, dashed, mode ?? null, walks ?? [], points.map(({ lat, lng }) => [lat, lng])]));
 }

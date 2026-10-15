@@ -83,6 +83,11 @@
 .insertPoint[data-insert-point$=":end"] { margin-top: 24px; margin-bottom: 24px; }
 .insertPoint[data-insert-start] { height: 48px; }
 .insertPoint[data-insert-start]::after, .insertPoint[data-insert-start] > .insertButton { top: 24px; }
+/* `[2026-10-15 사용자 지적 — ST4F-494]` 일정 사이의 ＋ 는 자기 칸(28px)을 갖는다 — 높이 0 으로 다음 줄 머리에 걸쳐 있으면 ① 시간 비례에서 이동 줄이 경계에 붙거나
+   이동 상자를 펼쳤을 때 ＋ 와 선이 그 머리 위에 겹쳤다. 카드 · 줄이 늘면 이 칸도 그만큼 아래로 밀린다. */
+.insertPoint:not([data-insert-start]):not([data-insert-open]):not([data-insert-point$=":end"]) { height: 28px; }
+.insertPoint:not([data-insert-start]):not([data-insert-open]):not([data-insert-point$=":end"])::after,
+.insertPoint:not([data-insert-start]):not([data-insert-open]):not([data-insert-point$=":end"]) > .insertButton { top: 14px; }
 .insertPoint::after { --insert-line-cycle: 3s; content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--color-border-strong); z-index: -2; opacity: 0; pointer-events: none; }
 .insertPoint[data-insert-near]::after, .insertPoint:focus-within::after { opacity: .6; animation: insertLineBreathe var(--insert-line-cycle) ease-in-out infinite; }
 .insertPoint:hover::after, .insertPoint:focus-within::after { animation-play-state: paused; }
@@ -738,8 +743,11 @@ button.time[data-adjusted] { color: var(--color-adjusted); }
 .entry[data-type="item"][data-time-follow] > .time { position: sticky; top: var(--time-stick-inset, 0px); }
 .sheetHead[data-done]:not([data-float]) { padding: 18px 12px 0; min-height: 18px; border: 0; }
 .autoAllTop { position: static; flex: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; margin: 0 0 8px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 12px; cursor: pointer; }
-.topActions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 8px; }
-.topActions .autoAllTop { margin: 0; }
+/* `[2026-10-15 사용자 결정 — ST4F-494]` 첫 날짜 제목 줄: 왼쪽 「n일차 날짜」 · 오른쪽 끝 「전체 자동 추천」(· 「전체 잠금 해제」) — 목록 위 따로 있던 한 줄(`.topActions`)을 옮겼다. */
+.dayRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 2px; }
+.dayRow > .day { margin: 0; }
+.dayTools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 8px; }
+.dayTools .autoAllTop { margin: 0; }
 .unlockAllTop { position: static; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 8px; border: 0; background: none; color: var(--color-muted); font: inherit; font-size: 12px; cursor: pointer; }
 .unlockAllTop:focus-visible { outline: 2px solid var(--color-selected); outline-offset: 2px; border-radius: 8px; }
 .footer.footer { position: absolute; z-index: 7; right: 18px; bottom: 22px; width: 58px; height: 58px; padding: 0; gap: 0; flex-wrap: nowrap; border: 1px solid transparent; border-radius: 29px; background: var(--color-primary); }
@@ -799,6 +807,8 @@ button.time[data-adjusted] { color: var(--color-adjusted); }
 .nowDot { position: absolute; left: 54px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: var(--color-now); box-shadow: 0 0 0 2.5px var(--color-surface); animation: nowPulse 1.8s ease-out infinite; }
 @keyframes nowPulse { 0% { box-shadow: 0 0 0 2.5px var(--color-surface), 0 0 0 2.5px color-mix(in srgb, var(--color-now) 45%, transparent); } 100% { box-shadow: 0 0 0 2.5px var(--color-surface), 0 0 0 11px transparent; } }
 .nowFill { position: absolute; z-index: 2; left: 59px; width: 4px; margin: 0; padding: 0; list-style: none; border-radius: 2px; background: var(--color-now); pointer-events: none; transition: height .45s cubic-bezier(.3, .7, .3, 1); }
+/* `[2026-10-15 사용자 결정 — ST4F-494]` 「지금 HH:MM」 꼬리표 — 10-13 에 뺐던 것을 되살렸다(여행 화면, 운영자 스위치가 켜졌을 때만). */
+.nowLabel { position: absolute; top: -11px; right: calc(100% - 52px); display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--color-now); color: var(--color-on-primary); font-size: 10.5px; font-weight: 800; line-height: 1; letter-spacing: -.2px; white-space: nowrap; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--color-surface), 0 3px 8px color-mix(in srgb, var(--color-now) 35%, transparent); }
 @media (prefers-reduced-motion: reduce) { .nowMark, .nowFill { transition: none; } .nowDot { animation: none; } }
 .entry[data-passed] .rail .dot { z-index: 3; border-color: var(--color-now); background: var(--color-now); }
 

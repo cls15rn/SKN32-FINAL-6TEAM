@@ -589,3 +589,15 @@ def taxi_call_product_enabled() -> bool:
         return get_guardrails().get("travel.mobility.taxi_call_product_enabled") is True
     except ConfigError:
         return False
+
+
+def trip_now_label_enabled() -> bool:
+    """여행 화면의 「지금 HH:MM」 시각 꼬리표를 보이나 — 가드레일 `travel.trip_screen.now_label_enabled`. ★기본 켜짐.
+
+    `[2026-10-15 사용자 결정 — ST4F-494]` 시험 기간에 확인하려고 켜 두고 배포 때 관리 콘솔에서 끈다. 보이는 글자 하나라
+    가드레일을 못 읽으면 정한 기본(켜짐)으로 둔다 — 끄는 것은 `false` 로 명시한 경우뿐이다.
+    """
+    try:
+        return get_guardrails().get("travel.trip_screen.now_label_enabled") is not False
+    except ConfigError:
+        return True

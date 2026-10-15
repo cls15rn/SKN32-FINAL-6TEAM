@@ -38,7 +38,9 @@ for(const width of [375,1280]){
     const server=await openFinished(page,request,view=>{view.review.items[0].locked=true;view.review.items[2].locked=true;},{intakeEvents:'off'});await tiles();await prepare(page);
     const body=page.locator('[class*=sheetBody]'),all=page.getByRole('button',{name:'전체 잠금 해제',exact:true}),recommend=body.getByRole('button',{name:/^전체 자동 추천/});
     await expect(all).toBeVisible();const a=(await all.boundingBox())!,b=(await recommend.boundingBox())!;
-    expect(Math.abs(a.y-b.y)).toBeLessThan(1);expect(a.x).toBeGreaterThan(b.x+b.width);await capture(page,`03-top-actions-${width}`);
+    // `[2026-10-15 ST4F-494]` 두 단추는 첫 날짜 제목 줄 오른쪽 묶음(dayTools)에 있다 — 자동 추천 뒤(같은 줄 오른쪽, 폭이 모자라면 아래 줄 오른쪽 정렬)
+    expect(await all.evaluate(el=>Boolean(el.closest('[class*=dayTools]')))).toBe(true);expect(await recommend.evaluate(el=>Boolean(el.closest('[class*=dayTools]')))).toBe(true);
+    if(Math.abs(a.y-b.y)<1)expect(a.x).toBeGreaterThan(b.x+b.width);else expect(a.y).toBeGreaterThan(b.y);await capture(page,`03-top-actions-${width}`);
     await body.evaluate(el=>{el.scrollTop=250;});await expect(all).not.toBeInViewport();await capture(page,`04-scrolled-${width}`);
     await body.evaluate(el=>{el.scrollTop=0;});await all.click();await expect(all).toHaveCount(0);
     const writes=await server.received('POST',`/${INTAKE}/edits`);expect(writes).toHaveLength(1);

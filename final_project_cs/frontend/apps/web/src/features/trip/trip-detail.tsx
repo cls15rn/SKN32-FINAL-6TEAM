@@ -3,12 +3,13 @@
 import { useContext, useEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
-import { ArrowLeft, ExternalLink, MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle } from "lucide-react";
 import { HeaderSlot } from "@/components/layout/device-frame";
 import { safePhotoUrl } from "@/features/plan-check/from-review";
 import pc from "@/features/plan-check/plan-check.module.css";
 import { getPlacePhotos } from "@/lib/live/intake-review";
 import { useSettings, useT } from "@/lib/settings";
+import { mapAppName, placeLinks } from "./map-apps";
 import type { Trip, TripStop } from "./model";
 import { bookingLabel, StopFacts } from "./trip-rows";
 import styles from "./trip-screen.module.css";
@@ -27,6 +28,7 @@ export function DetailHeader({ title, onBack }: { title: string; onBack: () => v
  * `[2026-10-07 사용자 결정 — 목업 C안 「상세 보기」]` One stop's detail, the plan check's change screen laid out for a registered trip: 「○○ 상세 · n일차 · i/N」, a card for each stop of that day
  * (swiped, or a dot pressed, to the next — the map follows), and the photos below (slide the sheet up).
  * A card: the day and times, the booking note, the name and where the facts come from, kind · address, then the facts of the list card and 「이 일정 질문하기 · 지도 앱으로 열기」.
+ * `[2026-10-14 사용자 결정 — ST4F-492]` 「지도 앱으로 열기」 became three buttons in a row under the ask button — the place in Naver Map · KakaoMap · Google Maps (`map-apps.tsx`).
  * Photos: the plan check's change screen asks the same call for a place's registered photos (`GET /v1/web/places/photos?ref=tour:…`). A stop of a registered trip has that ref only when
  * the server sends it (`place_ref` — not yet, asked of the backend); without it the photo part says they are coming. ★Only what the server gave — no photo is made up.
  */
@@ -95,6 +97,7 @@ function DetailCard({ stop, next, dayNumber, active, onAsk, askBusy }: { stop: T
   const t = useT();
   const info = stop.placeInfo;
   const where = [info?.category, info?.address].filter(Boolean).join(" · ");
+  const maps = placeLinks(stop);
   return <article className={pc.changeCard} data-active={active || undefined} data-card-id={stop.id} aria-labelledby={`trip-detail-card-${stop.id}`}>
     <div className={styles.detailChips}>
       <span className={pc.chip}>{t(`${dayNumber}일차`, `Day ${dayNumber}`)} {stop.time}{stop.endTime ? `–${stop.endTime}` : ""}</span>
@@ -108,7 +111,8 @@ function DetailCard({ stop, next, dayNumber, active, onAsk, askBusy }: { stop: T
     <StopFacts stop={stop} next={next} brief />
     <div className={styles.detailActions}>
       <button type="button" className={styles.action} disabled={askBusy} onClick={onAsk}><MessageCircle size={16} strokeWidth={1.6} aria-hidden="true" />{t("이 일정 질문하기", "Ask about this stop")}</button>
-      {stop.mapUrl && <a className={styles.action} href={stop.mapUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} strokeWidth={1.6} aria-hidden="true" />{t("지도 앱으로 열기", "Open in maps app")}</a>}
+      {maps && <div className={styles.detailMaps} role="group" aria-label={t("지도 앱으로 열기", "Open in a maps app")}>{maps.map((link) =>
+        <a key={link.app} className={styles.action} href={link.url} target="_blank" rel="noopener noreferrer" data-map-app={link.app}>{mapAppName(link.app, t)}</a>)}</div>}
     </div>
   </article>;
 }

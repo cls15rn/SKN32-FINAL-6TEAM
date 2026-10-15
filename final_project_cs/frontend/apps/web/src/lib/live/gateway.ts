@@ -53,6 +53,8 @@ interface ServerSafety {
 interface ServerTrip {
   simulation?: { active: boolean; categories: string[]; expires_at: string } | null;
   trip_id: string; title: string; version: number; items: ServerItem[]; plan_url: string;
+  /** `[2026-10-15 사용자 결정 — ST4F-494]` The 「지금 HH:MM」 label on the trip screen — the operator's switch; a server without the field shows it (the decided default). */
+  now_label?: boolean;
   history?: ServerHistory[]; warnings?: ServerWarning[];
   safety?: ServerSafety | null;
   /** `guardian` of the trip view (rest-endpoints 「항로 지킴이」): `{enabled, since, via}`. */
@@ -93,6 +95,7 @@ function stop(item: ServerItem, t: Translate): TripStop {
       .map(({ code, label, source }) => ({ code, label, source })),
     placeInfo: placeInfo(item.place_info, t),
     mapUrl: mapLink(item.map_url),
+    ...(text(item.place) ? { place: text(item.place) } : {}),
     ...(item.paused === true ? { paused: true } : {}),
     ...(text(item.place_ref) ? { placeRef: text(item.place_ref) } : {}),
     ...(text(item.kind) ? { kind: text(item.kind) } : {}),
@@ -315,6 +318,7 @@ async function read(tripId: string, language: Language): Promise<Trip> {
     id: server.trip_id, title: text(server.title), stops, moves,
     messages: await conversation(tripId, language),
     planUrl: server.plan_url || undefined,
+    nowLabel: server.now_label !== false,
     version: typeof server.version === "number" ? server.version : undefined,
     safety: safetyOf(server.safety),
     simulation: server.simulation ?? null,

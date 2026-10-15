@@ -481,6 +481,11 @@ travel:
   # **관리 콘솔 「운영 설정」** 의 같은 이름 스위치로 켠다(콘솔 값이 먼저). 읽는 곳: `settings_hook.taxi_call_product_enabled(tenant)`.
   mobility:
     taxi_call_product_enabled: false
+  # -- 여행 화면 「지금 HH:MM」 시각 표시 (2026-10-15 사용자 결정 · ST4F-494) --
+  # 여행 화면 일정 줄의 빨간 「지금」 점 옆 시각 꼬리표. 시험 기간에 확인하려고 **기본 켜짐**, 배포 때 **관리 콘솔 「운영 설정」** 의 같은 이름 스위치로 끈다(콘솔 값이 먼저).
+  # 꺼짐: 여행 조회 응답의 `now_label` 이 false — 화면은 점만 보인다. 읽는 곳: `settings_hook.trip_now_label_enabled(tenant)`.
+  trip_screen:
+    now_label_enabled: true
   # -- 카카오 호출 예산 (2026-09-27) --
   # 키워드 검색 무료 한도는 하루 100,000건이지만 처음 켠 앱 하나에만 준다 — 한도 초과 사용 자체가 약관 위반이라
   # 설정의 하루 상한(ACOP_RATE_KAKAO_PER_DAY=1000)과 같은 값으로 DB 예산을 건다(모든 프로세스가 같이 센다).

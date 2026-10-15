@@ -8,6 +8,7 @@
 무엇을 내나(이동 항목마다 하나)
   mode     walk · bike · taxi · subway · bus · mixed · unknown — 일정이 **계획 수단으로 고른** 후보의 종류
   line     GeoJSON LineString `[[경도, 위도], …]`(점 수는 MAX_POINTS 로 줄인다)
+  walks    걷는 구간 `[[처음, 끝], …]` — line 좌표 번호(줄인 뒤 기준). 걷기 이동은 전체, 대중교통은 양 끝 · 갈아타는 걸음 · 2026-10-15
   source   local_road_graph(도로 그래프로 계산) · stations(역 좌표 순서 + 양 끝 걸음은 도로 그래프) · straight_line(두 장소 직선 — 마지막 수단)
   grade    추정(그래프 계산) · 근거없음(직선)  — 확정은 없다(지도 원본 기준이라 실제 보도·횡단·출입구와 다를 수 있다)
   note     왜 그렇게 그렸는지 한 줄(예: 「버스 노선 형상은 없어 직선으로 잇는다」)
@@ -38,17 +39,24 @@ def _length(coords) -> float:
     return sum(_hav(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
 
 
-def _simplify(coords, tol_m):
+def _simplify(coords, tol_m, fixed=()):
     """Douglas–Peucker — 모양을 지키며 점을 줄인다. 원본의 모든 점이 줄인 선에서 `tol_m` 미터 안에 든다. 처음·끝은 남긴다."""
+    return [coords[i] for i in _kept(coords, tol_m, fixed)]
+
+
+def _kept(coords, tol_m, fixed=()) -> list[int]:
+    """`_simplify` 가 남기는 점의 번호. `fixed` 번호는 늘 남긴다 — 걸음 구간 경계(`walks`)가 줄인 선에도 그대로 있게."""
     n = len(coords)
     if n <= 2 or tol_m <= 0:
-        return coords
+        return list(range(n))
     kx = math.cos(math.radians(sum(c[1] for c in coords) / n)) * 111320.0
     ky = 110574.0
     pts = [((c[0]) * kx, (c[1]) * ky) for c in coords]
     keep = [False] * n
-    keep[0] = keep[-1] = True
-    stack = [(0, n - 1)]
+    marks = sorted({0, n - 1, *fixed})
+    for m in marks:
+        keep[m] = True
+    stack = list(zip(marks, marks[1:]))
     while stack:
         i, j = stack.pop()
         if j <= i + 1:
@@ -67,7 +75,7 @@ def _simplify(coords, tol_m):
             keep[far] = True
             stack.append((i, far))
             stack.append((far, j))
-    return [c for c, k in zip(coords, keep) if k]
+    return [i for i, k in enumerate(keep) if k]
 
 
 def _fit(coords, limit, *, tol_m=SIMPLIFY_TOLERANCE_M):
@@ -78,10 +86,15 @@ def _fit(coords, limit, *, tol_m=SIMPLIFY_TOLERANCE_M):
       Douglas–Peucker 는 같은 점 수에서 최대 오차를 `tol_m` 안으로 묶는다(점 수가 상한을 넘으면 그때만 오차를 키운다)."""
     if len(coords) <= 2:
         return coords
-    out = _simplify(coords, tol_m)
-    while len(out) > limit:
+    return [coords[i] for i in _fit_kept(coords, limit, tol_m=tol_m)]
+
+
+def _fit_kept(coords, limit, *, tol_m=SIMPLIFY_TOLERANCE_M, fixed=()) -> list[int]:
+    """`_fit` 이 남기는 점의 번호 — `fixed` 번호는 늘 남긴다(그 수가 상한을 넘으면 더 줄이지 않는다)."""
+    out = _kept(coords, tol_m, fixed)
+    while len(out) > max(limit, len(set(fixed)) + 2):
         tol_m *= 1.5
-        out = _simplify(coords, tol_m)
+        out = _kept(coords, tol_m, fixed)
     return out
 
 
@@ -236,6 +249,7 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
     straight = [list(a), list(b)]
     note: str | None = None
     rides = []
+    walks: list[list[int]] = []                   # 걷는 구간 [처음, 끝](line 번호) — 화면이 걸음 모양으로 그린다(계약 `walks`)
     selected, context_error = None, None
     if mode in ("subway", "bus", "mixed") and context is not None:
         from .shape_transit import selected_option, segments
@@ -252,8 +266,10 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
                 line, notes, previous = [], [], list(a)
                 for points, ride, section_note in sections:
                     if previous != points[0]:
+                        start = max(len(line) - 1, 0)     # 앞 탑승 조각의 마지막 점(첫 걸음은 선의 처음)부터
                         walk, why = _route(router, tuple(previous), tuple(points[0]), 'foot')
                         line.extend(walk or [previous, points[0]])
+                        walks.append([start, len(line)])  # 이 탑승 조각의 첫 점까지
                         if walk is None:
                             notes.append(f'역·정류장 접근/환승 걸음은 직선({why})')
                     line.extend(points)
@@ -262,20 +278,25 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
                     if section_note not in notes:
                         notes.append(section_note)
                 if previous != list(b):
+                    start = len(line) - 1
                     walk, why = _route(router, tuple(previous), b, 'foot')
                     line.extend(walk or [previous, list(b)])
+                    walks.append([start, len(line) - 1])
                     if walk is None:
                         notes.append(f'역·정류장→도착 장소 걸음은 직선({why})')
                 source = 'transit_stops' if mode == 'mixed' else 'bus_stops' if mode == 'bus' else 'stations'
                 grade, note = '추정', ' · '.join(notes)
     if context_error:
         line, source, grade, note = straight, 'straight_line', '근거없음', context_error
+        walks = []
     elif selected is not None:
         pass                                      # 저장된 선택 구간을 이미 그렸다. uses로 방향을 다시 고르지 않는다.
     elif mode in ("walk", "bike", "taxi"):
         coords, why = _route(router, a, b, {"walk": "foot", "bike": "bike", "taxi": "car"}[mode])
         if coords:
             line, source, grade = coords, "local_road_graph", "추정"
+            if mode == "walk":
+                walks = [[0, len(line) - 1]]
         else:
             line, source, grade, note = straight, "straight_line", "근거없음", f"길찾기로 못 그려 직선으로 잇는다 — {why}"
     elif mode in ("subway", "mixed"):
@@ -283,7 +304,9 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
         if len(stops) >= 2:
             head, why_h = _route(router, a, tuple(stops[0]), "foot")
             tail, why_t = _route(router, tuple(stops[-1]), b, "foot")
-            line = (head or [list(a), stops[0]]) + stops + (tail or [stops[-1], list(b)])
+            head_line = head or [list(a), stops[0]]
+            line = head_line + stops + (tail or [stops[-1], list(b)])
+            walks = [[0, len(head_line)], [len(head_line) + len(stops) - 1, len(line) - 1]]
             source, grade = "stations", "추정"
             parts = []
             if not head:
@@ -305,10 +328,14 @@ def build_shape(a: tuple[float, float], b: tuple[float, float], route_def: dict 
         line, source, grade, note = straight, "straight_line", "근거없음", "버스는 정류장 목록이 일정에 없어(노선 번호만) 직선으로 잇는다"
     else:
         line, source, grade, note = straight, "straight_line", "근거없음", "계획 수단을 몰라 직선으로 잇는다"
-    line = _fit(line, MAX_POINTS_DETAIL if detail else MAX_POINTS, tol_m=0.5 if detail else SIMPLIFY_TOLERANCE_M)
+    kept = _fit_kept(line, MAX_POINTS_DETAIL if detail else MAX_POINTS, tol_m=0.5 if detail else SIMPLIFY_TOLERANCE_M,
+                     fixed=[i for span in walks for i in span])
+    at = {old: new for new, old in enumerate(kept)}
+    line = [line[i] for i in kept]
+    walks = [[at[s], at[e]] for s, e in walks if e > s]
     extra = {"rides": rides} if rides and source in ('stations', 'bus_stops', 'transit_stops') else {}
-    return {**extra, "mode": mode, "line": {"type": "LineString", "coordinates": line}, "source": source, "grade": grade,
-            "distance_m": round(_length(line)), "note": note}
+    return {**extra, "mode": mode, "line": {"type": "LineString", "coordinates": line}, "walks": walks, "source": source,
+            "grade": grade, "distance_m": round(_length(line)), "note": note}
 
 
 def shapes_for_items(items, *, detail: bool = False) -> list[dict[str, Any]]:

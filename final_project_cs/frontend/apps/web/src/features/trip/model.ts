@@ -20,6 +20,8 @@ export interface TripStop {
   badges?: { code: string; label: string; source: string }[];
   /** Opens this place in the customer's own map app (Google Maps link from the server; no API key, no billing). */
   mapUrl?: string;
+  /** `[2026-10-14]` The place's name from the server (`items[].place`) when it sent one — what Naver Map and KakaoMap search for (`map-apps.tsx`). */
+  place?: string;
   /** What the server knows about the place (address, phone, hours, badges). Missing fields are not shown. */
   placeInfo?: PlaceInfo | null;
   /** `[2026-10-06]` The trip is paused for a disaster and this stop falls in the pause (a day's pause pauses only that day's stops). The plan itself is not changed. */
@@ -154,6 +156,8 @@ export interface Trip {
   warnings?: TripWarning[];
   /** The server's per-trip plan page (a link that needs no login). */
   planUrl?: string;
+  /** `[2026-10-15 사용자 결정 — ST4F-494]` Whether the 「지금 HH:MM」 label stands beside the 「지금」 dot (`now_label` — an operator switch, on by default). */
+  nowLabel?: boolean;
   /** The itinerary version on the server now (an undo is offered only for the change that made it). */
   version?: number;
   /** The day's route to open in the customer's map app, by date. Several links when a day has more stops than one link holds. */

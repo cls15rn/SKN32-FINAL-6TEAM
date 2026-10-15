@@ -30,6 +30,11 @@ export interface RouteShape {
   points: { lat: number; lng: number }[];
   /** The rides a bus, subway or mixed line is made of, said when the line is pressed. Empty for a taxi or walk. */
   rides: RouteRide[];
+  /**
+   * `[2026-10-15 사용자 결정 — ST4F-495]` The stretches of `points` that are walked (`walks`: `[first, last]` indexes, ends included) — the whole of a walk, and the walks to, between
+   * and from the stations of a subway or bus line — drawn as walking. `null` = the server did not say (one before this field): only a move that is all walking is drawn so.
+   */
+  walks: [number, number][] | null;
 }
 
 export interface RouteShapes { attribution: string; shapes: RouteShape[] }
@@ -67,6 +72,20 @@ function ridesOf(raw: unknown): RouteRide[] {
   });
 }
 
+/** The server's walking stretches, kept only when they point into the line it sent whole (a dropped point would shift every index after it) and run in order without overlapping. */
+function walksOf(raw: unknown, coordinates: unknown, points: number): RouteShape["walks"] {
+  if (!Array.isArray(raw)) return null;
+  if (!Array.isArray(coordinates) || coordinates.length !== points) return null;
+  const walks: [number, number][] = [];
+  for (const span of raw) {
+    if (!Array.isArray(span) || span.length !== 2) return null;
+    const [first, last] = span;
+    if (!Number.isInteger(first) || !Number.isInteger(last) || first < (walks.at(-1)?.[1] ?? 0) || last <= first || last >= points) return null;
+    walks.push([first, last]);
+  }
+  return walks;
+}
+
 function shapeOf(entry: unknown): RouteShape | null {
   const row = (entry ?? {}) as Record<string, unknown>;
   const line = (row.line ?? {}) as { type?: unknown; coordinates?: unknown };
@@ -82,6 +101,7 @@ function shapeOf(entry: unknown): RouteShape | null {
     itemId, fromItemId, toItemId, from: text(row.from), to: text(row.to), mode, source,
     grade: row.grade === "추정" || row.grade === "근거없음" ? row.grade : "unknown",
     distanceM: Number.isFinite(distance) && distance >= 0 ? distance : null, note: text(row.note), points, rides: ridesOf(row.rides),
+    walks: walksOf(row.walks, line.coordinates, points.length),
   };
 }
 

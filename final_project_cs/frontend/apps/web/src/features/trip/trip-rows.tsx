@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowRight, BedDouble, Bike, Bus, Car, ChevronRight, Clock, ExternalLink, Footprints, Map as MapIcon, MessageCircle, Tag, TrainFront } from "lucide-react";
+import { ArrowRight, BedDouble, Bike, Bus, Car, ChevronRight, Clock, Footprints, Map as MapIcon, MapPinned, Route, Tag, TrainFront } from "lucide-react";
 import type { RouteShape } from "@/lib/live/route-shapes";
 import type { Translate } from "@/lib/i18n";
 import { useT } from "@/lib/settings";
@@ -9,6 +9,7 @@ import { isGuess, MODE_NAMES, rideLines } from "@/features/map/route-lines";
 import { freeText } from "@/features/plan-check/day-times";
 import pc from "@/features/plan-check/plan-check.module.css";
 import { kindLook } from "@/features/plan-check/stop-kind";
+import { placeLinks, placeTarget, routeLinks, routeTarget, type MapTarget } from "./map-apps";
 import { distanceText, isStay, stayNights, type StayMark, type TripLeg } from "./trip-timeline";
 import type { TripStop } from "./model";
 import styles from "./trip-screen.module.css";
@@ -78,10 +79,11 @@ function visitHours(stop: TripStop): string | null {
  * what the card showed: Tripilot_personal/travel-careops/frontend/2026-10-13_등록여행_펼친카드내용_백업.md). It opens and closes only when pressed.
  * `[2026-10-12 사용자 결정 — E]` 「상세 보기」 is no longer in the card's head: it takes the place of 「지도에서 보기」 among the buttons (that button only lowered the sheet — the customer sets its height).
  * `past` (its end has passed): the same card in grey with 「지난 일정」 at the right of its head; `started` fills its dot (now has passed its start).
+ * `[2026-10-14 사용자 결정 — ST4F-492]` 「이 일정 질문하기」 is no longer in the card (the detail keeps it), and 「지도 앱으로 열기」 opens the sheet of three map apps (`map-apps.tsx`).
  */
-export function StopRow({ stop, open, selected, past = false, started = false, onToggle, onDetail, onAsk, askBusy }: {
+export function StopRow({ stop, open, selected, past = false, started = false, onToggle, onDetail, onMapApps }: {
   stop: TripStop; open: boolean; selected: boolean; past?: boolean; started?: boolean;
-  onToggle: () => void; onDetail: () => void; onAsk: () => void; askBusy: boolean;
+  onToggle: () => void; onDetail: () => void; onMapApps: (target: MapTarget) => void;
 }) {
   const t = useT();
   const id = `trip-stop-${stop.id}`;
@@ -94,6 +96,7 @@ export function StopRow({ stop, open, selected, past = false, started = false, o
   const category = stop.placeInfo?.category;
   const address = stop.placeInfo?.address;
   const hours = visitHours(stop);
+  const maps = placeLinks(stop);
   // `[2026-10-13]` A stay's end is on its check-out day — it is not this day's end, so the line does not read it (`data-end`).
   return <li className={`${pc.entry} ${styles.stopEntry}`} data-type="item" data-entry-id={stop.id} data-time-focused={timeFocused || undefined} data-time-follow={open || undefined} data-selected={selected || undefined} data-paused={stop.paused || undefined}
     data-rail="stay" data-start={stop.time} data-end={(!stay && stop.endTime) || undefined} data-rail-open={open || undefined} data-past-open={past || undefined} data-passed={started || undefined}>
@@ -125,8 +128,7 @@ export function StopRow({ stop, open, selected, past = false, started = false, o
       {open && <div className={styles.stopBody} id={`stop-detail-${stop.id}`}>
         <div className={styles.detailActions}>
           <button type="button" className={styles.action} onClick={onDetail} aria-label={t(`${stop.title} 상세 보기`, `Details of ${stop.title}`)}>{t("상세 보기", "Details")}<ChevronRight size={16} strokeWidth={1.6} aria-hidden="true" /></button>
-          <button type="button" className={styles.action} disabled={askBusy} onClick={onAsk}><MessageCircle size={16} strokeWidth={1.6} aria-hidden="true" />{t("이 일정 질문하기", "Ask about this stop")}</button>
-          {stop.mapUrl && <a className={styles.action} href={stop.mapUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} strokeWidth={1.6} aria-hidden="true" />{t("지도 앱으로 열기", "Open in maps app")}</a>}
+          {maps && <button type="button" className={styles.action} aria-haspopup="dialog" onClick={() => onMapApps(placeTarget(stop, maps))}><MapPinned size={16} strokeWidth={1.6} aria-hidden="true" />{t("지도 앱으로 열기", "Open in maps app")}</button>}
         </div>
       </div>}
     </article>
@@ -238,21 +240,23 @@ export function legSummary(leg: TripLeg, t: Translate): string | null {
  * the mode, how long and how far, and the free time after it (15 minutes or more; late says so). `[2026-10-12]` The space it takes is its time to scale (`RailList` — dashes only while
  * travelling). Opened: the server's own line for the move, when to leave and arrive, what it rides, whether the line is a guess, and the customer's map app. A plan that keeps no moves
  * (typed in) shows only the way to the next stop, as the old screen did.
+ * `[2026-10-14 사용자 결정 — ST4F-492]` 「지도 앱에서 길찾기」 is a button like the stop card's (an underlined link before) and opens the sheet of three map apps (Google only before).
  */
-export function LegRow({ leg, open, onToggle }: { leg: TripLeg; open: boolean; onToggle: () => void }) {
+export function LegRow({ leg, open, onToggle, onMapApps }: { leg: TripLeg; open: boolean; onToggle: () => void; onMapApps: (target: MapTarget) => void }) {
   const t = useT();
   const summary = legSummary(leg, t);
   const late = leg.slack !== null && leg.slack < 0;
   const free = leg.slack !== null && !late ? freeText(leg.slack) : null;
   const freeSays = late ? t(`${Math.abs(leg.slack!)}분 늦어요`, `${Math.abs(leg.slack!)} min late`) : free ? t(`여유 ${free}`, `${free} free`) : null;
-  const directions = leg.directions && <a className={styles.legLink} href={leg.directions} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} strokeWidth={1.8} aria-hidden="true" />{t("지도 앱에서 길찾기", "Directions in maps app")}</a>;
+  const maps = routeLinks(leg);
+  const directions = maps && <div className={styles.detailActions}><button type="button" className={styles.action} aria-haspopup="dialog" onClick={() => onMapApps(routeTarget(leg, maps))}><Route size={16} strokeWidth={1.6} aria-hidden="true" />{t("지도 앱에서 길찾기", "Directions in maps app")}</button></div>;
   const time: ReactNode = leg.move ? <span className={pc.timeStack}><time data-move-departure>{leg.move.departAt || t("미정", "TBD")}</time>{leg.move.departAt && <small className={pc.departWord}>{t("출발", "Leave")}</small>}<time className={pc.rangeEnd} data-move-arrival aria-hidden={!open}>{leg.move.arriveAt ? `~${leg.move.arriveAt}` : t("미정", "TBD")}</time></span> : null;
   const rail = { "data-rail": "move", "data-dep": leg.move?.departAt || undefined, "data-arr": leg.move?.arriveAt || undefined, "data-rail-open": open || undefined };
   if (!summary) {
     return <li className={`${pc.entry} ${styles.legEntry}`} data-type="move" data-entry-id={leg.id} {...rail}>
       <span className={pc.time} />
       <span className={pc.rail} aria-hidden="true"><span className={`${pc.dot} ${pc.departureMark}`}>−</span></span>
-      <div className={pc.moveCol}><p className={`${pc.move} ${styles.legPlain}`}><span className={pc.modeIcon}><ModeIcon mode={null} /></span>{t("이동 정보가 아직 없어요", "Travel details are not available yet")}{directions && <><br />{directions}</>}</p></div>
+      <div className={pc.moveCol}><p className={`${pc.move} ${styles.legPlain}`}><span className={pc.modeIcon}><ModeIcon mode={null} /></span>{t("이동 정보가 아직 없어요", "Travel details are not available yet")}</p>{directions}</div>
     </li>;
   }
   const guess = leg.shape && isGuess(leg.shape);

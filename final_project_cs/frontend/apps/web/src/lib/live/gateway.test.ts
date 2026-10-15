@@ -261,6 +261,15 @@ describe("live trip gateway", () => {
     expect(trip.stops[1].placeInfo).toMatchObject({ hours: [], hoursNotes: ["09:00~18:00", "매주 화요일 휴무"] });
   });
 
+  // `[2026-10-15 사용자 결정 — ST4F-494]` The operator's 「지금 HH:MM」 switch: off only when the server says false; a server without the field shows it (the decided default).
+  it("reads the trip screen's now-label switch", async () => {
+    replies.push({ ...TRIP, now_label: false }, { ...TRIP, now_label: true }, { ...TRIP });
+    const gateway = createLiveGateway();
+    expect((await gateway.getTrip(TRIP.trip_id, "ko")).nowLabel).toBe(false);
+    expect((await gateway.getTrip(TRIP.trip_id, "ko")).nowLabel).toBe(true);
+    expect((await gateway.getTrip(TRIP.trip_id, "ko")).nowLabel).toBe(true);
+  });
+
   it("keeps only Google Maps links for the map app: each stop and each day's route", async () => {
     replies.push({ ...TRIP,
       items: [{ ...TRIP.items[0], map_url: "https://www.google.com/maps/search/?api=1&query=%EA%B2%BD%EB%B3%B5%EA%B6%81" },

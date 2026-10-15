@@ -74,7 +74,7 @@ for (const width of [375, 1280]) {
     const body = page.locator('div[class*=sheetBody]'), strip = page.getByRole('tablist', { name: '일차 고르기', includeHidden: true });
     const gaps = await strip.evaluate(e => {
       const tabs = Array.from(e.querySelectorAll('[role=tab]')).map(t => t.getBoundingClientRect());
-      const actions = e.closest('section')!.querySelector('[class*=topActions]')!.getBoundingClientRect();
+      const actions = e.closest('section')!.querySelector('[class*=dayTools]')!.getBoundingClientRect();   // `[ST4F-494]` 단추는 첫 날짜 제목 줄 오른쪽
       return { between: tabs[1].left - tabs[0].right, below: actions.top - Math.max(...tabs.map(t => t.bottom)) };
     }); expect(gaps.between).toBeGreaterThanOrEqual(8); expect(gaps.below).toBeGreaterThanOrEqual(20);
     await body.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });

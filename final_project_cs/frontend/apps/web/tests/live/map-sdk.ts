@@ -11,7 +11,7 @@ export interface MapSdkSnapshot {
   resizes: number;
   markers: { title: string; position: Position; attached: boolean }[];
   /** Route lines the page drew: the path in order, whether it is dashed, and whether it is still on the map. */
-  lines: { path: Position[]; dashed: boolean; attached: boolean }[];
+  lines: { path: Position[]; dashed: boolean; walk: boolean; attached: boolean }[];
   /** `[2026-10-05]` Circles the page drew (「내 위치」's accuracy): centre, radius in metres, and whether it is still on the map. */
   circles: { center: Position; radius: number; attached: boolean }[];
 }
@@ -183,7 +183,9 @@ function installSdkDouble(provider: TestMapProvider) {
   class Polyline {
     private record: MapSdkSnapshot["lines"][number];
     constructor(options: { map?: SdkMap; path: LatLngLike[]; strokeStyle?: string; icons?: unknown[]; strokeOpacity?: number }) {
-      this.record = { path: options.path.map(position), dashed: options.strokeStyle === "shortdash" || Boolean(options.icons?.length), attached: Boolean(options.map) };
+      // `[2026-10-15 ST4F-495]` a walked stretch is drawn as round dots (naver `dot`, google the circle symbol 0) — not the long dash of a guess (naver `shortdash`, google the bar icon)
+      const icon = (options.icons?.[0] as { icon?: { path?: unknown } } | undefined)?.icon;
+      this.record = { path: options.path.map(position), dashed: options.strokeStyle === "shortdash" || icon?.path === "M 0,-1 0,1", walk: options.strokeStyle === "dot" || icon?.path === 0, attached: Boolean(options.map) };
       state.lines.push(this.record);
     }
     setMap(map: SdkMap | null) { this.record.attached = Boolean(map); }

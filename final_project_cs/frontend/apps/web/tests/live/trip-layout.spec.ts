@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { beforeTheTrip, agree, mockServer, noHorizontalScroll, registerStubTrip, tripScreen, useKorean, chatButton, openPane } from "./helpers";
+import { beforeTheTrip, agree, mockServer, noHorizontalScroll, registerStubTrip, tripScreen, useKorean, openPane } from "./helpers";
 
 // The trip screen's data and chat are in `trip.spec.ts`; this keeps the layout checks.
 // `[2026-10-07 사용자 결정 — 목업 C안]` The trip is the plan check's screen: the map with the sheet over it, 「일정 | 채팅」 in the sheet's head, the chat bar at the bottom.
@@ -32,13 +32,13 @@ test("채팅 버튼은 막대만 펼치고(입력칸에 초점 없음), 입력�
   await expect(input).toBeVisible();
   await expect(input).not.toBeFocused();
   await expect(page.getByRole("button", { name: "채팅 막대 접기" })).toBeFocused();
-  await expect(chatButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#trip-pane-schedule")).not.toHaveAttribute("inert");                              // `[ST4F-493]` 시트 머리의 채팅 단추는 없다 — 칸의 inert 로 본다
   await input.click();
-  await expect(chatButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#trip-pane-chat")).not.toHaveAttribute("inert");
   await expect(input).toBeFocused();
   await input.fill("쓰던 질문");
   await input.press("Escape");                                                                 // 채팅 칸 → 일정 칸
-  await expect(chatButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#trip-pane-schedule")).not.toHaveAttribute("inert");
   await expect(input).toHaveValue("쓰던 질문");
   await page.getByRole("button", { name: "채팅 막대 접기" }).click();
   await expect(page.getByRole("button", { name: "채팅 입력 열기" })).toBeFocused();

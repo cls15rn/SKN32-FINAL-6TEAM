@@ -32,6 +32,18 @@ describe("reading the route lines the server gives", () => {
     expect(shapes.map((entry) => entry.itemId)).toEqual(["ok"]);
   });
 
+  it("`[2026-10-15 ST4F-495]` keeps the walked stretches the server said, and none it cannot trust: off the line, out of order, or on a line it had to drop a point of", () => {
+    const walks = (patch: Record<string, unknown>) => readRouteShapes({ shapes: [shape(patch)] }).shapes[0].walks;
+    expect(walks({ walks: [[0, 2]] })).toEqual([[0, 2]]);
+    expect(walks({ walks: [] })).toEqual([]);
+    expect(walks({})).toBeNull();                                                    // an older server says nothing
+    expect(walks({ walks: [[0, 3]] })).toBeNull();                                   // past the end of the line
+    expect(walks({ walks: [[1, 1]] })).toBeNull();                                   // not a stretch
+    expect(walks({ walks: [[1, 2], [0, 1]] })).toBeNull();                           // out of order
+    expect(walks({ walks: [[0, 1.5]] })).toBeNull();
+    expect(walks({ walks: [[0, 1]], line: { type: "LineString", coordinates: [[126.977, 37.5796], ["x", 1], [126.99, 37.57], [127.0, 37.57]] } })).toBeNull();
+  });
+
   it("names a shape of a plan not registered yet (no move item) by the two stops around it", () => {
     const { shapes } = readRouteShapes({ shapes: [shape({ item_id: undefined }), shape({ item_id: "", from_item_id: "0-1", to_item_id: "0-2" }), shape({ item_id: undefined, to_item_id: "" })] });
     expect(shapes.map((entry) => entry.itemId)).toEqual(["a:b", "0-1:0-2"]);        // the third has no second stop: nothing to draw

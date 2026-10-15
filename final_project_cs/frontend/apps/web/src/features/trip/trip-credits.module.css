@@ -1,0 +1,42 @@
+/* `[2026-10-15 사용자 결정 — ST4F-496]` 엔딩 크레딧 — 「전체」 맨 위 결산 카드, 올라가는 크레딧, 끝 화면(목업 2026-10-08 C안은 참고). 색은 제품 토큰만. */
+.endCard { margin: 6px 0 12px; padding: 14px; border-radius: 16px; background: var(--color-inverse); color: var(--color-on-inverse); }
+.endKick { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; font-weight: 700; color: var(--color-credits-accent); }
+.endCard h4 { margin: 6px 0 0; font-size: 17px; line-height: 1.35; }
+.endCard h4 small { font-size: 13px; font-weight: 600; opacity: .8; }
+.endMeta { margin: 2px 0 10px; font-size: 12.5px; opacity: .8; }
+.endButton { width: 100%; min-height: 42px; border: 1px solid var(--color-on-inverse); border-radius: 12px; background: var(--color-on-inverse); color: var(--color-inverse); font: inherit; font-size: 14px; font-weight: 750; cursor: pointer; }
+.endButton:focus-visible, .skip:focus-visible, .buttons button:focus-visible { outline: 3px solid var(--color-credits-accent); outline-offset: 2px; }
+
+.shade { position: absolute; z-index: 14; inset: 0; overflow: hidden; background: var(--color-inverse); color: var(--color-on-inverse); animation: creditsIn .3s both; }
+.credits { position: absolute; inset: 0; }
+.skip { position: absolute; z-index: 2; top: 18px; right: 16px; min-height: 32px; padding: 0 12px; border: 1px solid color-mix(in srgb, var(--color-on-inverse) 30%, transparent); border-radius: 999px; background: transparent; color: var(--color-on-inverse); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.view { position: absolute; inset: 0; overflow: hidden; }
+.roll { position: absolute; top: 0; left: 0; right: 0; padding: 0 30px; text-align: center; will-change: transform; }
+.roll p { margin: 6px 0; font-size: 15px; line-height: 1.45; }
+.roll p small { font-size: 12px; opacity: .7; }
+.roll .small { margin: 0; font-size: 11.5px; letter-spacing: .2em; text-transform: uppercase; opacity: .6; }
+.roll .title { margin: 10px 0 8px; font-size: 30px; font-weight: 800; line-height: 1.25; }
+.roll section { margin: 38px 0 0; }
+.roll section:last-child { padding-bottom: 40px; }
+.roll h3 { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .28em; color: var(--color-credits-accent); }
+.roll .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.roll .pair span:first-child { text-align: right; }
+.roll .pair span:last-child { text-align: left; opacity: .82; }
+
+.end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; animation: creditsIn .6s both; }
+.endTitle { display: flex; flex-direction: column; gap: 4px; margin: 0 0 34px; font-size: 16px; font-weight: 800; opacity: .92; }
+.endTitle small { font-size: 12.5px; font-weight: 600; opacity: .65; }
+.cookie { margin: 0; font-size: 11.5px; letter-spacing: .3em; color: var(--color-credits-accent); }
+.line { margin: 10px 0 0; font-size: 23px; font-weight: 750; line-height: 1.35; }
+.sum { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; margin-top: 28px; animation: creditsIn .6s both 1.2s; }
+.sum div { padding: 11px; border-radius: 13px; background: color-mix(in srgb, var(--color-on-inverse) 7%, transparent); text-align: left; }
+.sum small { display: block; font-size: 11px; opacity: .62; }
+.sum b { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; }
+.buttons { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; width: 100%; margin-top: 14px; animation: creditsIn .6s both 1.6s; }
+.buttons button { min-height: 42px; border: 1px solid color-mix(in srgb, var(--color-on-inverse) 30%, transparent); border-radius: 12px; background: transparent; color: var(--color-on-inverse); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.buttons button[data-primary] { border-color: var(--color-on-inverse); background: var(--color-on-inverse); color: var(--color-inverse); }
+.buttons button:disabled { opacity: .5; cursor: default; }
+.shareNote { min-height: 18px; margin: 10px 0 0; font-size: 12px; opacity: .75; }
+
+@keyframes creditsIn { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .shade, .end, .sum, .buttons { animation: none; } }

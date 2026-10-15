@@ -1427,14 +1427,6 @@ function Checking({ view, sourceView, actions = {}, registration, tripIssues = [
           </header>
           <div ref={bodyBox} className={styles.sheetBody} data-next-preview={(canRecommend || (previewing && side === "before")) && !noFixNow || undefined} data-under-float={done && dayStrip ? true : undefined} {...quietSubmit.handlers} {...follow.handlers} onScroll={follow.handlers.onScroll}>
             {emptyMapInList && <p className={styles.emptyMapNotice} role="status" data-empty-map-notice>{t("표시할 장소 좌표가 없어요.", "There are no place coordinates to display.")}<span>{t("일정에서 장소를 수정해 주세요.", "Edit the places in your stops.")}</span></p>}
-            {done && !registered && !previewing && <div className={styles.topActions}>
-            <Act id="plan-recommend-all" className={styles.autoAllTop} why={frozen ?? (!actions.previewRecommendAll ? t("전체 자동 추천은 준비 중이에요", "Recommending all is coming") : null)} explain={explain} onPress={() => recommendAll("button")}>
-              <Sparkles size={15} aria-hidden="true" />{t("전체 자동 추천", "Recommend all")}{needCount > 0 && <span className={styles.badge}>{needCount}</span>}
-            </Act>
-            {view.items.some((item) => item.locked) && <Act className={styles.unlockAllTop} why={frozen ?? (!actions.unlockAll ? t("전체 잠금 해제는 준비 중이에요", "Unlocking all is coming") : null)} explain={explain} onPress={unlockAll}>
-              <LockOpen size={15} aria-hidden="true" />{t("전체 잠금 해제", "Unlock all")}
-            </Act>}
-            </div>}
             {done && !registered && !previewing && !view.items.length && actions.add && <AddStop date={days[0]?.date ?? ""} blocked={frozen} onSave={actions.add} />}
             {done && tripIssues.length > 0 && <TripIssues issues={tripIssues} onSave={actions.editTrip} />}
             {done && !registered && !previewing && view.taxiPricing && actions.editTrip &&
@@ -1443,10 +1435,19 @@ function Checking({ view, sourceView, actions = {}, registration, tripIssues = [
               <button type="button" onClick={() => setFilter(null)}>{t("전체 보기", "Show all")}</button></p>}
             {(() => {
               const proposed = previewing && side === "after" && previewView;
+              // `[2026-10-15 사용자 결정 — ST4F-494]` 「전체 자동 추천」(잠긴 일정이 있으면 「전체 잠금 해제」도)은 목록 위 따로 한 줄이 아니라 첫 날짜 제목 줄의 오른쪽 끝에 선다.
+              const tools = done && !registered && !previewing ? <>
+                <Act id="plan-recommend-all" className={styles.autoAllTop} why={frozen ?? (!actions.previewRecommendAll ? t("전체 자동 추천은 준비 중이에요", "Recommending all is coming") : null)} explain={explain} onPress={() => recommendAll("button")}>
+                  <Sparkles size={15} aria-hidden="true" />{t("전체 자동 추천", "Recommend all")}{needCount > 0 && <span className={styles.badge}>{needCount}</span>}
+                </Act>
+                {view.items.some((item) => item.locked) && <Act className={styles.unlockAllTop} why={frozen ?? (!actions.unlockAll ? t("전체 잠금 해제는 준비 중이에요", "Unlocking all is coming") : null)} explain={explain} onPress={unlockAll}>
+                  <LockOpen size={15} aria-hidden="true" />{t("전체 잠금 해제", "Unlock all")}
+                </Act>}
+              </> : null;
               /** A day of the list as the page shows it (also drawn beside the page while it is dragged). */
               const dayList = (which: number | "all", insert = true) => proposed
                 ? <DayList view={listAfter ?? previewView} days={previewView.days.filter((day) => previewView.items.some((item) => item.day === day.day))} listDay={which} ctx={{ ...contextAfter, insertion: insert && canInsert ? renderInsertion : undefined }} mapDay={mapDay} onShowDay={showDay} heading={heading} now={edit?.now} />
-                : <DayList view={listBefore} days={days} listDay={which} ctx={{ ...contextBefore, insertion: insert && canInsert ? renderInsertion : undefined }} mapDay={mapDay} onShowDay={showDay} heading={heading} now={edit?.now} />;
+                : <DayList view={listBefore} days={days} listDay={which} ctx={{ ...contextBefore, insertion: insert && canInsert ? renderInsertion : undefined }} mapDay={mapDay} onShowDay={showDay} heading={heading} now={edit?.now} tools={insert ? tools : undefined} />;
               const near = peek.side === 0 ? undefined : neighbourOf(peek.side);
               const zoomStyle = listZoom === 1 ? undefined : { zoom: listZoom };
               return <div ref={trackBox} className={styles.dayTrack}>

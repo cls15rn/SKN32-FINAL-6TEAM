@@ -4,7 +4,7 @@ import type { Trip, TripStop } from "./model";
 import { between, dayTimeline, distanceText, entryTimes, tripDays } from "./trip-timeline";
 
 const stop = (id: string, date: string, time: string, endTime?: string): TripStop => ({ id, date, time, endTime, title: id, booking: "unknown", notes: "" });
-const shape = (itemId: string, from: string, to: string): RouteShape => ({ itemId, fromItemId: from, toItemId: to, from, to, mode: "subway", source: "stations", grade: "추정", distanceM: 2100, note: null, points: [], rides: [] });
+const shape = (itemId: string, from: string, to: string): RouteShape => ({ itemId, fromItemId: from, toItemId: to, from, to, mode: "subway", source: "stations", grade: "추정", distanceM: 2100, note: null, points: [], rides: [], walks: null });
 
 const trip: Pick<Trip, "stops" | "moves" | "legs"> = {
   stops: [stop("a", "2026-10-14", "10:00", "11:30"), stop("b", "2026-10-14", "12:30", "13:40"), stop("c", "2026-10-14", "15:00"), stop("d", "2026-10-15", "09:30")],

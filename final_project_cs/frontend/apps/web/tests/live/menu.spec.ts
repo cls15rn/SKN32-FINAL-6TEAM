@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { agree, mockServer, registerStubTrip, start, TRIP_ID, useKorean, chatButton } from "./helpers";
+import { agree, mockServer, registerStubTrip, start, TRIP_ID, useKorean } from "./helpers";
 
 test.beforeEach(async ({ page, request }) => { await mockServer(request).reset(); await useKorean(page); await agree(page); });
 
@@ -95,11 +95,11 @@ test("설정 화면의 언어 카드를 펼쳐 고르면 바로 적용·접히�
   await expect(toggle).toContainText("한국어");
 });
 
-test("플로팅 버튼 스위치는 없다 — 예전에 켜 둔 설정이 남아 있어도 여행 화면은 시트의 「일정 | 채팅」과 아래 채팅 버튼이다", async ({ page }) => {
+test("플로팅 버튼 스위치는 없다 — 예전에 켜 둔 설정이 남아 있어도 여행 화면은 시트의 일차 칩과 아래 채팅 버튼이다", async ({ page }) => {
   // `[2026-10-07 사용자 결정 — 목업 C안]` 여행 화면이 늘 지도 + 시트라 플로팅 버튼 · 고정 하단 탭을 고르는 스위치를 메뉴에서 뺐다.
   await page.addInitScript(() => localStorage.setItem("tripilot.web.settings.v1", JSON.stringify({ language: "ko", navigation: "floating" })));
   await registerStubTrip(page);
-  await expect(chatButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#trip-pane-schedule")).not.toHaveAttribute("inert");                              // `[ST4F-493]` 시트 머리의 채팅 단추는 없다
   await expect(page.getByRole("button", { name: "채팅 입력 열기" })).toBeVisible();
   await expect(page.getByRole("button", { name: "일정 · 메뉴 열기 또는 닫기" })).toHaveCount(0);
   await page.goto("/mypage");                                                      // `[2026-10-13]` 앱 설정은 설정 화면에 있다

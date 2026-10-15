@@ -71,7 +71,7 @@ for (const width of [375, 1280]) {
             topHit: !visible || tab.contains(document.elementFromPoint(t.x+t.width/2,t.top+.5)),
             bottomHit: !visible || tab.contains(document.elementFromPoint(t.x+t.width/2,t.bottom-.5)) };
         });
-        const actions = e.closest('section')!.querySelector<HTMLElement>('[class*=topActions]')!.getBoundingClientRect();
+        const actions = e.closest('section')!.querySelector<HTMLElement>('[class*=dayTools]')!.getBoundingClientRect();   // `[ST4F-494]` 단추는 첫 날짜 제목 줄 오른쪽
         const tabBottom = Math.max(...Array.from(e.querySelectorAll('[role=tab]')).map(tab => tab.getBoundingClientRect().bottom));
         return {time: performance.now(),tabs,actionGap:actions.top-tabBottom};
       });

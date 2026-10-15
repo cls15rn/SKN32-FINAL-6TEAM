@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { RouteShape } from "@/lib/live/route-shapes";
 import type { TripStop } from "../trip/model";
 import { isGuess, rideLines, routeNotes, routeTags, toMapLines, visibleShapes } from "./route-lines";
-import { lineStyle, linesKey } from "./providers/lines";
+import { linePieces, lineStyle, linesKey, walkStyle } from "./providers/lines";
 
 const stop = (id: string, coordinates: TripStop["coordinates"]): TripStop => ({ id, title: id, date: "2026-10-01", time: "09:00", coordinates } as TripStop);
 const shape = (patch: Partial<RouteShape> = {}): RouteShape => ({
-  itemId: "m1", fromItemId: "a", toItemId: "b", from: "경복궁", to: "광장시장", mode: "walk", source: "local_road_graph", grade: "추정", distanceM: 1830, note: null, rides: [],
+  itemId: "m1", fromItemId: "a", toItemId: "b", from: "경복궁", to: "광장시장", mode: "walk", source: "local_road_graph", grade: "추정", distanceM: 1830, note: null, rides: [], walks: null,
   points: [{ lat: 37.5796, lng: 126.977 }, { lat: 37.57, lng: 127.0 }], ...patch,
 });
 
@@ -94,5 +94,43 @@ describe("the legend over the map and the colour of each kind of route", () => {
     ] });
     expect(rideLines(line, t)).toEqual(["지하철 3호선 · 경복궁→을지로3가 · 4개 역", "지하철 1호선 · 을지로3가→종각 · 역 사이는 직선"]);
     expect(rideLines(shape(), t)).toEqual([]);
+  });
+});
+
+
+describe("`[2026-10-15 사용자 결정 — ST4F-495]` walked stretches are round grey dots, the rides keep their look", () => {
+  const five = [{ lat: 1, lng: 1 }, { lat: 1, lng: 2 }, { lat: 1, lng: 3 }, { lat: 1, lng: 4 }, { lat: 1, lng: 5 }];
+
+  it("takes the walks the server said; without them only a move that is all walking is walked — a subway line is not cut by guess", () => {
+    expect(toMapLines([shape({ mode: "subway", source: "stations", points: five, walks: [[0, 1], [3, 4]] })])[0].walks).toEqual([[0, 1], [3, 4]]);
+    expect(toMapLines([shape({ points: five })])[0].walks).toEqual([[0, 4]]);                                  // an older server: a walk is all walking
+    expect(toMapLines([shape({ mode: "subway", source: "stations", points: five })])[0].walks).toEqual([]);    // an older server: the subway line stays whole
+    expect(toMapLines([shape({ source: "straight_line", points: five, walks: [[0, 4]] })])[0].walks).toEqual([]);   // a guess stays the pale long dash
+  });
+
+  it("cuts a line at its walks into pieces that share their ends, so the line is not broken", () => {
+    const line = { id: "m1", points: five, dashed: false, mode: "subway" as const, title: "", walks: [[0, 1], [3, 4]] as [number, number][] };
+    expect(linePieces(line).map(({ points, walk }) => [points.map((point) => point.lng), walk])).toEqual([[[1, 2], true], [[2, 3, 4], false], [[4, 5], true]]);
+    expect(linePieces({ ...line, walks: [[0, 4]] }).map(({ walk }) => walk)).toEqual([true]);
+    expect(linePieces({ ...line, walks: [] })).toEqual([{ points: five, walk: false }]);
+    expect(linePieces({ ...line, dashed: true })).toEqual([{ points: five, walk: false }]);                        // never cut a guess
+    expect(linePieces({ ...line, walks: [[2, 9]] })).toEqual([{ points: five, walk: false }]);                     // a stretch off the line is not drawn
+  });
+
+  it("draws walking in the walking colour as dots — not the pale long dash of a guess — and redraws when only the walks changed", () => {
+    vi.stubGlobal("getComputedStyle", () => ({ getPropertyValue: (name: string) => ({ "--color-muted": "#8a8f98", "--color-primary": "#2f6f4f" } as Record<string, string>)[name] ?? "" }));
+    const walk = walkStyle({} as HTMLElement);
+    expect(walk.color).toBe("#8a8f98");
+    expect(walk.dots).toBeGreaterThan(0);
+    expect(lineStyle({} as HTMLElement, { id: "g", points: [], dashed: true, mode: "walk", title: "" }).dash).toEqual([8, 10]);
+    vi.unstubAllGlobals();
+    const line = { id: "a", points: five, dashed: false, mode: "subway" as const, title: "" };
+    expect(linesKey([{ ...line, walks: [[0, 1]] }])).not.toBe(linesKey([{ ...line, walks: [] }]));
+  });
+
+  it("says which dashes are the guesses when walking dots are on the map too", () => {
+    expect(routeNotes([shape(), shape({ itemId: "m2", source: "straight_line", mode: "taxi" })]).slice(0, 2)).toEqual(["점선은 길을 몰라 두 곳을 직선으로 이은 구간이에요.", "동그란 점은 걷는 구간이에요."]);
+    expect(routeNotes([shape({ source: "straight_line", mode: "taxi" })])).not.toContain("동그란 점은 걷는 구간이에요.");
+    expect(routeNotes([shape()])).toEqual([]);                                                               // walking alone needs no word
   });
 });

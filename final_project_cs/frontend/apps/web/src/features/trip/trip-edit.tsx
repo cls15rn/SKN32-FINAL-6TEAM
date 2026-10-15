@@ -11,6 +11,7 @@ import { reviewResultOf } from "@/features/plan-check/from-review";
 import type { PlanCheckView, PlanItem } from "@/features/plan-check/model";
 import { PlanCheck, type TripEditMode } from "@/features/plan-check/plan-check";
 import type { RailNow } from "@/features/plan-check/rail-list";
+import { formatHm } from "@/features/plan-check/time-plan";
 import { useServerReview } from "@/features/plan-check/use-server-review";
 import { LiveError } from "@/lib/live/client";
 import { cancelTripEdit, confirmIntake, getIntake, reopenTrip } from "@/lib/live/intake";
@@ -115,7 +116,10 @@ export function TripEdit({ trip, onExit }: { trip: Trip; onExit: () => void }) {
     onSuccess: () => leave(),
     onError: (error) => { setAsking(false); pushToast({ text: error.message, stay: true }); },
   });
-  const railNow = useCallback((date: string): RailNow | null => date < now.date ? { kind: "over" } : date === now.date ? { kind: "today", minute: now.minute } : null, [now]);
+  // `[2026-10-15 사용자 지시 — ST4F-494]` The edit shows 「지금 HH:MM」 beside the dot too, under the same operator switch as the trip screen (`trip.nowLabel`).
+  const nowLabel = trip.nowLabel;
+  const railNow = useCallback((date: string): RailNow | null => date < now.date ? { kind: "over" }
+    : date === now.date ? { kind: "today", minute: now.minute, ...(nowLabel ? { label: t(`지금 ${formatHm(now.minute)}`, `Now ${formatHm(now.minute)}`) } : {}) } : null, [now, nowLabel, t]);
   const edit: TripEditMode = useMemo(() => ({
     onCancel: () => setAsking(true),
     now: railNow,

@@ -134,6 +134,11 @@ def specs() -> dict[str, LimitSpec]:
     out["travel.mobility.taxi_call_product_enabled"] = LimitSpec(
         "travel.mobility.taxi_call_product_enabled", "확인 화면의 택시 호출 상품 고르기(택시 요금 계산 확인 뒤 켜기)", "", "bool",
         guard.get("travel.mobility.taxi_call_product_enabled") is True)
+    # ★`[2026-10-15 사용자 결정 — ST4F-494]` 여행 화면 「지금 HH:MM」 시각 꼬리표 — 시험 기간이라 기본 켜짐, 배포 때 끈다.
+    #   읽는 곳은 `settings_hook.trip_now_label_enabled` 하나다(여행 조회 응답의 `now_label`)
+    out["travel.trip_screen.now_label_enabled"] = LimitSpec(
+        "travel.trip_screen.now_label_enabled", "여행 화면 「지금 HH:MM」 시각 표시(시험 기간 — 배포 때 끄기)", "", "bool",
+        guard.get("travel.trip_screen.now_label_enabled") is not False)
     # ★`[2026-10-14 사용자 지시]` 활동 장소 임시휴무 · 폐업 새벽 웹 확인 — 유료라 기본 꺼짐. 읽는 곳은 `settings_hook.activity_live_check_enabled` 하나다
     #   (정기 작업 `activity_live_status`). 설명에 **지금 이 서버에서 켜면 실제로 도는지**를 함께 싣는다(값은 싣지 않는다).
     out["travel.activity_judge.live_status_batch_enabled"] = LimitSpec(

@@ -13,15 +13,19 @@
 
 /* ── Sheet head: the chat button stays at the right while the chips scroll (`[2026-10-08 사용자 지시 · 2026-10-12 반영]` 「일정 | 채팅」 → 채팅 버튼 하나) ── */
 .headTools { display: flex; flex: none; align-items: center; gap: 6px; }
+/* `[2026-10-14 사용자 결정 — ST4F-493]` 채팅 단추는 빠지고(✎ · 정지 표시만), 이 묶음도 일차 칩처럼 목록을 스크롤하는 동안 숨는다 — 칩과 같은 시간 · 움직임(plan-check.module.css `.dayStrip[data-quiet]`). */
+.sharedHead[data-float] .headTools { --day-enter: 200ms; --day-exit: 150ms; opacity: 1; transform: translateY(0); transition: opacity var(--day-enter) ease-out, transform var(--day-enter) ease-out; }
+.sharedHead[data-float] .headTools[data-quiet] { opacity: 0; transform: translateY(-4px); pointer-events: none; transition-duration: var(--day-exit); transition-timing-function: ease-in; }
+.sharedHead[data-float] .headTools[data-at-top]:not([data-quiet]) { transition: none; }
+@media (prefers-reduced-motion: reduce) { .sharedHead[data-float] .headTools { transform: none; transition: none; } }
 /* While a disaster has paused the trip: 「일정 정지 중」 before the chat button — it opens the notice center. */
 .pausedChip { display: inline-flex; flex: none; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px 0 6px; border: 1px solid var(--color-error-border); border-radius: 999px; background: var(--color-error-soft); color: var(--color-error); font: inherit; font-size: 12.5px; font-weight: 750; white-space: nowrap; cursor: pointer; }
 .pausedChip:focus-visible { outline: 2px solid var(--color-selected); outline-offset: 2px; }
 .chatButton { display: inline-flex; flex: none; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px; border: 1px solid var(--color-border-strong); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: 12.5px; font-weight: 750; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 3px color-mix(in srgb, var(--color-text) 12%, transparent); }
-.chatButton[aria-pressed="true"] { border-color: var(--color-text); background: var(--color-text); color: var(--color-on-primary); }
 .chatButton:focus-visible { outline: 2px solid var(--color-selected); outline-offset: 2px; }
 /* `[2026-10-13 사용자 결정 — 수정 모드 · 후보 1]` 「일정 수정」 · 채팅은 34px 둥근 아이콘 단추. 수정 모드의 「취소」(plan check 의 시트 머리)는 이 단추 모양 그대로. */
 .chatButton[data-icon] { justify-content: center; width: 34px; padding: 0; }
-/* In the chat pane no day chip is shown chosen (the chat button is). */
+/* In the chat pane no day chip is shown chosen. */
 .sharedHead [data-chat] [data-lit] { border-color: var(--color-border-strong); color: var(--color-muted); }
 .sharedHead [data-chat] > :first-child { opacity: 0; }
 
@@ -80,10 +84,14 @@
 .stopBody > .detailActions:first-child { margin-top: 0; }
 .action { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 5px; min-height: 44px; padding: 0 9px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); color: var(--color-primary); font: inherit; font-size: 12px; font-weight: 650; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .action:disabled { opacity: .45; cursor: not-allowed; }
+/* `[2026-10-14 ST4F-493]` 목록 끝 예약 안내 — 가운데 한 줄, 그 아래 접힌 출처(plan check 의 `.credit`)와 같은 글씨. */
+.bookingNote { margin: 8px 0 0; font-size: 10px; line-height: 1.6; color: var(--color-muted); text-align: center; }
+/* `[2026-10-14 ST4F-492]` 상세 보기의 지도 앱 셋 — 한 줄 세 칸(「이 일정 질문하기」 아래). */
+.detailMaps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; width: 100%; }
+.detailMaps .action { min-width: 0; padding: 0 6px; }
 
 /* ── The way between two stops ── */
 .legPlain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.legLink { display: inline-flex; align-items: center; gap: 4px; color: var(--color-primary); font-size: 12.5px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .legBody { padding: 0 0 6px; }
 .legBody p { margin: 4px 0; font-size: 12.5px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
 .legBody .legGuess { color: var(--color-warning); }
@@ -116,11 +124,34 @@
 /* ── The chat bar at the bottom of the frame: a round button that grows into the bar ── */
 .chatBar { position: absolute; z-index: 7; right: 18px; bottom: 22px; display: flex; align-items: center; width: 58px; height: 58px; border: 1px solid transparent; border-radius: 29px; background: var(--color-primary); box-shadow: 0 10px 24px color-mix(in srgb, var(--color-text) 35%, transparent); transition: width .3s var(--ease-soft); }
 .chatBar[data-open] { width: calc(100% - 36px); border-color: var(--color-border-strong); background: var(--color-surface); box-shadow: 0 10px 26px color-mix(in srgb, var(--color-text) 22%, transparent); }
-.chatBar[data-open]:focus-within { border-color: var(--color-selected); box-shadow: 0 0 0 3px var(--color-selected-soft), 0 10px 26px color-mix(in srgb, var(--color-text) 22%, transparent); }
+/* `[2026-10-14 사용자 지시 — ST4F-493]` 열린 막대는 입력칸이 줄바꿈으로 자라는 만큼 높아지고(최대 3줄, 그 뒤 입력칸 스크롤), 양쪽 단추는 맨 아랫줄에 남는다. 한 줄일 때는 전과 같은 58px. */
+.chatBar[data-open] { height: auto; min-height: 58px; align-items: flex-end; padding-block: 6px; }
+.chatBar[data-open] > .chatClose { margin-bottom: 2px; }
+.chatBar[data-open]:focus-within { border-color: var(--color-selected); box-shadow: 0 0 0 4px var(--color-selected-soft), 0 10px 26px color-mix(in srgb, var(--color-text) 22%, transparent); }  /* `[2026-10-14 사용자 결정]` 링 3px → 4px */
+/* `[2026-10-14 사용자 결정 — ST4F-493 · 샘플 B+C 「튕김 보통」]` 펼칠 때: 막대가 살짝 지나쳤다 돌아오며 펼쳐지고(접을 때는 위의 0.3초 그대로), 둥근 단추가 그 자리의 전송 단추가 된다 —
+   전송 단추가 둥근 단추 크기(58/44 = 1.32배)에서 줄어들며 💬 가 ➤ 로 돌아 바뀐다(두 단추의 중심이 같은 자리). 펼치는 동안 전송 단추는 오른쪽에 붙어 있고(`justify-content: flex-end`),
+   ✕ · ← 와 입력칸은 0.2초 뒤에 나타난다. 이어지는 효과는 없다. 동작 줄이기 설정이면 모두 끈다. */
+.chatBar[data-open] { transition: width .55s cubic-bezier(.34, 1.45, .64, 1); }
+.chatBar[data-open] > .chatClose, .chatBar[data-open] .chatField { animation: chatContentIn .2s .2s both; }
+.chatBar[data-open] .chatSend { position: relative; z-index: 1; animation: chatSendIn .55s cubic-bezier(.34, 1.45, .64, 1) both; }
+.chatSendTo { animation: chatIconIn .55s cubic-bezier(.34, 1.45, .64, 1) both; }
+.chatSendFrom { position: absolute; inset: 0; margin: auto; opacity: 0; animation: chatIconOut .3s ease-out; }
+@keyframes chatContentIn { from { opacity: 0; } }
+@keyframes chatSendIn { from { transform: scale(1.32); } }
+@keyframes chatIconIn { from { opacity: 0; transform: rotate(90deg) scale(.6); } }
+@keyframes chatIconOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: rotate(-90deg) scale(.6); } }
+@media (prefers-reduced-motion: reduce) { .chatBar, .chatBar[data-open] { transition: none; } .chatBar[data-open] > .chatClose, .chatBar[data-open] .chatField, .chatBar[data-open] .chatSend, .chatSendTo, .chatSendFrom { animation: none; } }
 .chatFab { display: grid; place-items: center; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--color-on-primary); cursor: pointer; }
 .chatClose { display: grid; flex: none; place-items: center; width: 40px; height: 40px; margin-left: 7px; padding: 0; border: 0; border-radius: 50%; background: var(--color-subtle); color: var(--color-muted); cursor: pointer; }
-.chatForm { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; padding: 0 6px 0 12px; }
-.chatInput { flex: 1; min-width: 0; height: 44px; padding: 0 2px; border: 0; background: none; color: var(--color-text); font: inherit; font-size: 16px; outline: none; }
+.chatForm { display: flex; flex: 1; align-items: flex-end; justify-content: flex-end; gap: 6px; min-width: 0; padding: 0 6px 0 12px; }
+.chatInput { box-sizing: border-box; display: block; flex: 1; min-width: 0; height: 44px; max-height: 88px; padding: 11px 2px; overflow-y: auto; border: 0; background: none; color: var(--color-text); font: inherit; font-size: 16px; line-height: 22px; outline: none; resize: none; }  /* 한 줄 44px · 세 줄 88px(22px × 3 + 위아래 11px) */
+/* `[2026-10-14 사용자 결정]` 포커스는 막대의 초록 테두리 · 링이 보여 준다 — 입력칸 자체의 안쪽 상자(globals.css 의 공통 `textarea:focus-visible`)는 겹쳐서 뺀다. */
+.chatInput:focus-visible { outline: none; }
+/* 안내 문구: 입력칸 자체의 문구는 투명한 한 줄(접히면 빈 입력칸이 두 줄 높이로 자란다 · 화면 읽기와 시험은 이 문구를 읽는다)이고, 보이는 문구는 위에 겹친 글자 —
+   textarea 의 문구에는 「…」가 붙지 않아서다. */
+.chatField { position: relative; display: flex; flex: 1; min-width: 0; }
+.chatInput::placeholder { overflow: hidden; white-space: nowrap; color: transparent; }
+.chatHint { position: absolute; top: 11px; right: 2px; left: 2px; overflow: hidden; color: var(--color-muted); font-size: 16px; line-height: 22px; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; }
 .chatSend { display: grid; flex: none; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: var(--color-primary); color: var(--color-on-primary); cursor: pointer; }
 .chatSend:disabled { opacity: .5; cursor: not-allowed; }
 .chatFab:focus-visible, .chatClose:focus-visible, .chatSend:focus-visible { outline: 2px solid var(--color-selected); outline-offset: 2px; }
@@ -175,6 +206,9 @@
 .shareIcon[data-app="sms"] { background: var(--color-success-soft); color: var(--color-success); }
 .shareIcon[data-app="telegram"] { background: var(--color-selected-soft); color: var(--color-selected); }
 .shareIcon[data-app="plain"] { border: 1px solid var(--color-border); background: var(--color-surface); }
+/* `[2026-10-14 ST4F-492 · 사용자 지시]` 지도 앱 시트 — 앱 이름만 적은 단추 셋(로고 · 머리글자 없음). */
+.mapApps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.mapApps .action { width: 100%; min-width: 0; min-height: 48px; padding: 0 6px; font-size: 13px; }
 .shareDownload { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 18px; padding: 0 14px; border: 1px solid var(--color-border-strong); border-radius: 14px; background: var(--color-surface); color: var(--color-text); font-size: 14px; font-weight: 750; text-decoration: none; }
 .shareDownload svg { flex: none; color: var(--color-primary); }
 .shareDownload small { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--color-muted); }

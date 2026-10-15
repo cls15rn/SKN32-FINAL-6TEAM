@@ -226,17 +226,22 @@ export async function openNotices(page: Page) {
 }
 
 /**
- * The two panes of the trip's sheet. `[2026-10-13 일정 줄 — 채팅 버튼 하나]` The 「일정 | 채팅」 tabs became ONE chat button at the end of the day-chip row: pressed while
- * the chat pane is open; pressing it again (or a day chip) goes back to the schedule.
+ * The two panes of the trip's sheet. `[2026-10-14 사용자 결정 — ST4F-493]` The sheet head's chat button is gone: the chat pane opens when the chat field (behind the round
+ * 「채팅 입력 열기」 button) takes the focus, and its ← (「일정으로 돌아가기」) or Escape goes back to the schedule. Which pane is open is read from the panes themselves (`inert`).
  */
-export const chatButton = (page: Page) => page.locator("#trip-pane-button-chat");
+export const chatButton = (page: Page) => page.getByRole("button", { name: "채팅 입력 열기" });
+export const chatPaneOpen = async (page: Page) => (await page.locator("#trip-pane-chat").getAttribute("inert")) === null;
 
 /** Opens a pane of the trip's sheet (nothing to do when it is open already). */
 export async function openPane(page: Page, name: "일정" | "채팅") {
-  const button = chatButton(page);
   const chat = name === "채팅";
-  if (((await button.getAttribute("aria-pressed")) === "true") !== chat) await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", String(chat));
+  if ((await chatPaneOpen(page)) !== chat) {
+    if (chat) {
+      if (await chatButton(page).count()) await chatButton(page).click();
+      await page.locator("#trip-chat-message").focus();
+    } else await page.getByRole("button", { name: "일정으로 돌아가기" }).click();
+  }
+  await expect(page.locator(chat ? "#trip-pane-chat" : "#trip-pane-schedule")).not.toHaveAttribute("inert");
 }
 
 /** `[2026-10-07 목업 C안 B]` Open the trip's name in the header: the row 「여행계획서 열기 · 공유하기」 under it. */

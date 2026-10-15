@@ -59,6 +59,7 @@ from app.domains.travel_ops.components.itinerary.itinerary import Item, TripStor
 from app.domains.travel_ops.components.conversation.trip_desk import TripDesk
 from app.domains.travel_ops.components.planning import guardian as guardian_module
 from app.domains.travel_ops.components.watch import safety_pause, safety_recovery
+from app.domains.travel_ops.components import settings_hook
 
 # ★`[2026-10-05 병합]` 팀 판의 `_CsvFallbackTour`(활동팀 CSV 로 관광공사를 대신 조회) 는 싣지 않았다 — 관광공사 호출 제한 · 카카오 403 을
 #   피하려는 활동팀의 임시 우회이고 자료 파일(`activity_total_data.csv`)이 우리 쪽에 없다. 접수의 관광공사 조회는 전처럼 `place_factory` 가 한다.
@@ -587,6 +588,8 @@ def _trip_view(conn, store: TripStore, trip_id: UUID) -> dict[str, Any]:
             "guardian": guardian_module.view(conn, tenant_id=store.tenant_id, trip_id=trip["trip_id"],
                                              constraints=trip.get("constraints")),
             "safety": safety,
+            # ★`[2026-10-15 사용자 결정 — ST4F-494]` 여행 화면 「지금 HH:MM」 시각 꼬리표 — 관리 콘솔 스위치(기본 켜짐). 계약 rest-endpoints/web-trips.md
+            "now_label": settings_hook.trip_now_label_enabled(store.tenant_id),
             "items": views, "map": map_view(views),
             "history": history, "plan_url": plan_url(store.tenant_id, trip["trip_id"]),
             # ★`[2026-10-03]` 「살펴볼 점」 — 밀도 경고 + 일정 품질 경고(같은 곳 두 번 · 끼니 빠짐 · 왔다 갔다 · 하루 마감 · 식당 라스트오더). 둘 다 거절이 아니라 알림이다

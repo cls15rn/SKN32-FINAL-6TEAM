@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { beforeTheTrip, mockServer, openTitle, start, TRIP_ID, tripScreen, chatButton } from "./helpers";
+import { beforeTheTrip, mockServer, openTitle, start, TRIP_ID, tripScreen } from "./helpers";
 
 /**
  * `[2026-10-07 사용자 결정 — 목업 C안 3단계]` 제목 펼침(B안) · 여행계획서 공유 · 일정 「상세 보기」. mock 서버 시험이다 — 화면 반응만 본다.
@@ -132,7 +132,7 @@ test("상세 보기는 Esc 로도 닫히고, 「이 일정 질문하기」는 �
   await expect(page.locator("#stop-button-i-a")).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "아침 식당 상세 보기" }).click();
   await page.locator('[data-card-id="i-a"]').getByRole("button", { name: "이 일정 질문하기" }).click();
-  await expect(chatButton(page)).toHaveAttribute("aria-pressed", "true");                          // `[2026-10-13]` 채팅 버튼 하나(눌림 = 채팅 칸)
+  await expect(page.locator("#trip-pane-chat")).not.toHaveAttribute("inert");                                   // `[ST4F-493]` 채팅 칸이 열린다(시트 머리의 채팅 단추는 없다)
   await expect.poll(async () => (await server.received("POST", "/messages")).length).toBe(1);
 });
 
@@ -171,7 +171,7 @@ test("일정 카드는 접혀 있으면 「상세 보기」가 없고 ＋ 가 �
   await expect(mark).toHaveText("−");
   expect(await gapRight()).toBeLessThan(16);
   const [button, end] = [await detail.boundingBox(), await mark.boundingBox()];
-  expect(button!.x + button!.width).toBeLessThanOrEqual(end!.x + 1);                                     // 「상세 보기」는 － 의 왼쪽
+  expect(button!.y).toBeGreaterThanOrEqual(end!.y + end!.height - 1);                                    // `[ST4F-492]` 「상세 보기」는 머리 줄 아래 단추 줄(카드의 「이 일정 질문하기」가 빠져 혼자 한 줄) — － 는 머리 줄 맨 오른쪽 그대로
   await page.locator("#stop-button-i-b").click();                                                        // 이름을 눌러 접으면 다시 없다
   await expect(detail).toHaveCount(0);
 });

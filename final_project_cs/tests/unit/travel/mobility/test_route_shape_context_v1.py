@@ -85,6 +85,9 @@ def test_registered_bus_reads_selected_sequences_and_draws_intermediate_stop(mon
     assert [127.00, 37.59] in shape['line']['coordinates']
     assert all(call[0] == 'foot' for call in router.calls)
     assert shape['grade'] == '추정' and '실제 도로 형상' in shape['note']
+    coords, ((h0, h1), (t0, t1)) = shape['line']['coordinates'], shape['walks']
+    assert h0 == 0 and coords[h1] == [126.98, 37.56], '걸음: 출발 장소 → 탄 정류장'
+    assert coords[t0] == [127.03, 37.57] and t1 == len(coords) - 1, '걸음: 내린 정류장 → 도착 장소'
 
 
 def test_registered_subway_uses_planned_long_loop_instead_of_shortest(monkeypatch):

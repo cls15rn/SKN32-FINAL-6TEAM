@@ -94,7 +94,7 @@ export interface TimeEditUi {
 }
 
 /** The days of a view, each with its timeline: stops (cards) and the moves between them. */
-export function DayList({ view, days, listDay, ctx, mapDay, onShowDay, heading, now }: {
+export function DayList({ view, days, listDay, ctx, mapDay, onShowDay, heading, now, tools }: {
   view: PlanCheckView;
   days: PlanDay[];
   listDay: number | "all";
@@ -104,14 +104,17 @@ export function DayList({ view, days, listDay, ctx, mapDay, onShowDay, heading, 
   heading: (day: PlanDay) => ReactNode;
   /** `[2026-10-13 사용자 결정 — 수정 모드]` The trip screen's 「지금」 on a day's line (the edit of a registered trip); none on the plan check of a new plan. */
   now?: (date: string) => RailNow | null;
+  /** `[2026-10-15 사용자 결정 — ST4F-494]` Buttons at the right end of the first day's heading (the plan check's 「전체 자동 추천」 · 「전체 잠금 해제」 — a row of their own above the list before). */
+  tools?: ReactNode;
 }) {
   const t = useT();
-  return <>{days.filter((day) => (listDay === "all" || day.day === listDay) && timeline(view, day.day).some(ctx.visible)).map((day) =>
-    <section key={day.day} aria-labelledby={`${ctx.prefix}plan-day-${day.day}`}>
-      <h3 id={`${ctx.prefix}plan-day-${day.day}`} className={styles.day}>{ctx.done
+  return <>{days.filter((day) => (listDay === "all" || day.day === listDay) && timeline(view, day.day).some(ctx.visible)).map((day, at) => {
+    const title = <h3 id={`${ctx.prefix}plan-day-${day.day}`} className={styles.day}>{ctx.done
         ? <button type="button" className={styles.dayButton} aria-pressed={mapDay === day.day} onClick={() => onShowDay(day.day)}>{heading(day)}</button>
-        : heading(day)}</h3>
-      <RailList className={styles.timeline} now={now?.(day.date)}>{(() => {
+        : heading(day)}</h3>;
+    return <section key={day.day} aria-labelledby={`${ctx.prefix}plan-day-${day.day}`}>
+      {at === 0 && tools ? <div className={styles.dayRow}>{title}<div className={styles.dayTools}>{tools}</div></div> : title}
+      <RailList className={styles.timeline} now={now?.(day.date)} toScale>{(() => {
         const times = dayTimes(view, day.day);
         const points = ctx.insertion ? insertionPoints(view, day) : [];
         // `[2026-10-13 사용자 지시]` A day the customer wakes up in a stay: 「○○에서 출발」 at the top (the move from it follows, when the check found one).
@@ -127,7 +130,8 @@ export function DayList({ view, days, listDay, ctx, mapDay, onShowDay, heading, 
             : <MoveRow move={entry.move} from={view.items.find((item) => item.id === entry.move.fromId)} to={view.items.find((item) => item.id === entry.move.toId)} ctx={{ ...ctx, revision: view.revision }} slack={moveSlack(times, entry.move)} dim={ctx.removed.has(entry.move.fromId) || ctx.removed.has(entry.move.toId)} />}
         </Fragment>)}{points.at(-1) && ctx.insertion?.(points.at(-1)!)}</>;
       })()}</RailList>
-    </section>)}</>;
+    </section>;
+  })}</>;
 }
 
 /**

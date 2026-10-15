@@ -46,6 +46,7 @@ domain: travel
 <a id="일정-위험-점검--이동-판정--get-v1webtripstrip_idrisks--post-v1webmovesjudge-2026-10-06-사용자-요청--mcp-읽기-도구"></a> [일정 위험 점검 · 이동 판정 — `GET /v1/web/trips/{trip_id}/risks` · `POST /v1/web/moves/judge` `[2026-10-06 사용자 요청 — MCP 읽기 도구]`](rest-endpoints/web-trips.md#일정-위험-점검--이동-판정--get-v1webtripstrip_idrisks--post-v1webmovesjudge-2026-10-06-사용자-요청--mcp-읽기-도구)
 <a id="재난-시-일정-정지--post-v1webtripstrip_idsafetyresume--여행-조회의-safety--안전-알림-결정-2026-10-06-사용자"></a> [재난 시 일정 정지 — `POST /v1/web/trips/{trip_id}/safety/resume` · 여행 조회의 `safety` · 안전 알림 `[결정 2026-10-06 사용자]`](rest-endpoints/web-trips.md#재난-시-일정-정지--post-v1webtripstrip_idsafetyresume--여행-조회의-safety--안전-알림-결정-2026-10-06-사용자)
 <a id="지도-경로선--v1webtripstrip_idroute-shapes--v1webtrip-intakesintake_idroute-shapes-2026-10-04"></a> [지도 경로선 — `/v1/web/trips/{trip_id}/route-shapes` · `/v1/web/trip-intakes/{intake_id}/route-shapes` `[2026-10-04]`](rest-endpoints/web-trips.md#지도-경로선--v1webtripstrip_idroute-shapes--v1webtrip-intakesintake_idroute-shapes-2026-10-04)
+<a id="여행-화면-지금-시각-표시--여행-조회의-now_label-2026-10-15-사용자-결정"></a> [여행 화면 「지금」 시각 표시 — 여행 조회의 `now_label` `[2026-10-15 사용자 결정]`](rest-endpoints/web-trips.md#여행-화면-지금-시각-표시--여행-조회의-now_label-2026-10-15-사용자-결정)
 <a id="위임--v1delegations-2026-09-22"></a> [위임 — `/v1/delegations/*` `[2026-09-22]`](rest-endpoints/delegations.md#위임--v1delegations-2026-09-22)
 
 ## 관계
