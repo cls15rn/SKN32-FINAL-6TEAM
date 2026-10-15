@@ -748,11 +748,11 @@ def test_a_rental_sentence_gives_the_booking_pages_with_the_dates_said():
 
 # ── `[2026-10-15]` 공항리무진 — 인천국제공항공사 공항버스 정보(노선 · 요금 · 승차 위치 · 공항 출발 시간표) ───────────────
 _BUS_ROWS = [  # 10-15 탐침의 칸 이름 · 값 모양 그대로(값은 줄임)
-    {"area": "1", "busnumber": "6009(가락1동주민센터)", "routeinfo": "가락1동…잠실…", "busclass": "우등", "adultfare": "17000", "cpname": "공항리무진",
+    {"area": "1", "busnumber": "6009(가락1동주민센터)", "routeinfo": "인천공항2터미널, 인천공항1터미널, 신사역, 신논현역·2호선강남역·오클라우드호텔, 잠실역, 가락1동주민센터", "busclass": "우등", "adultfare": "17000", "cpname": "공항리무진",
      "toawfirst": "0520", "toawlast": "2252", "t1endfirst": "0540", "t1endlast": "2312", "t2endfirst": "0520", "t2endlast": "2252",
      "t1wdayt": "0540, 0610, 0630, 1240, 1310, 1900", "t1wt": "0610, 1310", "t2wdayt": "0520, 0550, 1220", "t2wt": "0550",
      "t1ridelo": "4B", "t2ridelo": "28"},
-    {"area": "1", "busnumber": "6100(수락/노원/망우)", "routeinfo": "…", "busclass": "우등", "adultfare": "18000", "cpname": "…",
+    {"area": "1", "busnumber": "6100(수락/노원/망우)", "routeinfo": "인천공항2터미널, 인천공항1터미널, 수락산역(직통), 노일초교, 마들역, 노원역, 중계역, 망우역", "busclass": "우등", "adultfare": "18000", "cpname": "…",
      "t1wdayt": "0630, 1330", "t1wt": "0630", "t2wdayt": "0610", "t2wt": "0610", "t1ridelo": "3B", "t2ridelo": "27"},
     {"area": "1", "busnumber": None, "busclass": "우등", "adultfare": "16000", "toawfirst": "0700", "toawlast": "1400",
      "t1wdayt": "", "t1wt": "", "t2wdayt": "", "t2wt": ""},
@@ -832,3 +832,47 @@ def test_an_airport_to_seoul_bus_sentence_lists_routes_with_times_in_the_band_sa
         assert "   · 6009(가락1동주민센터) 우등 · 성인 17,000원 · 타는 곳 4B — 12:40 · 13:10" in answer and "05:40" not in answer
         assert "   · 6100(수락/노원/망우) 우등 · 성인 18,000원 · 타는 곳 3B — 13:30" in answer
     assert "시각은 공항 출발 기준이고" in answer and "공항리무진 노선 · 시간표(서울 정류장별 시각): https://www.airportlimousine.co.kr/sub/sub01.php" in answer
+
+
+def _limousine_answer(text):
+    """공항버스 소스가 붙은 도구 묶음으로 팀을 한 번 돌린다(10-15 탐침 칸 모양의 가짜 행)."""
+    from app.domains.travel_ops.components.booking.offers import search_transit as real
+    bus = _FakeAirportBus(_BUS_ROWS)
+
+    class Tools(FakeTools):
+        def call(self, name, context, arguments, allowed_tools, seen, budget=None):
+            seen.add(name + repr(sorted(arguments.items())))
+            self.calls.append((name, dict(arguments)))
+            return real(SimpleNamespace(transit_schedule=FakeTago(), airport_bus=bus), **arguments)
+    toolbox, case_id = Tools(FakeTago()), uuid4()
+    pack = ContextPack(pack_id=uuid4(), case_id=case_id, team_id="flight", tenant_id="t", knowledge_scope=["flight"],
+                       current_state={"customer_id": str(uuid4())}, estimated_input_tokens=1)
+    task = TeamTask(task_id=uuid4(), run_id=uuid4(), case_id=case_id, team_id="flight", capability="flight.assist", case_version=1,
+                    input_text=text, context=pack, allowed_tools=BookingTeam.manifest.allowed_tools,
+                    deadline_at=datetime.now(UTC) + timedelta(seconds=90))
+    return asyncio.run(BookingTeam(toolbox, None).execute(task)).answer
+
+
+@pytest.mark.parametrize("text,origin,destination", [
+    ("내일 인천공항에서 노원 가는 리무진 2명", "인천공항", "서울"),
+    ("내일 잠실에서 인천공항 공항버스 1명", "서울", "인천공항"),
+    ("내일 인천공항에서 부산 버스 1명", "인천공항", "부산"),              # 리무진이라 안 했으면 채우지 않는다(지방 시외)
+])
+def test_a_limousine_to_a_seoul_neighbourhood_reads_as_seoul(text, origin, destination):
+    found, missing = _rules(text)
+    assert (found.mode, found.origin, found.destination, missing) == ("bus", origin, destination, [])
+
+
+def test_the_neighbourhood_said_narrows_the_limousine_routes_by_their_stops():
+    from app.domains.travel_ops.instances.booking.team import _airport_area, _stop_core
+    assert (_stop_core("수락산역(직통)"), _stop_core("신논현역"), _stop_core("노일초교")) == ("수락산", "신논현", "노일초교")
+    board_routes = [{"number": "6009(가락1동주민센터)", "route": _BUS_ROWS[0]["routeinfo"]},
+                    {"number": "6100(수락/노원/망우)", "route": _BUS_ROWS[1]["routeinfo"]}]
+    said, routes = _airport_area(board_routes, "인천공항에서 노원 가는 리무진")
+    assert said == ["노원"] and [r["number"] for r in routes] == ["6100(수락/노원/망우)"]
+    said, routes = _airport_area(board_routes, "서울역 인천공항 리무진")
+    assert said == [] and len(routes) == 2, "양 끝 이름(서울 · 인천공항)으로는 좁히지 않는다"
+    answer = _limousine_answer(f"{GO.month}월 {GO.day}일 인천공항에서 노원 가는 리무진 2명")
+    assert "  「노원」을(를) 지나는 노선 1개만 골랐어요(노선 정보의 정류장 이름 기준)." in answer
+    assert "6100(수락/노원/망우)" in answer and "6009(가락1동주민센터)" not in answer
+

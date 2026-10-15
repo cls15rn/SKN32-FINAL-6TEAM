@@ -192,6 +192,8 @@ _MODE_WORDS = {"train": ("기차", "열차", "ktx", "srt", "itx", "무궁화", "
                "tour": ("시티투어", "시티 투어", "투어버스", "투어 버스", "타이거버스", "노랑풍선",
                         "유람선", "크루즈", "이크루즈", "이랜드크루즈",
                         "렌터카", "렌트카", "차 빌려", "차를 빌려", "한강버스", "한강 버스")}
+#: 공항리무진을 가리키는 말
+_LIMOUSINE = ("리무진", "공항버스", "공항 버스")
 #: 상품형 종류를 가리키는 말 — 앞에서부터(없으면 시티투어)
 _CRUISE_WORDS = ("유람선", "크루즈")
 _TOUR_KINDS = (("river_bus", ("한강버스", "한강 버스")), ("cruise", _CRUISE_WORDS),
@@ -465,6 +467,12 @@ def interpret(text: str, *, today: date, trip: dict[str, Any] | None = None) -> 
         destination = None
     else:
         origin, destination = _airports(text) if mode == "flight" else _endpoints(text, _STATION_TABLE)
+        if mode == "bus" and any(word in text for word in _LIMOUSINE) and (origin or destination):
+            # `[10-15]` 「인천공항에서 잠실 가는 리무진」 — 반대쪽이 역 · 터미널 사전에 없는 동네면 서울로(공항리무진은 서울 노선 · 동네는 팀이 노선 정보로 좁힌다)
+            if origin and origin.startswith("인천공항") and destination is None:
+                destination = "서울"
+            elif destination and destination.startswith("인천공항") and origin is None:
+                origin = "서울"
     if origin and destination and origin == destination:
         destination = None
     dates = _dates(text, today=today, trip=trip)

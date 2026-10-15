@@ -49,6 +49,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 import logging
+import re
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -220,11 +221,41 @@ def _transit_line(option: dict[str, Any], adults: int | None) -> str:
 AIRPORT_ROUTES_SHOWN, AIRPORT_TIMES_SHOWN = 10, 4
 
 
-def _airport_bus_lines(name: str, board: dict[str, Any], bands: list[str], how: str) -> list[str]:
-    """`[10-15]` 공항버스(인천국제공항공사 버스정보) — 공항 → 서울은 그 터미널 공항 출발 시각(말한 시간대 안 앞 몇 개), 서울 → 공항은 노선 · 요금만."""
-    terminal, routes = board["terminal"], board["routes"]
+#: 노선 정보의 정류장 이름 중 좁히기에 쓰지 않는 것(양 끝 · 너무 넓은 말)
+_STOP_IGNORED = {"서울", "인천공항", "인천공항1터미널", "인천공항2터미널", "공항"}
+
+
+def _stop_core(stop: str) -> str:
+    """「신논현역」 → 「신논현」, 「수락산역(직통)」 → 「수락산」 — 괄호 · 띄어쓰기 · 끝의 「역」을 뗀다."""
+    core = re.sub(r"\(.*?\)", "", stop).replace(" ", "")
+    return core[:-1] if core.endswith("역") and len(core) > 2 else core
+
+
+def _route_stops(route: dict[str, Any]) -> set[str]:
+    parts = re.split(r"[,·/]", str(route.get("route") or "") + "," + str(route.get("number") or "").partition("(")[2].rstrip(")"))
+    return {core for part in parts if len(core := _stop_core(part)) >= 2 and core not in _STOP_IGNORED}
+
+
+def _airport_area(routes: list[dict[str, Any]], text: str) -> tuple[list[str], list[dict[str, Any]]]:
+    """`[10-15]` 고객 문장에 나온 정류장 이름(노선 정보에서) — 있으면 그 정류장을 지나는 노선만. (찾은 이름, 노선)."""
+    squeezed = text.replace(" ", "")
+    stops = {route["number"]: _route_stops(route) for route in routes}
+    said = sorted({core for cores in stops.values() for core in cores if core in squeezed}, key=len, reverse=True)
+    said = [core for core in said if not any(core != longer and core in longer for longer in said)]   # 짧은 이름이 긴 이름 안에 들면 긴 쪽만
+    if not said:
+        return [], routes
+    return said, [route for route in routes if stops[route["number"]] & set(said)]
+
+
+def _airport_bus_lines(name: str, board: dict[str, Any], bands: list[str], how: str, *, text: str = "") -> list[str]:
+    """`[10-15]` 공항버스(인천국제공항공사 버스정보) — 공항 → 서울은 그 터미널 공항 출발 시각(말한 시간대 안 앞 몇 개), 서울 → 공항은 노선 · 요금만.
+    고객이 정류장 이름(「잠실」 「노원」)을 말했으면 그 정류장을 지나는 노선만(노선 정보 `routeinfo` 기준)."""
+    terminal = board["terminal"]
+    said, routes = _airport_area(board["routes"], text)
     day = "주말" if board.get("day_type") == "weekend" else "평일"
     out = [f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이에요. {how}"]
+    if said:
+        out.append(f"  「{' · '.join(said)}」을(를) 지나는 노선 {len(routes)}개만 골랐어요(노선 정보의 정류장 이름 기준).")
     if board["direction"] == "from_airport":
         def fits(clock: str) -> bool:
             return not bands or _band_of(clock) in bands
@@ -826,7 +857,7 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                     lines.append(f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요. {how} "
                                  "시간표가 필요하시면 「공항철도」로 물어봐 주세요 — 직통열차 시각을 드려요.")
                     continue
-                lines += _airport_bus_lines(name, board, list(times or []), how)
+                lines += _airport_bus_lines(name, board, list(times or []), how, text=task.input_text)
                 continue
             if state == "not_yet":                       # 팀장 점검 LB-03 — 공급자가 먼 날짜 버스 운행을 아직 안 준다
                 lines.append(f"[{name}] 그날 버스 운행은 아직 확인할 수 없습니다 — 공급자가 가까운 날(보통 출발 1~2일 전)부터 운행표를 줍니다. "

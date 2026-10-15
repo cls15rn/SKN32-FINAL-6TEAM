@@ -52,13 +52,13 @@ def main() -> None:
             started = time.perf_counter()
             got = search_transit(travel, mode=mode, origin=origin, destination=destination, depart_date=day, adults=2, kind=kind)
             source = got["sources"]["tago"]
+            print(f"\n== {mode} · {time.perf_counter() - started:.1f}초 · 상태 {source['status']} · 운행 {source['count']}편 · "
+                  f"호출 {len(source['calls'])}회 · 옮긴 곳 {got['resolved']}")
             board = got.get("airport_bus")
             if board:                                                  # `[10-15]` 공항버스 판 — 노선 수 · 앞 노선 3개(번호 · 요금 · 시각 수)만
                 print(f"  공항버스: {board['direction']} · {board['terminal']} · {board['day_type']} · 노선 {len(board['routes'])} · 번호 없는 줄 {board['skipped_unnumbered']}")
                 for route in board["routes"][:3]:
                     print(f"    {route['number']} · {route.get('price')}원 · 타는 곳 {route.get('ride')} · 시각 {len(route['times'])}개 {route['times'][:3]}")
-            print(f"\n== {mode} · {time.perf_counter() - started:.1f}초 · 상태 {source['status']} · 운행 {source['count']}편 · "
-                  f"호출 {len(source['calls'])}회 · 옮긴 곳 {got['resolved']}")
             for option in got["options"][:6]:
                 print(f"  {option.get('grade')} {option.get('number') or ''} {option.get('origin')} {option.get('depart')} → "
                       f"{option.get('destination')} {option.get('arrive')} · {option.get('minutes')}분 · "

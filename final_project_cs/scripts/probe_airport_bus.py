@@ -72,6 +72,8 @@ def main() -> None:
             times = {name: len([t for t in str(row.get(name) or "").replace(" ", "").split(",") if t]) for name in TIME_FIELDS}
             print(f"  {row.get('busnumber')} · {row.get('busclass')} · 성인 {row.get('adultfare')} · 공항행 {row.get('toawfirst')}~{row.get('toawlast')} · "
                   f"T1 {row.get('t1endfirst')}~{row.get('t1endlast')} · 시간표 개수 {times}")
+        for row in rows[:3]:                                   # `[10-15]` 노선 정보 칸 모양 — 동네로 좁힐 수 있는지(앞 120자만)
+            print(f"  노선 정보 {row.get('busnumber')}: {str(row.get('routeinfo') or '')[:120]}")
         sample = next((row for row in with_times), None)
         if sample:
             print("  시간표 칸 모양(첫 줄, 앞 5개):", {name: str(sample.get(name) or "")[:40] for name in TIME_FIELDS})
