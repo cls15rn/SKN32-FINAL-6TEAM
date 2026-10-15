@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +17,7 @@ from scripts.build_arex_direct import build
 from .test_transit_module import GO, FakeTago, _rules, _run
 
 FRIDAY, SATURDAY = date(2026, 10, 16), date(2026, 10, 17)
+_BASE = {key: value for key, value in arex.table().items() if key != "revisions"}
 
 
 def _row(station, direction, clock, day_type="weekday"):
@@ -97,7 +98,8 @@ def test_the_rules_read_arex_words_as_a_train(text, origin, destination, grade):
 
 
 def test_an_arex_sentence_is_answered_from_the_timetable_with_the_first_page_link_and_no_fare(monkeypatch):
-    monkeypatch.setattr(arex, "TABLE_UNTIL", date.max)        # 날짜는 다음 달 — 개정 막기와 상관없이 표 경로를 본다
+    monkeypatch.setattr(arex, "REVISED_FROM", date.max)       # 날짜는 다음 달 — 개정과 상관없이 기본 판 경로를 본다
+    monkeypatch.setattr(arex, "table", lambda: {**_BASE, "revisions": []})
     tago = FakeTago()
     result, tools = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 가는 공항철도 2명 오전", tago)
     assert result.outcome == "completed" and tago.calls == []
@@ -124,22 +126,32 @@ def test_a_train_without_a_number_is_matched_by_its_stations_on_recheck():
     assert _same_run(dict(ktx), dict(ktx)) and not _same_run({**ktx, "number": "103"}, ktx), "번호가 있는 열차는 번호로(그대로)"
 
 
-def test_dates_after_the_october_23_revision_get_no_old_times_but_the_notice():
-    """`[10-15]` 공항철도 10-23 일반 · 직통 시간표 전면 개정(공지 10-14) — 10-01 수집 표는 10-22 까지만."""
-    assert arex.runs("서울", "인천공항", "2026-10-22")["options"], "개정 전날까지는 그대로"
+def test_the_october_23_revision_is_its_own_edition_without_arrival_times():
+    """`[10-15]` 공항철도 10-23 일반 · 직통 전면 개정(공지 10-14) — 10-22 까지 기본 판, 10-23 부터 공지 첨부표(출발 시각만)."""
+    before = arex.runs("서울", "인천공항", "2026-10-22")
+    assert before["timetable"]["edition"] is None and before["options"][0]["minutes"] == 43
     after = arex.runs("서울", "인천공항", "2026-10-23")
-    assert after["options"] == [] and after["timetable"]["revised"] is True and after["timetable"]["revised_from"] == "2026-10-23"
+    revision = next(rev for rev in arex.table()["revisions"] if rev["from"] == "2026-10-23")
+    assert [option["depart"] for option in after["options"]] == revision["runs"]["weekday"]["서울역"]
+    assert after["timetable"]["edition"] == "2026-10-23" and "10.23" in after["timetable"]["edition_source"]
+    assert all(option["arrive"] is None and option["minutes"] is None for option in after["options"]), "개정표엔 도착 시각이 없다 — 옛 43분을 옮기지 않는다"
+    t1 = [int(c[:2]) * 60 + int(c[3:]) for c in revision["runs"]["weekday"]["인천공항1터미널"]]
+    t2 = [int(c[:2]) * 60 + int(c[3:]) for c in revision["runs"]["weekday"]["인천공항2터미널"]]
+    assert {a - b for a, b in zip(t1, t2)} == {8}, "공항 → 서울: T1 출발 = T2 출발 + 8분(개정표에서도)"
+
+
+def test_a_date_after_a_known_revision_without_its_table_gets_no_old_times(monkeypatch):
+    monkeypatch.setattr(arex, "table", lambda: {**_BASE, "revisions": []})
     got = search_transit(SimpleNamespace(), mode="train", origin="서울", destination="인천공항", depart_date="2026-11-06")
     assert got["sources"]["tago"]["status"] == "revised" and got["options"] == []
     assert [site["url"] for site in got["elsewhere"]] == [arex.SITE["url"], arex.NOTICE["url"]]
 
 
-def test_an_arex_sentence_after_the_revision_points_to_the_notice_and_shows_no_times(monkeypatch):
-    monkeypatch.setattr(arex, "TABLE_UNTIL", GO - timedelta(days=1))   # 오늘과 상관없이 「물은 날이 개정 뒤」
-    monkeypatch.setattr(arex, "REVISED_FROM", GO)
-    result, _ = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 공항철도 2명", FakeTago())
+def test_an_arex_sentence_after_the_revision_uses_the_new_table_and_says_so():
+    if GO < arex.REVISED_FROM:
+        pytest.skip("다음 달이 개정일 전")
+    result, _ = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 공항철도 2명 오전", FakeTago())
     answer = result.answer
-    assert f"[가는 편] 공항철도 직통은 {GO.month}월 {GO.day}일부터 시간표가 전면 바뀌어요(공항철도 공지 10-14)." in answer
-    assert "AREX 직통 —" not in answer and "노선 · 시간표는 아래에서 확인해 주세요:" in answer
-    assert "공항철도 열차운행시각 변경 알림(10/23~): https://www.airportrailroad.com/help/notice/CT202610140000000001" in answer
-    assert result.decisions[0]["states"] == ["revised"]
+    assert "공항철도 직통은 10월 23일 개정 시간표 기준이에요(공항철도 공지 첨부 · 평일 · 휴일 같은 표)." in answer
+    assert "[오전] AREX 직통 — 서울역 " in answer and " 출발 → 인천공항1터미널 · 요금은 예매 화면에서" in answer
+    assert "(0시간 43분)" not in answer

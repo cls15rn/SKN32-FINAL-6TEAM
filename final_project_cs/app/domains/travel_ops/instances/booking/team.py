@@ -202,6 +202,9 @@ def _pick_transit(options: list[dict[str, Any]], wanted: list[str]) -> tuple[lis
 
 def _transit_line(option: dict[str, Any], adults: int | None) -> str:
     took = f"{option['minutes'] // 60}시간 {option['minutes'] % 60}분" if isinstance(option.get("minutes"), int) else "소요 모름"
+    if option.get("kind") == "arex" and not option.get("arrive"):     # `[10-15]` AREX 개정 판 — 출발 시각만 있다
+        return (f"[{BAND_LABEL.get(_band_of(option.get('depart')) or '', '') or '시각 모름'}] {option.get('grade')} — "
+                f"{option.get('origin') or '?'} {option.get('depart') or '?'} 출발 → {option.get('destination') or '?'} · 요금은 예매 화면에서")
     grade = option.get("grade") or ("열차" if option.get("mode") == "train" else "버스")
     number = f" {option['number']}" if option.get("mode") == "train" and option.get("number") else ""
     kind = {"express": "고속", "suburbs": "시외"}.get(option.get("kind") or "", "")
@@ -824,7 +827,12 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
             for number, option in enumerate(picked, start=1):
                 lines.append(f"  {number}. {_transit_line(option, found.adults)}")
             timetable = (got or {}).get("timetable") or {}
-            if timetable.get("kind") == "arex":                # `[10-15]` AREX 직통 — 그날 운행이 아니라 요일 시간표라고 밝힌다
+            if timetable.get("kind") == "arex" and timetable.get("edition"):   # `[10-15]` 개정 판(10-23~) — 공지 첨부표, 도착 시각 없음
+                since = timetable["edition"]
+                lines.append(f"  공항철도 직통은 {since[5:7].lstrip('0')}월 {since[8:10].lstrip('0')}일 개정 시간표 기준이에요(공항철도 공지 첨부 · "
+                             "평일 · 휴일 같은 표). 개정표에는 도착 시각이 없어 소요 시간은 비워 뒀어요. "
+                             "그날 운휴 · 임시 변경 · 남은 좌석 · 요금은 예매 화면에서 확인해 주세요.")
+            elif timetable.get("kind") == "arex":              # `[10-15]` AREX 직통 — 그날 운행이 아니라 요일 시간표라고 밝힌다
                 table = "주말 · 공휴일" if timetable.get("day_type") == "holiday" else "평일"
                 unsure = " 공휴일인지 확인하지 못해 평일 시간표로 봤어요." if timetable.get("basis") == "holiday_unknown" else ""
                 lines.append(f"  공항철도 직통은 {table} 시간표 기준이에요({timetable.get('collected') or '수집일 모름'} 수집).{unsure} "

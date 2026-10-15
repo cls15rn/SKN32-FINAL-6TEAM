@@ -8,9 +8,10 @@ TAGO 기차에는 AREX 직통이 없다(서울→인천공항T1 0편). 이동 �
 - 열차 번호가 없다(시간표에 칸이 없다). 요금도 없다(지어내지 않는다 — 예매 화면에서).
 - 소요 시간은 시간표에 없어(종착 서울역 · 인천공항2터미널은 도착 행이 없다) AREX 예매 화면 값을 쓴다(`RIDE_MINUTES`, 10-15 확인).
 - 예매 링크는 첫 화면뿐이다 — 예매 사이트가 검색 조건을 세션에만 둬서 조건을 채운 주소를 만들 수 없다(10-15 확인).
-- ★`[10-15]` **2026-10-23 부터 일반 · 직통 시간표 전면 개정**(공항철도 공지 10-14, 첨부 xlsx · pdf). 이 파일은 10-01 수집본(= 공식 시간표
-  페이지 `/train/express/info` 의 현행표와 첫 · 막차 · 편수 일치, 10-15 확인)이라 **10-22 까지만** 쓴다. 그 뒤 날짜는 시각을 주지 않고
-  `revised` 로 알린다(새 표를 넣으면 `TABLE_UNTIL` 을 옮긴다).
+- ★`[10-15]` **2026-10-23 부터 일반 · 직통 시간표 전면 개정**(공항철도 공지 10-14, 첨부 xlsx · pdf). 표가 **판(edition)** 으로 나뉜다:
+  기본 판 = 10-01 수집본(공식 시간표 페이지 `/train/express/info` 현행표와 첫 · 막차 · 편수 일치, 10-15 확인) — 10-22 까지,
+  개정 판 = 공지 첨부 「직통열차 운행시각표(평일,휴일),10.23.부.pdf」(출발 시각 기준 · 평일 · 휴일 같은 표, 28편씩) — 10-23 부터.
+  개정 판에는 **도착 시각이 없어** 소요 · 도착을 비운다(개정 전 43 · 51분을 옮기지 않는다). 판이 없는 개정일 뒤 날짜는 `revised`.
 - 직통은 서울역 ↔ 인천공항1 · 2터미널만 선다. 그 밖의 역(공덕 · 홍대입구 · 김포공항 …)은 일반열차(교통카드, 예매 없음) — 이동 모듈 몫이다.
 """
 from __future__ import annotations
@@ -31,13 +32,12 @@ STATION_OF: dict[str, str] = {
     "인천공항T2": T2, "인천공항2터미널": T2, "인천공항 2터미널": T2, "인천공항 T2": T2,
 }
 
-#: 직통 소요 분 — AREX 예매 화면(2026-10-15 조회, 10-16 · 10-17 운행): 서울역 ↔ T1 43분, 서울역 ↔ T2 51분(양방향 같은 값으로 나옴).
-#: 시간표 파일에는 종착역 도착 행이 없어 여기서만 온다. 바뀌면 이 표를 고친다.
+#: 직통 소요 분(기본 판만) — AREX 예매 화면 · 공식 시간표 페이지(2026-10-15): 서울역 ↔ T1 43분, 서울역 ↔ T2 51분.
+#: 시간표 파일에는 종착역 도착 행이 없어 여기서만 온다. 개정 판에는 쓰지 않는다.
 RIDE_MINUTES: dict[tuple[str, str], int] = {(SEOUL, T1): 43, (T1, SEOUL): 43, (SEOUL, T2): 51, (T2, SEOUL): 51}
 
 SITE = {"name": "AREX 공항철도 직통열차 예매", "url": "https://www.airportrailroad.com/intro"}
-#: 이 시간표를 쓸 수 있는 마지막 날 — 10-23 개정(공지 등록 10-14). 개정 공지 · 공식 시간표 페이지
-TABLE_UNTIL = date(2026, 10, 22)
+#: 알려진 개정일(공지 등록 10-14) — 이 날 뒤로는 그 날부터 쓰는 판이 있어야 시각을 준다. 개정 공지 · 공식 시간표 페이지
 REVISED_FROM = date(2026, 10, 23)
 NOTICE = {"name": "공항철도 열차운행시각 변경 알림(10/23~)", "url": "https://www.airportrailroad.com/help/notice/CT202610140000000001"}
 TIMETABLE_PAGE = {"name": "AREX 직통열차 시간표(공식)", "url": "https://www.airportrailroad.com/train/express/info"}
@@ -71,6 +71,18 @@ def day_type(day: date, holiday: Any = None) -> tuple[str, str]:
     return "weekday", "holiday_unknown"
 
 
+def edition(day: date) -> dict[str, Any] | None:
+    """그날 쓸 판 — 개정 판 중 시작일이 그날 이전인 가장 늦은 것, 없으면 기본 판(개정일 전 날짜만). 아무것도 없으면 None(→ `revised`)."""
+    data = table()
+    later = [rev for rev in data.get("revisions") or [] if date.fromisoformat(rev["from"]) <= day]
+    if later:
+        latest = max(later, key=lambda rev: rev["from"])
+        return {"from": latest["from"], "runs": latest["runs"], "source": latest.get("source"), "minutes": False}
+    if day < REVISED_FROM:
+        return {"from": None, "runs": data.get("runs") or {}, "source": data.get("source"), "minutes": True}
+    return None
+
+
 def runs(origin: str, destination: str, depart_date: str, *, holiday: Any = None) -> dict[str, Any] | None:
     """그날의 직통 운행(출발 시각순). 구간이 아니거나 날짜를 못 읽으면 None."""
     found = pair(origin, destination)
@@ -81,14 +93,14 @@ def runs(origin: str, destination: str, depart_date: str, *, holiday: Any = None
     except ValueError:
         return None
     dep, arr = found
-    if day > TABLE_UNTIL:                                 # 개정 뒤 날짜 — 옛 시각을 주지 않는다
+    book = edition(day)
+    if book is None:                                      # 개정일 뒤인데 그 판이 없다 — 옛 시각을 주지 않는다
         return {"options": [], "resolved": {"origin": dep, "destination": arr},
                 "timetable": {"kind": "arex", "revised": True, "revised_from": REVISED_FROM.isoformat(), "notice": NOTICE["url"],
                               "collected": table().get("collected")}}
     kind, basis = day_type(day, holiday)
-    data = table()
-    clocks = ((data.get("runs") or {}).get(kind) or {}).get(dep) or []
-    minutes = RIDE_MINUTES.get((dep, arr))
+    clocks = (book["runs"].get(kind) or {}).get(dep) or []
+    minutes = RIDE_MINUTES.get((dep, arr)) if book["minutes"] else None
     options = []
     for clock in clocks:
         start = datetime.combine(day, datetime.strptime(clock, "%H:%M").time())
@@ -99,8 +111,8 @@ def runs(origin: str, destination: str, depart_date: str, *, holiday: Any = None
             "arrive": end.strftime("%H:%M") if end else None, "minutes": minutes, "price": None,
             "source": "arex_timetable", "links": []})
     return {"options": options, "resolved": {"origin": dep, "destination": arr},
-            "timetable": {"kind": "arex", "day_type": kind, "basis": basis, "collected": data.get("collected"),
-                          "built_at": data.get("built_at")}}
+            "timetable": {"kind": "arex", "day_type": kind, "basis": basis, "edition": book["from"], "edition_source": book["source"],
+                          "collected": table().get("collected"), "built_at": table().get("built_at")}}
 
 
-__all__ = ["GRADE", "NOTICE", "REVISED_FROM", "RIDE_MINUTES", "SITE", "STATION_OF", "TABLE_UNTIL", "TIMETABLE_PAGE", "day_type", "pair", "runs"]
+__all__ = ["GRADE", "NOTICE", "REVISED_FROM", "RIDE_MINUTES", "SITE", "STATION_OF", "TIMETABLE_PAGE", "day_type", "edition", "pair", "runs"]

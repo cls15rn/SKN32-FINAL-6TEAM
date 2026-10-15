@@ -14,9 +14,15 @@ TAGO 지하철정보 `SubwayInfo/GetSubwaySttnAcctoSchdulList` 수집)에 공항
 대조(10-15, playdata, AREX 예매 화면 1회씩 — 공식 API 아님): 2026-10-16(금) 서울역→T1 09시 이후 21편 · T1→서울역 · T2→서울역 앞 6편,
 2026-10-17(토) 서울역→T2 26편(06:00~23:00)이 이 규칙의 결과와 같았다.
 
+`[10-15]` **개정 판**: 2026-10-23 일반 · 직통 전면 개정(공항철도 공지 10-14). 공지 첨부 「직통열차 운행시각표(평일,휴일),10.23.부.pdf」를
+`--express-pdf` 로 주면 그 표(시 | 서울역 | 인천공항2터미널 | 인천공항1터미널, 칸마다 「분」 목록, 출발 시각 기준)를 읽어 `revisions` 에 넣는다.
+pdf 를 읽으려면 pdfplumber 가 있어야 한다(저장소 의존성에는 넣지 않았다 — `pip install pdfplumber`). 안 주면 지금 파일의 `revisions` 를 그대로 둔다.
+pdf 는 저장소에 넣지 않는다(공항철도 배포 파일 — 공지에서 받는다).
+
 실행 위치: final_project_cs
   python -m scripts.build_arex_direct                      # 기본 입력 ../datasets/mobility/processed/mobility/timetable_v1.jsonl.gz
   python -m scripts.build_arex_direct --timetable <경로>    # 다른 판
+  python -m scripts.build_arex_direct --express-pdf <pdf> --from 2026-10-23   # 개정 판 넣기
 출력: app/domains/travel_ops/components/booking/offers/arex_direct.json (커밋한다 — 수 KB)
 """
 from __future__ import annotations
@@ -80,10 +86,41 @@ def build(rows: list[dict]) -> dict:
     return {"runs": runs, "checks": checks}
 
 
+def read_express_pdf(path: Path) -> dict[str, list[str]]:
+    """공지 첨부 직통 시각표 pdf → 출발역별 「HH:MM」 목록. 첫 칸이 시(숫자)인 줄만, 칸 안의 두 자리 숫자를 분으로 읽는다(「-」는 없음)."""
+    try:
+        import pdfplumber
+    except ImportError:
+        sys.exit("pdfplumber 가 없어 pdf 를 못 읽음 — pip install pdfplumber")
+    import re
+    columns = {SEOUL: [], T2: [], T1: []}
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            for rows in page.extract_tables():
+                for row in rows:
+                    hour = (row[0] or "").strip() if row else ""
+                    if not re.fullmatch(r"\d{1,2}", hour):
+                        continue
+                    for station, cell in zip(columns, row[1:4]):
+                        columns[station] += [f"{int(hour):02d}:{minute}" for minute in re.findall(r"\d{2}", cell or "")]
+    if not all(columns.values()):
+        sys.exit(f"표 모양이 다름 — {[(k, len(v)) for k, v in columns.items()]}")
+    return {station: sorted(clocks) for station, clocks in columns.items()}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timetable", type=Path, default=DEFAULT_TIMETABLE)
+    parser.add_argument("--express-pdf", type=Path, default=None)
+    parser.add_argument("--from", dest="since", default="2026-10-23")
     args = parser.parse_args()
+    previous = json.loads(OUTPUT.read_text(encoding="utf-8")).get("revisions", []) if OUTPUT.exists() else []
+    revisions = [rev for rev in previous if rev.get("from") != args.since] if args.express_pdf else previous
+    if args.express_pdf:
+        express = read_express_pdf(args.express_pdf)
+        revisions.append({"from": args.since, "source": f"공항철도 공지 첨부 「{args.express_pdf.name}」(출발 시각 기준 · 평일 · 휴일 같은 표, 도착 시각 없음)",
+                          "runs": {"weekday": express, "holiday": express}})
+        revisions.sort(key=lambda rev: rev["from"])
     if not args.timetable.exists():
         sys.exit(f"시간표 파일 없음: {args.timetable}")
     with gzip.open(args.timetable, "rt", encoding="utf-8") as handle:
@@ -99,6 +136,7 @@ def main() -> None:
         "built_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="seconds"),
         "rule": "서울역 하행 중 공덕 하행에 안 이어지는 편 · T2 상행 중 T1 상행에 일반 열차 간격으로 안 이어지는 편(scripts/build_arex_direct.py)",
         **built,
+        "revisions": revisions,
     }
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"입력 {args.timetable} · 공항철도 {len(rows)}행 · 수집 {payload['collected']}")
@@ -106,6 +144,8 @@ def main() -> None:
         print(f"  {day_type}: {check}")
         for station, clocks in built["runs"][day_type].items():
             print(f"    {station} 출발 {len(clocks)}편 · {clocks[:3]} … {clocks[-2:]}")
+    for rev in revisions:
+        print(f"  개정 판 {rev['from']}: " + " · ".join(f"{k} {len(v)}편" for k, v in rev["runs"]["weekday"].items()))
     print(f"출력 {OUTPUT.relative_to(ROOT)}")
 
 
