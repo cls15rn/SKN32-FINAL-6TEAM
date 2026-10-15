@@ -137,14 +137,35 @@ def _change_target(items: list[Any], message: str, selected: UUID | None, at: da
             found = (today or upcoming or meals or [None])[0]
             if found is not None:
                 return found
+    if kind in (None, "lodging") and re.search(r"숙소|숙박|호텔", text):
+        # ★`[2026-10-15 숙박예약 점검 LB-02]` 숙소는 번호 · 서수 · 끼니로 세는 목록(식사 · 활동)에 넣지 않는다(「2번」 같은 번호가 밀리지 않게). 문장이 **숙소라고 말했을 때**만 대상이다 —
+        #   이름이 있는 식사 · 활동(「호텔 조식」)은 위에서 이미 골랐다. 숙소가 여럿이면 이름의 단어가 겹친 것, 못 가리면 None(부르는 쪽이 되묻는다)
+        stays = [i for i in items if i.kind == "lodging"]
+        pick = stays[0] if len(stays) == 1 else _rule_stay(stays, text)
+        if pick is not None:
+            return pick
     if selected is not None:
-        chosen = next((i for i in stops if i.item_id == selected), None)
+        # 화면에서 고른 일정이 숙소면 그것이 대상이다(문장이 다른 종류를 말하지 않았을 때)
+        chosen = next((i for i in [*stops, *(x for x in items if x.kind == "lodging")] if i.item_id == selected), None)
         if chosen is not None and (kind is None or chosen.kind == kind) and (
                 day is None or chosen.starts_at.astimezone(KST).date() == day):   # 문장이 말한 종류 · 날과 맞을 때만
             return chosen
     if day is not None and on_day:
         return on_day[0]
     return None
+
+
+def _rule_stay(stays: list[Any], text: str):
+    """숙소가 여럿일 때 문장의 단어가 가장 많이 겹친 하나 — 동점이거나 겹침이 없으면 None(지어내지 않는다)."""
+    import re
+
+    scored = []
+    for stay in stays:
+        name = f"{stay.title} {(stay.place or {}).get('name', '')}"
+        words = {w for w in re.split(r"[\s·()\[\],./→\-]+", name) if len(w) >= 2}
+        scored.append((sum(1 for w in words if w in text), stay))
+    scored.sort(key=lambda pair: -pair[0])
+    return scored[0][1] if scored and scored[0][0] > 0 and (len(scored) == 1 or scored[0][0] > scored[1][0]) else None
 
 
 def _rollback_target(store: TripStore, trip_id: UUID, items: list[Any], message: str,
@@ -1044,7 +1065,9 @@ def _dispatch_decision(conn, *, controller: Any, tenant: str, trip_id: UUID, cas
                              and i.starts_at <= at < (i.ends_at or i.starts_at)), None)
         if current_meal is None or current_meal.item_id != item.item_id:
             request["action"] = "apply_change"
-    owner = item.kind if item is not None and item.kind in ("activity", "dining", "mobility") else None
+    # ★`[2026-10-15 숙박예약 점검 LB-02]` 숙소 항목도 자기 팀(`lodging`)이 맡는다 — 전에는 식당 · 활동 · 이동만 알아서 숙소를 가리킨 「바꿔 줘」가
+    #   활동 팀으로 넘어가 처리 못 한 채 사람에게 넘어갔다(`ITEM_TEAMS` = 일정 항목 종류 = 맡는 팀 id)
+    owner = item.kind if item is not None and item.kind in ITEM_TEAMS else None
     if action in ("report_delay", "report_closed") and request["action"] != "apply_change":
         owner = "dining"
     if owner is None:

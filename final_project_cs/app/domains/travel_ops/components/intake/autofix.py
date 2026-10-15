@@ -145,6 +145,27 @@ def plan(conn, *, tenant_id: str, review: dict[str, Any], kakao: Any = None, eng
         if not item["date"] or not item["starts_at"]:
             kept.append({"id": item["id"], "title": item["title"], "reason": "no_time"})
             continue
+        if item["kind"] == "lodging":
+            # ★`[2026-10-15 숙박예약 점검 LB-01]` 숙소 항목은 시각이 체크인 · 체크아웃이라 앞뒤 이동에 맞춰 줄이지 않는다 — 장소만 후보 1순위로 채운다.
+            #   (숙소 후보가 나오게 된 뒤 아래 시각 맞추기가 체크아웃 날을 지우고 한나절짜리로 바꾸지 못하게 한다)
+            pick = None
+            if item["place"] is None or any(r["result"] == "bad" for r in item["rows"] if r["row"] == "place"):      # 고객이 이름을 적은 곳은 「확인」 표시만으로 바꾸지 않는다
+                alt = cand_module.alternatives(conn, tenant_id=tenant_id, review={"items": items, "moves": review["moves"]},
+                                               item=item, kakao=kakao, engine=budget, use_engine=False, now=now, rank_only=True,
+                                               limit=CANDIDATES_TRIED)
+                pick = next((c["place"] for c in alt["candidates"] if c["status"] != "bad"), None)
+            if pick is None:
+                kept.append({"id": item["id"], "title": item["title"], "reason": "no_candidates" if item["place"] is None else "nothing_to_change"})
+                continue
+            before = {"place": public_place(item["place"]), "starts_at": item["starts_at"], "ends_at": item["ends_at"]}
+            after = {"place": {k: pick.get(k) for k in ("name", "latitude", "longitude", "source")},
+                     "starts_at": item["starts_at"], "ends_at": item["ends_at"]}
+            changes.append({"id": item["id"], "source_id": item["source_id"], "index": item["index"], "title": item["title"],
+                            "from": before, "to": after, "reason": "place", "hours_known": False,
+                            "edits": [{"field": "place", "value": _pick(pick, item)}]})
+            last_changed = i
+            items[i] = {**item, "place": after["place"], "place_state": "customer", "status": "adjusted"}
+            continue
         prev = next((x for x in reversed(items[:i]) if x["date"] == item["date"] and x["place"]), None)
         nxt = next((x for x in items[i + 1:] if x["date"] == item["date"] and x["place"]), None)
         start, end = _dt(item["date"], item["starts_at"]), _dt(item["date"], item["ends_at"] or item["starts_at"])

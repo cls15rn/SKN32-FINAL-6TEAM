@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +27,21 @@ from .terms import Category, Terms, load_terms
 LODGING_CONTENT_TYPE = "32"
 #: 한 글자 조각으로 받는 역할 — 나머지 역할은 두 글자 이상이어야 한다(한 글자가 이름 조각과 우연히 맞는 것을 막는다)
 _SHORT_OK = ("near", "filler")
+
+
+#: 숙소 줄에 붙는 **동작 말** — 이름의 일부가 아니다(`assemble._stays` 가 이 말로 체크인 · 체크아웃 줄을 한 숙소 항목으로 묶는다)
+STAY_ACTION = re.compile(r"체크\s*(?:인|아웃)|check[\s-]*(?:in|out)|퇴실", re.IGNORECASE)
+
+
+def lookup_title(title: str | None) -> str:
+    """장소를 **찾을 때** 쓰는 말 — 줄 제목에서 체크인 · 체크아웃 동작 말을 뺀다. `[2026-10-15 숙박예약 점검 LB-01]`
+
+    ☆「더 플라자 호텔 서울 체크인」 전체를 이름으로 찾아 어떤 곳과도 이름이 맞지 않았다(이름 있는 호텔도 `unresolved`), 「호텔 체크인」은 「체크인」이 이름 조각으로 남아
+      이름 없는 줄(「호텔」 = 숙소를 고르는 줄)로 못 읽혔다. 제목 자체는 그대로 둔다 — 숙소 항목을 조립할 때 같은 말로 체크인 · 체크아웃 줄을 묶는다.
+    동작 말밖에 없는 줄(「체크아웃」)은 찾을 이름이 없으므로 그대로 돌려준다(옛 동작 — 그 줄은 앞 체크인 줄에 합쳐진다)."""
+    text = title or ""
+    cleaned = " ".join(STAY_ACTION.sub(" ", text).replace("/", " ").split()).strip(" ·-~,")
+    return cleaned if len(cleaned) >= 2 else text
 
 
 @dataclass
@@ -144,4 +160,4 @@ def parse(title: str | None, *, terms: Terms | None = None, areas: AreaIndex | N
     return parts
 
 
-__all__ = ["LineParts", "parse"]
+__all__ = ["LineParts", "STAY_ACTION", "lookup_title", "parse"]

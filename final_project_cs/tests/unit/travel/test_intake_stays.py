@@ -69,3 +69,17 @@ def test_a_hotel_breakfast_is_still_a_meal_and_lines_without_check_in_are_untouc
     claims.append({"source_id": "s1", "field": "items[0].kind", "value": "dining", "method": "rule", "evidence": {"line": 1}})
     got = collect(sources=SOURCE, claims=claims)
     assert [row["kind"] for row in got.rows] == ["dining", "dining"]
+
+
+def test_the_lookup_title_drops_the_check_in_and_check_out_words_but_never_empties_a_line():
+    """`[2026-10-15 LB-01]` 장소는 동작 말을 뺀 말로 찾는다 — 제목은 그대로 두고(조립이 같은 말로 체크인 · 체크아웃 줄을 묶는다) 찾는 말만 다르다."""
+    from app.domains.travel_ops.components.intake.line_parts import lookup_title, parse
+
+    assert lookup_title("더 플라자 호텔 서울 체크인") == "더 플라자 호텔 서울"
+    assert lookup_title("롯데호텔 체크아웃") == "롯데호텔" and lookup_title("롯데호텔 퇴실") == "롯데호텔"
+    assert lookup_title("Hotel Check-in") == "Hotel" and lookup_title("호텔 체크인/체크아웃") == "호텔"
+    assert lookup_title("체크인") == "체크인" and lookup_title("체크아웃") == "체크아웃", "동작 말뿐인 줄은 그대로 — 앞 체크인 줄에 합쳐진다"
+    assert lookup_title("경복궁 관람") == "경복궁 관람" and lookup_title(None) == ""
+    # 이름 없는 「호텔 체크인」은 「호텔」로 읽어야 이름 없는 숙소 줄(숙소를 고르는 줄)이 된다
+    assert parse("호텔 체크인").nameless is False and parse(lookup_title("호텔 체크인")).nameless is True
+    assert parse(lookup_title("호텔 체크인")).content_type == "32"

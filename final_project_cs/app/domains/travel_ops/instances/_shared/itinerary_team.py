@@ -72,6 +72,9 @@ TEXT_ANSWERS = frozenset({"knock_on"})
 class ItineraryWork:
     """`TravelTeamBase` 를 상속한 Team 에 섞는다. `manifest.team_id` 로 자기 capability 를 안다."""
 
+    #: 웹 채팅(`request.type: conversation`)의 「바꿔 줘」 · 「다른 곳」을 공용 계획(식당 · 활동의 장소 목록)이 아니라 팀 자신의 `_change` 가 받나 — 후보를 직접 찾는 팀(숙소)만 True
+    conversation_change_by_team: bool = False
+
     # ── 선택 ────────────────────────────────────────────────────
     @property
     def itinerary_capability(self) -> str:

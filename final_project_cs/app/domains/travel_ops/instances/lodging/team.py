@@ -368,6 +368,7 @@ def _sellers(detail: dict[str, Any] | None) -> list[dict[str, Any]]:
 
 
 class LodgingTeam(ItineraryWork, TravelTeamBase):
+    conversation_change_by_team = True        # ★`[2026-10-15 LB-02]` 웹 채팅의 「다른 숙소」도 이 팀의 `_change`(MCP 후보 → 「선택이 필요해요」)로 온다
     manifest = TeamManifest(
         team_id="lodging",
         display_name="Lodging Team",
@@ -401,7 +402,9 @@ class LodgingTeam(ItineraryWork, TravelTeamBase):
         지금처럼 문장 해석(`lodging.assist`)으로 간다(사용자 결정 10-11 「숙소 항목이 없으면 숙소 에이전트를 안 켠다」 — 항목을 가리키지
         않는 문장까지 일정 관리로 보내지 않는다)."""
         ref = (state or {}).get("subject_ref") or {}
-        if not ref.get("part_id"):
+        # ★`[2026-10-15 숙박예약 점검 LB-02]` 웹 채팅이 만든 구조화 요청(`request.type: conversation` — 「어느 일정인가요?」 되묻기 포함)은 문장이 아니라 항목 선택 흐름이다.
+        #   되묻기 목록의 첫 후보가 숙소여서 이 팀이 맡는데 항목(`part_id`)이 아직 없으면, 문장 해석(`lodging.assist`)으로 가 모델에 되묻기 문장을 해석시켰다(실패해 사람에게 넘어갔다)
+        if not ref.get("part_id") and (ref.get("request") or {}).get("type") != "conversation":
             return None
         return ItineraryWork.itinerary_route("lodging", state)
 

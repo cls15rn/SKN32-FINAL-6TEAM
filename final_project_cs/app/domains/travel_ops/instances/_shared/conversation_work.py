@@ -158,6 +158,13 @@ async def run_conversation(work: Any, task: TeamTask, ctx: dict[str, Any]) -> Te
             choices = [{"label": i.title, "message": i.title, "item_id": str(i.item_id),
                         "action": action} for i in ctx["items"] if i.kind == work.manifest.team_id and i.place]
             return wait_for_input(work, task, ctx, "어느 일정을 다른 곳으로 바꿀까요?", "target_item_id", choices=choices)
+        if getattr(work, "conversation_change_by_team", False):
+            # ★`[2026-10-15 숙박예약 점검 LB-02]` 후보를 **직접 찾는** 팀(숙소)은 식당 · 활동의 장소 목록으로 대신 고르지 않는다 — 전에는 이 갈래에 들어오지 못하고
+            #   아래 공용 계획(`_fresh_plan`)이 「장소를 바꿀 수 있는 일정(식사 · 활동)이 아니다」로 답했다. 팀 자신의 「바꿔 줘」(`_change`: 새 후보를
+            #   「선택이 필요해요」 제안으로 내거나, 고른 후보로 바꾼다)로 보낸다
+            if chosen and chosen.get("choice") is not None:
+                request["choice"] = chosen["choice"]
+            return work._change(task, ctx)
         if action == "propose_alternatives":
             return _propose_alternatives(work, task, ctx, item)
         if item.detail.get("alternates"):
