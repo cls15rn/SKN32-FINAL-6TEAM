@@ -89,6 +89,10 @@ def _asked_day(message: str, stops: list[Any]):
     return days[0] + timedelta(days=n)
 
 
+#: 자기 팀이 있는 일정 종류(식사 · 활동이 아닌 것) → 문장이 그 종류를 말하는 낱말. 규칙 경로 대상 고르기가 쓴다
+_OWN_TEAM_WORDS = {"lodging": r"숙소|숙박|호텔", "flight": r"항공|비행기"}
+
+
 def _change_target(items: list[Any], message: str, selected: UUID | None, at: datetime):
     """「바꿔 줘」가 가리키는 식사·활동.
 
@@ -137,16 +141,17 @@ def _change_target(items: list[Any], message: str, selected: UUID | None, at: da
             found = (today or upcoming or meals or [None])[0]
             if found is not None:
                 return found
-    if kind in (None, "lodging") and re.search(r"숙소|숙박|호텔", text):
-        # ★`[2026-10-15 숙박예약 점검 LB-02]` 숙소는 번호 · 서수 · 끼니로 세는 목록(식사 · 활동)에 넣지 않는다(「2번」 같은 번호가 밀리지 않게). 문장이 **숙소라고 말했을 때**만 대상이다 —
-        #   이름이 있는 식사 · 활동(「호텔 조식」)은 위에서 이미 골랐다. 숙소가 여럿이면 이름의 단어가 겹친 것, 못 가리면 None(부르는 쪽이 되묻는다)
-        stays = [i for i in items if i.kind == "lodging"]
-        pick = stays[0] if len(stays) == 1 else _rule_stay(stays, text)
+    # ★`[2026-10-15 숙박예약 점검 LB-02]` 숙소 · 항공편은 번호 · 서수 · 끼니로 세는 목록(식사 · 활동)에 넣지 않는다(「2번」 같은 번호가 밀리지 않게). 문장이 **그 종류를 말했을 때**만 대상이다 —
+    #   이름이 있는 식사 · 활동(「호텔 조식」)은 위에서 이미 골랐다. 같은 종류가 여럿이면 이름의 단어가 겹친 것, 못 가리면 None(부르는 쪽이 되묻는다). 두 종류를 함께 말했으면 가리지 않는다
+    said = [own for own, words in _OWN_TEAM_WORDS.items() if re.search(words, text)]
+    if kind is None and len(said) == 1:
+        own_items = [i for i in items if i.kind == said[0]]
+        pick = own_items[0] if len(own_items) == 1 else _rule_named(own_items, text)
         if pick is not None:
             return pick
     if selected is not None:
-        # 화면에서 고른 일정이 숙소면 그것이 대상이다(문장이 다른 종류를 말하지 않았을 때)
-        chosen = next((i for i in [*stops, *(x for x in items if x.kind == "lodging")] if i.item_id == selected), None)
+        # 화면에서 고른 일정이 숙소 · 항공편이면 그것이 대상이다(문장이 다른 종류를 말하지 않았을 때)
+        chosen = next((i for i in [*stops, *(x for x in items if x.kind in _OWN_TEAM_WORDS)] if i.item_id == selected), None)
         if chosen is not None and (kind is None or chosen.kind == kind) and (
                 day is None or chosen.starts_at.astimezone(KST).date() == day):   # 문장이 말한 종류 · 날과 맞을 때만
             return chosen
@@ -155,8 +160,8 @@ def _change_target(items: list[Any], message: str, selected: UUID | None, at: da
     return None
 
 
-def _rule_stay(stays: list[Any], text: str):
-    """숙소가 여럿일 때 문장의 단어가 가장 많이 겹친 하나 — 동점이거나 겹침이 없으면 None(지어내지 않는다)."""
+def _rule_named(stays: list[Any], text: str):
+    """같은 종류가 여럿일 때 문장의 단어가 가장 많이 겹친 하나 — 동점이거나 겹침이 없으면 None(지어내지 않는다)."""
     import re
 
     scored = []
@@ -214,7 +219,7 @@ def _latest_changed_item(store: TripStore, trip_id: UUID):
 
 
 #: 일정 항목의 종류이자 그 종류를 맡는 팀 id — 둘이 같은 말이다(`config/project.yaml`)
-ITEM_TEAMS = frozenset({"activity", "dining", "mobility", "lodging"})
+ITEM_TEAMS = frozenset({"activity", "dining", "mobility", "lodging", "flight"})
 
 
 def owner_team(team: str, *, items: list[Any], message: str, selected: UUID | None,

@@ -40,7 +40,7 @@ FACTS = ("detail", "address", "phone", "hours", "time", "next", "booking", "day"
          "description", "duration", "price", "entry_booking", "outdoor", "food", "none")
 #: 고객의 **현재 위치**가 있어야 답할 수 있는 사실 — 요청에 위치가 없으면 서버가 「현재 위치를 알려 주세요」로 답한다(`trip_here`)
 LOCATION_FACTS = ("route_here", "nearby_dining", "nearby_activity")
-KIND_KO = {"dining": "식당", "activity": "활동", "lodging": "숙소"}
+KIND_KO = {"dining": "식당", "activity": "활동", "lodging": "숙소", "flight": "항공편"}
 #: 변경 이력에 싣는 최근 변경 수 — ★우리가 고른 값. 고객이 가리키는 변경은 대개 최근이다
 RECENT_CHANGES = 8
 #: 일정 밖 일반 질문·추천의 답은 모델이 쓴 문장이다 — 여행 자료로 확인한 것이 아니라는 말을 코드가 붙인다(모델이 빼먹지 못하게)

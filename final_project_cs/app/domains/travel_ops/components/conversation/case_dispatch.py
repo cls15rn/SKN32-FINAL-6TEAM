@@ -329,7 +329,7 @@ def _resume_route(case: dict[str, Any], message: str | None) -> str | None:
     with get_connection() as conn:
         _, items = TripStore(case["tenant_id"]).latest(conn, UUID(str(ref["id"])))
     matches = [i for i in items if str(i.item_id) == str(target) or text in (i.title, str(i.item_id))]
-    if len(matches) == 1 and matches[0].kind in ("dining", "activity", "mobility", "lodging"):    # ★`[2026-10-15 LB-02]` 숙소도 자기 팀으로
+    if len(matches) == 1 and matches[0].kind in ("dining", "activity", "mobility", "lodging", "flight"):    # ★`[2026-10-15 LB-02]` 숙소 · 항공도 자기 팀으로
         return matches[0].kind
     return None
 

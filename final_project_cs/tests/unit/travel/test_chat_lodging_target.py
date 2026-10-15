@@ -74,3 +74,16 @@ def test_numbers_count_only_meals_and_activities():
     items = _trip()
     assert [_change_target(items, f"{n}번 바꿔 줘", None, AT).title for n in (1, 2, 3)] == ["아침 식사", "경복궁 관람", "광장시장 점심"]
     assert _change_target(items, "4번 바꿔 줘", None, AT) is None, "숙소는 번호에 들어가지 않는다"
+
+
+def test_a_flight_is_targeted_the_same_way_when_the_sentence_says_flight_or_it_is_pressed():
+    """`[2026-10-15]` 항공편도 숙소와 같다 — 문장이 항공 · 비행기라고 말하거나 화면에서 눌러 두었을 때만 대상이고, 번호에는 안 들어간다. 두 종류를 함께 말하면 가리지 않는다."""
+    items = [*_trip(), _item(6, "flight", "김포 → 제주", 20, end=datetime(2030, 1, 5, 21, 10, tzinfo=KST))]
+    flight = next(i for i in items if i.kind == "flight")
+    stay = next(i for i in items if i.kind == "lodging")
+    assert _change_target(items, "항공 바꿔 줘", None, AT) is flight
+    assert _change_target(items, "비행기 다른 걸로", None, AT) is flight
+    assert _change_target(items, "바꿔 줘", flight.item_id, AT) is flight
+    assert _change_target(items, "숙소 바꿔 줘", None, AT) is stay, "숙소 요청은 여전히 숙소"
+    assert _change_target(items, "숙소랑 항공 바꿔 줘", None, AT) is None, "두 종류를 함께 말하면 가리지 않는다"
+    assert _change_target(items, "5번 바꿔 줘", None, AT) is None, "번호는 식사 · 활동만 센다"
