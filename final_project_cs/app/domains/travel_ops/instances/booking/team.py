@@ -231,9 +231,18 @@ def _stop_core(stop: str) -> str:
     return core[:-1] if core.endswith("역") and len(core) > 2 else core
 
 
+#: 정류장 이름 앞에 붙는 노선 이름 — 「2호선강남역」 「신분당선 강남역」 → 「강남」으로도 맞춘다(`[10-15]` 보강)
+_LINE_PREFIX = re.compile(r"^(?:\d+호선|신분당선|분당선|수인분당선|경의중앙선|경춘선|공항철도|우이신설선|신림선|GTX-?A)")
+
+
 def _route_stops(route: dict[str, Any]) -> set[str]:
     parts = re.split(r"[,·/]", str(route.get("route") or "") + "," + str(route.get("number") or "").partition("(")[2].rstrip(")"))
-    return {core for part in parts if len(core := _stop_core(part)) >= 2 and core not in _STOP_IGNORED}
+    cores = set()
+    for part in parts:
+        core = _stop_core(part)
+        bare = _stop_core(_LINE_PREFIX.sub("", core))
+        cores |= {name for name in (core, bare) if len(name) >= 2 and name not in _STOP_IGNORED}
+    return cores
 
 
 def _airport_area(routes: list[dict[str, Any]], text: str) -> tuple[list[str], list[dict[str, Any]]]:

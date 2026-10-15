@@ -876,3 +876,12 @@ def test_the_neighbourhood_said_narrows_the_limousine_routes_by_their_stops():
     assert "  「노원」을(를) 지나는 노선 1개만 골랐어요(노선 정보의 정류장 이름 기준)." in answer
     assert "6100(수락/노원/망우)" in answer and "6009(가락1동주민센터)" not in answer
 
+
+def test_a_stop_written_with_its_line_name_still_matches_the_plain_name():
+    """`[10-15]` 보강 — 정류장 표기 「2호선강남역」 「신분당선 강남역」도 고객의 「강남」과 맞는다."""
+    from app.domains.travel_ops.instances.booking.team import _airport_area, _route_stops
+    route = {"number": "6009(가락1동주민센터)", "route": "인천공항1터미널, 신분당선 강남역, 신논현역·2호선강남역·오클라우드호텔"}
+    assert {"강남", "2호선강남", "신분당선강남", "신논현", "가락1동주민센터"} <= _route_stops(route)
+    said, routes = _airport_area([route, {"number": "6100(수락/노원/망우)", "route": "노원역"}], "인천공항에서 강남 가는 리무진")
+    assert said == ["강남"] and [r["number"] for r in routes] == ["6009(가락1동주민센터)"]
+
