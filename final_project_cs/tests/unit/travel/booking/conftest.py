@@ -36,6 +36,10 @@ GATE: dict[str, dict[str, str]] = {
         "test_change_on_a_train_item_offers_same_grade_runs_near_the_original_departure_without_touching_the_plan": "기차 항목 「바꿔 줘」 → 같은 등급 · 앞뒤 3시간 운행을 보류 제안으로",
         "test_choosing_a_train_run_moves_both_times_and_rechecks_the_fare": "운행 고르기 → 출발 · 도착 시각 교체 · 요금 재확인",
     },
+    "test_arex_module.py": {                                      # `[2026-10-15]` 예약 모듈 — 공항철도 직통(이동 모듈 시간표)
+        "test_a_seoul_to_airport_train_search_reads_the_timetable_without_calling_tago": "서울역 ↔ 인천공항 기차 → AREX 직통 시간표(TAGO 안 부름)",
+        "test_an_arex_sentence_is_answered_from_the_timetable_with_the_first_page_link_and_no_fare": "AREX 답 — 요일 시간표 표시 · 첫 화면 링크 · 요금 지어내지 않음",
+    },
     "test_lodging_team.py": {
         "test_search_calls_the_model_once_and_answers_from_tool_values": "숙소 검색 — 모델은 해석 한 번, 답은 도구 값으로",
         "test_missing_values_are_asked_back_without_any_search": "빠진 값(날짜 · 인원 · 지역)을 검색 없이 되묻기",

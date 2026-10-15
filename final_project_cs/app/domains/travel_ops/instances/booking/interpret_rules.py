@@ -19,6 +19,7 @@ LLM 판단이 아니라 채우기다 → 「예약 모듈」(규칙 기반). 숙
   빼는 말이 있으면 나머지 시간대, 「~도 괜찮 · 상관없」이면 제한 없음. 「갈 때랑 똑같이」면 가는 편과 같게.
 - 가격: 「N만 원」 「N만원 이하 · 까지」 「왕복으로 N」(만 원 단위) — 「왕복」이 붙으면 round_trip, 「편도」면 one_way.
 - `[2026-10-14]` 교통수단(`mode`): 기차 · 열차 · KTX · SRT · ITX · 무궁화 · 새마을 → train, 고속버스 · 시외버스 · 버스 → bus, 없으면 flight.
+  `[2026-10-15]` 공항철도 · AREX · 직통열차도 train(서울역 ↔ 인천공항이면 `offers/arex.py` 직통 시간표로 간다).
   「X 말고 Y」면 Y. 기차 · 버스의 출발 · 도착은 역 · 터미널 **이름**(`offers/transit.STATIONS` 사전 + 「역 · 터미널」 붙은 말) — 공항 표를 안 본다.
   열차 등급(KTX · SRT · ITX · 무궁화 · 새마을) · 버스 등급(프리미엄 · 우등 · 일반)은 `grade`, 「시외 · 고속」은 `kind`.
 - 할 일: 「확정 · 예약 상태 · 발권」 → status, 「항공(권) 말고 · 비행기 말고」 → unclear, 그 밖 → search.
@@ -184,13 +185,24 @@ def _airports(text: str) -> tuple[str | None, str | None]:
 _STATION_TABLE: dict[str, str] = {name: name for name in STATIONS}
 _STATION_TABLE.update({f"{name}역": name for name in STATIONS if not name.endswith("역")})
 _STATION_TABLE.update({f"{name} 터미널": name for name in STATIONS} | {f"{name}터미널": name for name in STATIONS})
-_MODE_WORDS = {"train": ("기차", "열차", "ktx", "srt", "itx", "무궁화", "새마을", "train"),
-               "bus": ("고속버스", "시외버스", "고속 버스", "시외 버스", "버스", "bus"),
-               "flight": ("비행기", "항공권", "항공편", "항공", "flight", "플라이트")}
-_NOT_BUS = ("공항버스", "공항 버스", "리무진", "시내버스", "셔틀")
+_MODE_WORDS = {"train": ("기차", "열차", "ktx", "srt", "itx", "무궁화", "새마을", "train", "공항철도", "arex", "직통열차"),
+               "bus": ("고속버스", "시외버스", "고속 버스", "시외 버스", "공항버스", "공항 버스", "리무진", "버스", "bus"),
+               "flight": ("비행기", "항공권", "항공편", "항공", "flight", "플라이트"),
+               # `[2026-10-15]` 상품형 — 시티투어버스(「투어버스」의 「버스」보다 앞에서 잡혀 버스가 아니라 이것)
+               "tour": ("시티투어", "시티 투어", "투어버스", "투어 버스", "타이거버스", "노랑풍선",
+                        "유람선", "크루즈", "이크루즈", "이랜드크루즈",
+                        "렌터카", "렌트카", "차 빌려", "차를 빌려", "한강버스", "한강 버스")}
+#: 상품형 종류를 가리키는 말 — 앞에서부터(없으면 시티투어)
+_CRUISE_WORDS = ("유람선", "크루즈")
+_TOUR_KINDS = (("river_bus", ("한강버스", "한강 버스")), ("cruise", _CRUISE_WORDS),
+               ("rental", ("렌터카", "렌트카", "차 빌려", "차를 빌려")))
+#: 유람선 선착장 — 말하면 그 선착장 상품만
+_PIERS = ("여의도", "잠실")
+#: `[2026-10-15]` 공항버스 · 리무진은 버스로 읽는다(서울 ↔ 인천공항이면 booking 이 공항리무진 안내로 답한다) — 시내버스 · 셔틀만 뺀다
+_NOT_BUS = ("시내버스", "셔틀")
 #: 교통수단 뒤에 붙는 빼는 말 — 「기차 말고 · 빼고 · 제외하고 · 아니고 · 안 타고 · 타지 말고」 (팀장 점검 LB-06 「제외」 추가, 10-15)
 _MODE_NEG = ("말고", "빼고", "말구", "아니고", "아니라", "제외", "빼구", "안 타", "안타", "타지 말", "타지 않", "싫", "피해")
-_GRADES = ("KTX", "SRT", "ITX", "무궁화", "새마을", "프리미엄", "우등", "일반")
+_GRADES = ("KTX", "SRT", "ITX", "AREX", "무궁화", "새마을", "프리미엄", "우등", "일반")
 
 
 def _mode(text: str) -> str | None:
@@ -446,7 +458,13 @@ def interpret(text: str, *, today: date, trip: dict[str, Any] | None = None) -> 
     if task != "search":
         return {"task": task, "other_requests": [], "missing": [], "question": None}
     mode = _mode(text) or "flight"
-    origin, destination = _airports(text) if mode == "flight" else _endpoints(text, _STATION_TABLE)
+    tour_kind = None
+    if mode == "tour":
+        tour_kind = next((kind for kind, words in _TOUR_KINDS if any(word in text for word in words)), "city_tour")
+        origin = next((pier for pier in _PIERS if pier in text), None) if tour_kind == "cruise" else None
+        destination = None
+    else:
+        origin, destination = _airports(text) if mode == "flight" else _endpoints(text, _STATION_TABLE)
     if origin and destination and origin == destination:
         destination = None
     dates = _dates(text, today=today, trip=trip)
@@ -482,7 +500,8 @@ def interpret(text: str, *, today: date, trip: dict[str, Any] | None = None) -> 
         domestic = origin in _KOREAN and destination in _KOREAN
     return {
         "task": "search", "mode": mode, "origin": origin, "destination": destination,
-        "grade": _grade(text) if mode != "flight" else None, "kind": _kind(text) if mode == "bus" else None,
+        "grade": _grade(text) if mode in ("train", "bus") else None,
+        "kind": _kind(text) if mode == "bus" else tour_kind,
         "depart_date": depart[0].isoformat() if depart else None, "depart_date_text": depart[1] if depart else None,
         "return_date": back[0].isoformat() if back else None, "return_date_text": back[1] if back else None,
         "adults": adults, "children": children, "infants": infants,

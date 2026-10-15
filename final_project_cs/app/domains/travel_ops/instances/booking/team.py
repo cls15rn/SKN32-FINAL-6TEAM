@@ -56,6 +56,7 @@ from app.core.contracts import Evidence, NextAction, TeamManifest, TeamResult, T
 
 from app.domains.travel_ops.instances._shared._base import TravelTeamBase
 from app.domains.travel_ops.instances._shared.itinerary_team import ITINERARY_TOOLS, ItineraryWork
+from app.domains.travel_ops.components.booking.offers.tours import KIND_LABEL as TOUR_LABEL, search_tours
 from app.domains.travel_ops.components.itinerary.itinerary_changes import ItineraryChange, NoChange, applied_record, with_request
 from .interpret import _KOREAN_AIRPORTS, TIME_BANDS, Interpretation, InterpretationInvalid, ask, ground, needs, parse, settle_years
 from .interpret_rules import interpret as interpret_rules
@@ -117,7 +118,9 @@ def _transit_key(option: dict[str, Any]) -> str:
 
 def _same_run(option: dict[str, Any], pick: dict[str, Any]) -> bool:
     """다시 찾은 운행이 고른 운행과 같은가 — 종류 · 등급 · 날짜 · 출발 시각 + 열차는 번호, 버스는 출발 · 도착 터미널(터미널 조합을 합쳐 받으므로 — 검토 10-14)."""
-    keys = ("mode", "grade", "date", "depart") + (("number",) if option.get("mode") == "train" else ("origin", "destination"))
+    # `[10-15]` AREX 직통은 열차 번호가 없다(시간표에 칸이 없음) — 번호가 없는 열차는 버스처럼 출발 · 도착 역으로 가른다
+    keys = ("mode", "grade", "date", "depart") + (("number",) if option.get("mode") == "train" and pick.get("number")
+                                                  else ("origin", "destination"))
     return all(option.get(key) is not None and option.get(key) == pick.get(key) for key in keys)
 
 
@@ -154,7 +157,7 @@ def _transit_option(rank: int, option: dict[str, Any], item: Any, people: int | 
             "per_person": price, "best": price * people if price is not None and people else price,
             "seller": site.get("name"), "link": site.get("url"), "link_seller": site.get("name"), "link_price": None,
             "link_kind": "route_search" if deep else "site",
-            "sources": ["tago"]}
+            "sources": [option.get("source") or "tago"]}
 
 
 def _fresh_runs(options: list[dict[str, Any]], exclude: set[str], *, around: int | None, grade: str | None,
@@ -203,7 +206,7 @@ def _transit_line(option: dict[str, Any], adults: int | None) -> str:
     number = f" {option['number']}" if option.get("mode") == "train" and option.get("number") else ""
     kind = {"express": "고속", "suburbs": "시외"}.get(option.get("kind") or "", "")
     price = option.get("price")
-    fare = _won(price, "KRW") if isinstance(price, int) else "요금 모름"
+    fare = _won(price, "KRW") if isinstance(price, int) else ("요금은 예매 화면에서" if option.get("kind") == "arex" else "요금 모름")
     total = f"(성인 {adults}명 {price * adults:,}원)" if isinstance(price, int) and isinstance(adults, int) and adults > 1 else ""
     band = BAND_LABEL.get(_band_of(option.get("depart")) or "", "")
     return (f"[{band or '시각 모름'}] {kind}{grade}{number} — {option.get('origin') or '?'} {option.get('depart') or '?'} → "
@@ -557,6 +560,8 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
         missing = needs(found, today=today)
         if missing:
             return self._respond(task, evidence, {**decision, "needs": missing}, ask(found, missing))
+        if found.mode == "tour":
+            return self._search_tours(task, found, evidence, decision)
         if found.mode != "flight":
             return self._search_transit(task, found, seen, evidence, decision)
         return self._search(task, found, seen, evidence, decision)
@@ -706,6 +711,33 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                              "\n".join([head, *lines, *pages, *others, tail]))
 
     # ── 기차 · 버스 (`[2026-10-14]` 예약 모듈 확장) ─────────────
+    def _search_tours(self, task: TeamTask, found: Interpretation, evidence: list[Evidence], decision: dict[str, Any]) -> TeamResult:
+        """`[2026-10-15]` 상품형(시티투어버스) — 공급자 호출 0. 코스 목록(공식 페이지 글) + 코스 페이지 링크. 그날 운행 · 좌석 · 요금은 링크에서."""
+        kind = found.kind or "city_tour"
+        got = search_tours(kind=kind, day=found.depart_date, bands=list(found.depart_times or []), place=found.origin, adults=found.adults)
+        evidence = self._evidence(task, source_id="booking.tours_catalog", claim=f"{TOUR_LABEL.get(kind, kind)} 코스 목록(공식 페이지 {got['checked']} 기준)",
+                                  value=got, base=evidence)
+        party = f" · 성인 {found.adults}명" if found.adults else ""
+        where = f"{found.origin} " if found.origin else ""
+        until = f"~{found.return_date.isoformat()}" if found.return_date else ""
+        lines = [f"{got['date']}({got['weekday']}){until}{party} — {where}{TOUR_LABEL.get(kind, kind)} 상품이에요. 운행 정보는 각 회사 공식 페이지({got['checked']} 확인) 기준이고, "
+                 "그날 운행 · 남은 좌석 · 요금은 링크한 페이지에서 확인해 주세요."]
+        if got["band_fallback"]:
+            said = " · ".join(BAND_LABEL[band] for band in found.depart_times or [] if band in BAND_LABEL)
+            lines.append(f"{said} 코스는 없어 전체를 보여 드립니다.")
+        for number, course in enumerate(got["options"], start=1):
+            band = {"day": "[주간] ", "night": "[야간] "}.get(course["band"] or "", "")
+            facts = " · ".join(part for part in (f"{course['start']} 출발" if course["start"] else None, course["hours"], course["booking"]) if part) \
+                or "운행 시각은 페이지에서"
+            closed = f" ※ 그날은 안 다닐 수 있어요 — {course['note']}" if course["closed_today"] and course.get("note") else ""
+            lines.append(f"  {number}. {band}{course['operator']} · {course['name']} — {facts}{closed}: {course['url']}")
+        lines += got.get("notes") or []
+        lines.append("예약 · 결제는 각 페이지에서 직접 해 주세요(우리는 조건을 채워 주지 못합니다)." if kind != "river_bus"
+                     else "운항 시간 · 결항은 링크한 누리집에서 확인해 주세요.")
+        return self._respond(task, evidence, {**decision, "mode": "tour", "kind": kind, "shown": [course["id"] for course in got["options"]],
+                                              "closed_today": [course["id"] for course in got["options"] if course["closed_today"]],
+                                              "supplier_calls": 0}, "\n".join(lines))
+
     def _search_transit(self, task: TeamTask, found: Interpretation, seen: set[str], evidence: list[Evidence],
                         decision: dict[str, Any]) -> TeamResult:
         """열차 · 버스 운행 비교 — TAGO 한 소스. 가는 날 한 번, 오는 날이 있으면 방향을 바꿔 한 번 더. 예매는 링크로."""
@@ -742,6 +774,11 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                 places = " · ".join(source.get("unresolved") or [])
                 lines.append(f"[{name}] 「{places}」을(를) {'역' if found.mode == 'train' else '터미널'} 이름으로 찾지 못했습니다. "
                              f"{'역' if found.mode == 'train' else '터미널'} 이름을 정확히 알려 주세요.")
+                continue
+            if state == "airport_bus":                   # `[10-15]` 서울 ↔ 인천공항 버스 = 공항리무진 — 운행표에 없다, 지어내지 않고 타는 법만
+                lines.append(f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요. "
+                             "서울 → 공항은 사전 예약 없이 정류장에서 타고(교통카드 · 현금), 공항 → 서울은 공항 매표소 · 무인발권기에서 표를 삽니다"
+                             "(공항리무진 공지 기준 — 노선마다 다를 수 있어요). 시간표가 필요하시면 「공항철도」로 물어봐 주세요 — 직통열차 시각을 드려요.")
                 continue
             if state == "not_yet":                       # 팀장 점검 LB-03 — 공급자가 먼 날짜 버스 운행을 아직 안 준다
                 lines.append(f"[{name}] 그날 버스 운행은 아직 확인할 수 없습니다 — 공급자가 가까운 날(보통 출발 1~2일 전)부터 운행표를 줍니다. "
@@ -781,6 +818,12 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                                  f"{' · '.join(others)} 출발을 원하시면 터미널 이름으로 말씀해 주세요.")
             for number, option in enumerate(picked, start=1):
                 lines.append(f"  {number}. {_transit_line(option, found.adults)}")
+            timetable = (got or {}).get("timetable") or {}
+            if timetable.get("kind") == "arex":                # `[10-15]` AREX 직통 — 그날 운행이 아니라 요일 시간표라고 밝힌다
+                table = "주말 · 공휴일" if timetable.get("day_type") == "holiday" else "평일"
+                unsure = " 공휴일인지 확인하지 못해 평일 시간표로 봤어요." if timetable.get("basis") == "holiday_unknown" else ""
+                lines.append(f"  공항철도 직통은 {table} 시간표 기준이에요({timetable.get('collected') or '수집일 모름'} 수집).{unsure} "
+                             "그날 운휴 · 임시 변경 · 남은 좌석 · 요금은 예매 화면에서 확인해 주세요.")
             if times and bands_empty and not fallback:
                 lines.append(f"  받은 결과에 {' · '.join(BAND_LABEL[b] for b in bands_empty)} 출발은 없었습니다.")
             shown_all += [{"leg": name, "grade": option.get("grade"), "depart": option.get("depart"), "price": option.get("price")}
@@ -794,15 +837,20 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
             lines += [f"   · {label}" for label in deep.values()]
         sites = {site["name"]: site["url"] for _, got, _ in results for site in ((got or {}).get("elsewhere") or [])
                  if not ("srail" in site["url"] and "srt" in deep_sites) and not ("bustago" in site["url"] and "bustago" in deep_sites)}
+        guide_only = all(state == "airport_bus" for state in states)
         if sites:
-            lines.append("그 밖의 예매 사이트(조건을 채워 주지는 않습니다 — 날짜 · 역 · 터미널을 다시 고르셔야 합니다):"
+            lines.append("노선 · 시간표는 아래에서 확인해 주세요:" if guide_only else
+                         "그 밖의 예매 사이트(조건을 채워 주지는 않습니다 — 날짜 · 역 · 터미널을 다시 고르셔야 합니다):"
                          if deep else "예매는 아래 사이트에서 직접(조건을 채워 주지는 않습니다 — 날짜 · 역 · 터미널을 다시 고르셔야 합니다):")
             lines += [f"   · {name}: {url}" for name, url in sites.items()]
-        lines.append("요금은 공급자가 준 어른 1인 기준 조회 시점 참고값이며 좌석 등급 · 할인에 따라 예매 화면에서 달라질 수 있습니다. "
-                     "좌석이 남았는지는 예매 화면에서 확인해 주세요.")
+        if any(isinstance(shown.get("price"), int) for shown in shown_all) or not (shown_all or guide_only):
+            lines.append("요금은 공급자가 준 어른 1인 기준 조회 시점 참고값이며 좌석 등급 · 할인에 따라 예매 화면에서 달라질 수 있습니다. "
+                         "좌석이 남았는지는 예매 화면에서 확인해 주세요.")
         calls = sum(len(((got or {}).get("sources", {}).get("tago") or {}).get("calls") or []) for _, got, _ in results)
         return self._respond(task, evidence, {**decision, "mode": found.mode, "legs": len(results), "shown": shown_all,
-                                              "tago_calls": calls, "states": states, "booking_links": sorted(deep_sites)},
+                                              "tago_calls": calls, "states": states, "booking_links": sorted(deep_sites),
+                                              "via": sorted({((got or {}).get("sources", {}).get("tago") or {}).get("via") or "tago"
+                                                             for _, got, _ in results})},
                              "\n".join(lines))
 
     # ── 일정 항공편 항목 (`flight.itinerary`, 2026-10-11) ─────────────

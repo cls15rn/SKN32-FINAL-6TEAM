@@ -1815,6 +1815,121 @@
         "needs": []
       },
       "note": "팀장 점검 LB-07(10-15) — 「출발」 절은 가는 편"
+    },
+    {
+      "id": "T18",
+      "text": "11월 6일 서울역에서 인천공항 2터미널 가는 공항철도 2명",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "train",
+        "origin": "서울",
+        "destination": "인천공항 2터미널",
+        "depart_date": "2026-11-06",
+        "adults": 2,
+        "needs": []
+      },
+      "note": "AREX 직통(10-15) — 「공항철도」는 기차, 터미널 이름은 띄어 써도 그대로"
+    },
+    {
+      "id": "T19",
+      "text": "AREX로 11월 9일 인천공항에서 서울역 1명 오후",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "train",
+        "grade": "AREX",
+        "origin": "인천공항",
+        "destination": "서울",
+        "depart_date": "2026-11-09",
+        "adults": 1,
+        "depart_times": [
+          "afternoon"
+        ],
+        "needs": []
+      },
+      "note": "AREX 직통(10-15) — 영문 「AREX」 뒤 한글 조사는 단어 경계, 등급 AREX"
+    },
+    {
+      "id": "T20",
+      "text": "11월 7일 시티투어버스 2명 저녁에 타고 싶어",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "tour",
+        "kind": "city_tour",
+        "origin": null,
+        "destination": null,
+        "depart_date": "2026-11-07",
+        "adults": 2,
+        "depart_times": [
+          "evening"
+        ],
+        "needs": []
+      },
+      "note": "상품형(10-15) — 「투어버스」는 버스가 아니라 시티투어, 출발 · 도착 없음"
+    },
+    {
+      "id": "T21",
+      "text": "내일 서울에서 인천공항 리무진 2명",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "bus",
+        "origin": "서울",
+        "destination": "인천공항",
+        "adults": 2,
+        "needs": []
+      },
+      "note": "버스 정리(10-15) — 리무진 · 공항버스도 버스(서울 ↔ 인천공항은 공항리무진 안내)"
+    },
+    {
+      "id": "T22",
+      "text": "11월 7일 잠실에서 한강 유람선 2명 저녁",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "tour",
+        "kind": "cruise",
+        "origin": "잠실",
+        "destination": null,
+        "depart_date": "2026-11-07",
+        "adults": 2,
+        "depart_times": [
+          "evening"
+        ],
+        "needs": []
+      },
+      "note": "상품형(10-15) — 한강 유람선, 선착장은 origin"
+    },
+    {
+      "id": "T23",
+      "text": "11월 7일부터 9일까지 렌터카 2명",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "tour",
+        "kind": "rental",
+        "depart_date": "2026-11-07",
+        "return_date": "2026-11-09",
+        "adults": 2,
+        "needs": []
+      },
+      "note": "상품형(10-15) — 렌터카, 대여 ~ 반납 날짜"
+    },
+    {
+      "id": "T24",
+      "text": "11월 4일 한강버스 단체 15명",
+      "set": "transit",
+      "expect": {
+        "task": "search",
+        "mode": "tour",
+        "kind": "river_bus",
+        "depart_date": "2026-11-04",
+        "adults": 15,
+        "needs": []
+      },
+      "note": "상품형(10-15) — 한강버스 단체(10명 이상은 상품형만 받음 · 항공 · 기차 · 버스는 9명까지)"
     }
   ]
 }

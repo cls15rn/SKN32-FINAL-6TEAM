@@ -10,15 +10,19 @@
 - 돌려주는 모양은 항공과 같은 골격 — `options`(운행 하나씩, 출발 시각순) · `sources`(`tago` 의 status · count · seconds · 부른 횟수) ·
   `resolved`(출발 · 도착으로 쓴 역 · 터미널 이름) · `elsewhere`(예매 사이트 첫 화면 링크) · `confirmed_at`. 운행마다 `links` — 조건을 채워
   여는 예매 주소(SRT · 트립닷컴 · 버스타고, `transit_links.py`) — 가 붙고, 없으면 빈 목록이다.
+- `[2026-10-15]` 열차로 서울역 ↔ 인천공항(1 · 2터미널)이면 **AREX 직통**(`arex.py`) — TAGO 를 부르지 않고 요일 시간표 파일에서 답한다.
+  결과에 `timetable`(평일 · 휴일 중 어느 표인지 · 근거 · 수집일)이 붙고, 운행의 `kind` 는 `arex`, 요금 · 열차 번호는 없다.
 - 예매 · 결제는 하지 않는다. 요금은 공급자의 어른 1인 값 그대로(조회 시점 참고값).
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import re
 import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.domains.travel_ops.components.booking.offers import arex
 from app.domains.travel_ops.components.booking.offers.transit_links import run_links
 
 #: 고객이 말하는 이름 → (열차 역 이름, 시 · 도). 역 목록에서 「역 이름으로 시작」하는 것을 고른다(「울산(통도사)」 · 「김천(구미)」).
@@ -37,6 +41,9 @@ STATIONS: dict[str, tuple[str, str]] = {
     "강릉": ("강릉", "강원"), "춘천": ("춘천", "강원"), "원주": ("원주", "강원"), "만종": ("만종", "강원"), "평창": ("평창", "강원"),
     "진부": ("진부(오대산)", "강원"), "동해": ("동해", "강원"), "제천": ("제천", "충북"), "충주": ("충주", "충북"), "논산": ("논산", "충남"),
     "공주": ("공주", "충남"), "인천공항": ("인천공항T1", "인천"), "검암": ("검암", "인천"),
+    # `[2026-10-15]` 공항철도 직통(`arex.py`)이 받는 이름 — TAGO 기차에는 운행이 없어(0편) 이 이름들은 AREX 시간표로 간다
+    "인천공항T1": ("인천공항T1", "인천"), "인천공항1터미널": ("인천공항T1", "인천"), "인천공항 1터미널": ("인천공항T1", "인천"),
+    "인천공항T2": ("인천공항T2", "인천"), "인천공항2터미널": ("인천공항T2", "인천"), "인천공항 2터미널": ("인천공항T2", "인천"),
 }
 
 #: 버스 터미널 조각 — 고객 말 → 공급자 터미널 이름에서 찾을 조각. 없으면 말한 이름 그대로 찾는다
@@ -90,6 +97,11 @@ BOOKING_SITES = {
 }
 
 
+#: `[2026-10-15]` 서울 ↔ 인천공항 버스(공항리무진) 안내 — 운행표 · 예매 대신 노선 · 시간표 페이지. 공항리무진 공지(2026-04, 10-15 확인):
+#: 서울 → 공항은 「온라인을 포함한 사전 예약제가 없음」(선착순, 교통카드 · 현금), 공항 → 서울은 매표소 · 무인발권기. 일부 노선만 앱 예매(노선마다 다름)
+AIRPORT_BUS_SITES = [{"name": "공항리무진 노선 · 시간표", "url": "https://www.airportlimousine.co.kr/sub/sub01.php"}]
+
+
 FAILED = object()      # 어댑터가 못 불렀다(장애 · 한도) — 「이름을 못 찾음」과 가른다(검토 10-14)
 
 
@@ -112,12 +124,26 @@ def _station(adapter: Any, said: str, calls: list[str]) -> dict[str, Any] | None
     return None
 
 
+#: `[2026-10-15]` 도시 이름으로 터미널을 찾을 때, 이름 끝 괄호에 **다른 곳**이 붙은 터미널은 그 도시 출발로 보지 않는다 — 실호출(10-15 09:57,
+#: 서울→인천공항 시외)에서 「동서울(홍천)」이 서울 출발 후보 셋 중 하나를 차지했다. 「센트럴시티(서울)」처럼 괄호가 그 도시면 남긴다.
+#: 도시 이름만 — 「부산동부(노포)」(노포는 부산 안)처럼 괄호가 동네인 곳이 있어 모든 이름에 걸지 않는다.
+_CITY_KEYWORDS = {"서울"}
+_TAIL = re.compile(r"\(([^)]*)\)\s*$")
+
+
+def _elsewhere(name: str, keyword: str) -> bool:
+    tail = _TAIL.search(name)
+    return tail is not None and keyword not in tail.group(1)
+
+
 def _terminals(adapter: Any, kind: str, said: str, calls: list[str]) -> list[dict[str, Any]] | object:
     keyword = TERMINAL_HINT.get(said, said)
     calls.append(f"bus_terminals:{kind}:{keyword}")
     found = adapter.bus_terminals(kind, keyword)
     if found is None:
         return FAILED
+    if keyword in _CITY_KEYWORDS:
+        found = [t for t in found if not _elsewhere(t["name"], keyword)]
     exact = [t for t in found if t["name"] == keyword]
     starts = [t for t in found if t["name"].startswith(keyword) and t not in exact]
     rest = [t for t in found if t not in exact and t not in starts]
@@ -165,6 +191,24 @@ def search_transit(travel: Any, *, mode: str, origin: str, destination: str, dep
         "mode": mode, "query": {"origin": origin, "destination": destination, "depart_date": depart_date, "adults": adults, "kind": kind},
         "options": [], "resolved": {"origin": None, "destination": None}, "sources": {}, "elsewhere": [],
         "confirmed_at": datetime.now(UTC).isoformat()}
+    if mode == "train" and arex.pair(origin, destination):
+        # `[2026-10-15]` 서울역 ↔ 인천공항은 AREX 직통 — TAGO 기차에 없어(0편) 시간표 파일에서 답한다(공급자 호출 0). 상태 칸 이름은 그대로 `tago`
+        #   (팀 · 스크립트가 읽는 자리) — 어디서 왔는지는 `timetable` · 운행의 `source` 가 말한다
+        got = arex.runs(origin, destination, depart_date, holiday=getattr(travel, "holiday", None) if travel is not None else None)
+        options = (got or {}).get("options") or []
+        result.update({"options": options, "resolved": (got or {}).get("resolved") or result["resolved"],
+                       "elsewhere": [dict(arex.SITE)], **({"timetable": got["timetable"]} if got else {})})
+        result["sources"]["tago"] = {"status": "ok" if got else "unresolved", "count": len(options), "calls": [],
+                                     "seconds": round(time.perf_counter() - started, 1), "via": "arex_timetable",
+                                     **({} if got else {"unresolved": [origin, destination]})}
+        return result
+    if mode == "bus" and arex.pair(origin, destination):
+        # `[2026-10-15]` 서울 ↔ 인천공항 버스는 공항리무진(공항버스) — TAGO 고속 · 시외에 운행이 없다(10-15 실호출: 고속 서울경부 · 동서울 → T1 · T2,
+        #   시외 동서울 → 인천공항2터미널 · 인천공항행 전부 0편, 13회). 부르지 않고 안내로 답한다(`airport_bus`). 지방 ↔ 인천공항 시외는 그대로 묻는다
+        result["elsewhere"] = [dict(site) for site in AIRPORT_BUS_SITES]
+        result["sources"]["tago"] = {"status": "airport_bus", "count": 0, "calls": [], "seconds": round(time.perf_counter() - started, 1),
+                                     "via": "airport_bus_guide"}
+        return result
     if adapter is None:
         result["sources"]["tago"] = {"status": "failed", "reason": "transit_schedule 소스 없음(ACOP_TAGO_API_KEY)"}
         return result

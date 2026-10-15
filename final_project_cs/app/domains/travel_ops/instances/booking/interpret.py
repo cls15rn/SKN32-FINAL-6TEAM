@@ -8,6 +8,8 @@
 - 무엇이 빠졌는지는 `needs()` 가 값으로 다시 센다 — 지난 출발일 · 출발일보다 앞선 귀국일 · 출발지와 같은 도착지는 없는 값으로 본다.
 - `[2026-10-14]` 예약 모듈 확장 — `mode`(flight · train · bus). 항공만 출발 · 도착이 공항 코드이고, 기차 · 버스는 역 · 터미널 **이름**(규칙 사전 값)이다.
   `domestic` 은 항공에서만 필수(어느 도구를 부를지), 기차 · 버스는 국내뿐이라 True 로 둔다. `grade` 는 열차 등급(KTX · SRT …) · 버스 등급(우등 · 프리미엄 …) 바람.
+- `[2026-10-15]` `mode="tour"`(시티투어버스 `city_tour` · 한강 유람선 `cruise` · 렌터카 `rental` · 한강버스 `river_bus`): 도착이 없고 날짜만 필수(`needs`).
+  유람선은 선착장(여의도 · 잠실)을 말하면 `origin` 에 담는다.
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ _CODE = r"^[A-Z]{3}$"
 TIME_BANDS = (("dawn", "새벽", "00:00", "07:00"), ("morning", "오전", "07:00", "12:00"),
               ("afternoon", "오후", "12:00", "18:00"), ("evening", "저녁", "18:00", "24:00"))
 Band = Literal["dawn", "morning", "afternoon", "evening"]
-Mode = Literal["flight", "train", "bus"]
+Mode = Literal["flight", "train", "bus", "tour"]   # `[10-15]` tour = 시티투어버스 같은 상품형(출발 · 도착 없음)
 
 
 class InterpretationInvalid(ValueError):
@@ -44,7 +46,7 @@ class Interpretation(BaseModel):
     destination: str | None = Field(default=None, max_length=40)
     depart_date: date | None = None
     return_date: date | None = None
-    adults: int | None = Field(default=None, ge=1, le=9)
+    adults: int | None = Field(default=None, ge=1, le=99)   # `[10-15]` 상품형 단체(한강버스 10~30명) — 항공 · 기차 · 버스는 아래 parse 에서 9 까지
     children: int | None = Field(default=None, ge=0, le=9)
     infants: int | None = Field(default=None, ge=0, le=9)
     cabin: Literal["ECONOMY", "BUSINESS", "FIRST"] | None = None
@@ -62,7 +64,7 @@ class Interpretation(BaseModel):
     domestic: bool | None = None
     #: `[2026-10-14]` 기차 · 버스 — 열차 등급 · 버스 등급 바람(그대로 문장 조각), 버스 종류(express · suburbs)
     grade: str | None = Field(default=None, max_length=20)
-    kind: Literal["express", "suburbs"] | None = None
+    kind: Literal["express", "suburbs", "city_tour", "cruise", "rental", "river_bus"] | None = None
     missing: list[str] = Field(default_factory=list)
     question: str | None = None
 
@@ -84,6 +86,8 @@ def parse(raw: Any) -> Interpretation:
     except ValidationError as exc:
         fields = sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()})
         raise InterpretationInvalid(f"invalid fields: {fields}") from exc
+    if found.mode != "tour" and found.adults is not None and found.adults > 9:
+        raise InterpretationInvalid("invalid fields: ['adults']")    # 항공 · 기차 · 버스는 전처럼 9명까지(예약 한 번의 한도)
     if found.mode == "flight":
         bad = [name for name in ("origin", "destination") if getattr(found, name) and not re.fullmatch(_CODE, getattr(found, name))]
         if bad:
@@ -105,7 +109,8 @@ def needs(found: Interpretation, *, today: date) -> list[str]:
         values["depart_date"] = None
     if found.origin and found.destination and found.origin == found.destination:
         values["destination"] = None
-    missing = [name for name in REQUIRED if values.get(name) in (None, "")]
+    required = ("depart_date",) if found.mode == "tour" else REQUIRED   # `[10-15]` 상품형은 출발 · 도착이 없고 인원은 링크한 화면에서
+    missing = [name for name in required if values.get(name) in (None, "")]
     if found.return_date is not None and values["depart_date"] is not None and found.return_date < found.depart_date:
         missing.append("return_date")
     return missing

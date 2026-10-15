@@ -44,6 +44,7 @@ def _rules(text):
     ("SRT를 타고 수서에서 부산 내일 1명", "train", "수서", "부산", "SRT", None),
     ("기차 제외하고 버스로 서울에서 부산 내일 2명", "bus", "서울", "부산", None, None),       # 팀장 점검 LB-06(10-15): 「제외」도 빼는 말
     ("KTX 안 타고 고속버스로 서울 부산 내일 1명", "bus", "서울", "부산", None, "express"),
+    ("내일 서울에서 인천공항 리무진 2명", "bus", "서울", "인천공항", None, None),           # `[10-15]` 리무진 · 공항버스도 버스(전에는 뺐다)
 ])
 
 
@@ -87,7 +88,7 @@ def test_rail_codes_cover_the_station_dictionary_and_booking_links_fill_the_cond
     """`[2026-10-14 저녁]` 조건을 채워 여는 예매 주소 — 코레일 역 코드(= SRT · 트립닷컴) · 버스타고 터미널 id. 사전에 없으면 주소를 안 만든다."""
     from app.domains.travel_ops.components.booking.offers.transit_links import _rail_code
     missing = sorted({name for name, _ in STATIONS.values() if _rail_code(name) is None})
-    assert missing == ["검암", "인천공항T1"], "트립닷컴 · SRT 역 검색에 없는 두 곳만(10-14)"
+    assert missing == ["검암", "인천공항T1", "인천공항T2"], "트립닷컴 · SRT 역 검색에 없는 곳만(10-14) — 인천공항은 `[10-15]` AREX 직통 시간표로 간다"
     assert _rail_code("울산(통도사)") == RAIL_CODES["울산"] == "0509" and _rail_code("김천(구미)") == "0507" and _rail_code("진부(오대산)") == "0519"
     assert all(len(code) == 4 and code.isdigit() for code in RAIL_CODES.values())
     assert srt_link("수서", "부산", "2026-10-16", hour="09", adults=1) == (
@@ -582,3 +583,164 @@ def test_a_booked_train_is_kept_and_a_bus_item_asks_tago_with_its_terminal_kind(
     assert result.answer.startswith("서울 → 부산 고속버스 대신 탈 수 있는 버스 운행이에요 (서울경부 → 부산) — 1) 우등 08:00→?(1인 43,300원) · "
                                     "2) 프리미엄 10:00→?(1인 45,000원).")
     assert result.action_proposals[0].arguments["ask_options"]["options"][0]["link"] == "https://www.kobus.co.kr/"
+
+
+# ── `[2026-10-15]` 버스 정리 — 서울 ↔ 인천공항 버스(공항리무진) · 「서울」 터미널 후보 ───────────────
+def test_a_seoul_airport_bus_is_answered_as_the_airport_limousine_without_calling_tago():
+    """10-15 실호출: 서울 ↔ 인천공항은 고속 · 시외 운행이 0편인데 13회 불렀다 — 이제 부르지 않고 공항리무진 안내."""
+    tago = FakeTago()
+    got = search_transit(SimpleNamespace(transit_schedule=tago), mode="bus", origin="서울", destination="인천공항", depart_date=GO.isoformat())
+    assert tago.calls == [] and got["options"] == []
+    assert got["sources"]["tago"]["status"] == "airport_bus" and got["sources"]["tago"]["calls"] == []
+    assert [site["url"] for site in got["elsewhere"]] == ["https://www.airportlimousine.co.kr/sub/sub01.php"]
+    back = search_transit(SimpleNamespace(transit_schedule=tago), mode="bus", origin="인천공항 2터미널", destination="서울", depart_date=GO.isoformat())
+    assert back["sources"]["tago"]["status"] == "airport_bus"
+    other = FakeTago(terminals={"강릉": [{"id": "G1", "name": "강릉"}], "인천공항": [{"id": "A1", "name": "인천공항T1"}]}, express={}, suburbs={})
+    search_transit(SimpleNamespace(transit_schedule=other), mode="bus", origin="강릉", destination="인천공항", depart_date=GO.isoformat())
+    assert other.calls[0] == ("bus_terminals", "express", "강릉"), "지방 ↔ 인천공항 시외는 그대로 묻는다"
+
+
+def test_a_seoul_terminal_with_another_place_in_brackets_is_not_a_seoul_departure():
+    """10-15 실호출: 「동서울(홍천)」이 서울 출발 후보 셋 중 하나를 차지했다. 「센트럴시티(서울)」은 남긴다."""
+    from app.domains.travel_ops.components.booking.offers.transit import _terminals
+    tago = FakeTago(terminals={"서울": [{"id": "T3", "name": "동서울"}, {"id": "T5", "name": "동서울(홍천)"},
+                                       {"id": "T6", "name": "센트럴시티(서울)"}, {"id": "T4", "name": "서울남부"}],
+                               "부산": [{"id": "T7", "name": "부산동부(노포)"}]})
+    names = [t["name"] for t in _terminals(tago, "suburbs", "서울", [])]
+    assert names == ["서울남부", "동서울", "센트럴시티(서울)"], "「서울」로 시작하는 것 먼저(원래 규칙) · 홍천만 빠짐"
+    assert [t["name"] for t in _terminals(tago, "suburbs", "부산", [])] == ["부산동부(노포)"], "도시 이름 「서울」에만 — 괄호가 동네인 곳은 그대로"
+
+
+def test_an_airport_bus_sentence_explains_how_to_ride_and_points_to_the_timetable_page():
+    tago = FakeTago()
+    result, _ = _run(f"{GO.month}월 {GO.day}일 서울에서 인천공항 공항버스 2명", tago)
+    answer = result.answer
+    assert tago.calls == [] and result.decisions[0]["tago_calls"] == 0 and result.decisions[0]["via"] == ["airport_bus_guide"]
+    assert "[가는 편] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요." in answer
+    assert "시간표가 필요하시면 「공항철도」로 물어봐 주세요" in answer
+    assert "노선 · 시간표는 아래에서 확인해 주세요:" in answer and "공항리무진 노선 · 시간표: https://www.airportlimousine.co.kr/sub/sub01.php" in answer
+    assert "예매는 아래" not in answer and "어른 1인 기준 조회 시점 참고값" not in answer
+
+
+# ── `[2026-10-15]` 상품형 — 서울 시티투어버스(공급자 호출 0, 공식 페이지 글 + 코스 링크) ───────────────
+@pytest.mark.parametrize("text,bands", [
+    ("11월 7일 시티투어버스 2명 저녁", ["evening"]),
+    ("내일 서울 타이거버스 타고 싶어 1명", None),
+    ("노랑풍선 시티투어 다음 주 토요일 3명 오전", ["morning"]),
+])
+def test_the_rules_read_a_city_tour_bus_as_a_tour_not_a_bus(text, bands):
+    found, missing = _rules(text)
+    assert (found.mode, found.kind, found.origin, found.destination, found.depart_times, missing) == ("tour", "city_tour", None, None, bands, [])
+
+
+def test_a_city_tour_without_a_date_is_asked_back():
+    found, missing = _rules("시티투어버스 타고 싶어 2명")
+    assert found.mode == "tour" and missing == ["depart_date"]
+
+
+def test_tour_courses_follow_the_time_band_and_flag_the_closed_weekday():
+    from datetime import date as _date
+
+    from app.domains.travel_ops.components.booking.offers.tours import search_tours
+    monday = _date(2026, 10, 19)
+    night = search_tours(kind="city_tour", day=monday, bands=["evening"])
+    assert [course["id"] for course in night["options"]] == ["tiger_night", "yellow_night", "yellow_hangang"], "시간대를 모르는 코스(한강잠실)는 남긴다"
+    assert night["options"][0]["closed_today"] is True and night["options"][1]["closed_today"] is False, "타이거버스만 월요일 휴무"
+    assert night["calls"] == 0 and night["weekday"] == "월"
+    day = search_tours(kind="city_tour", day=_date(2026, 10, 20), bands=None)
+    assert len(day["options"]) == 5 and not any(course["closed_today"] for course in day["options"])
+
+
+def test_a_city_tour_sentence_lists_courses_with_links_and_calls_no_supplier():
+    tago = FakeTago()
+    result, tools = _run(f"{GO.month}월 {GO.day}일 시티투어버스 2명 저녁", tago)
+    answer = result.answer
+    assert tools.calls == [] and tago.calls == [], "공급자 호출 0 — 타이거버스 /api/ 는 robots.txt 가 막는다"
+    assert answer.startswith(f"{GO.isoformat()}(") and "· 성인 2명 — 서울 시티투어버스 상품이에요." in answer
+    assert "  1. [야간] 서울시티투어버스(타이거버스) · 야간 한강·남산 코스 — 광화문 매표소 출발 · 19:00 하루 한 번(5~8월 19:30)" in answer
+    assert "https://www.seoulcitybus.com/ko/tours/2" in answer and "https://www.seoulcitytourbus.co.kr/tour-course/night-traditional-culture" in answer
+    assert "https://www.seoulcitybus.com/ko/tours/1" not in answer, "저녁이라 주간 코스는 뺀다"
+    assert "그날 운행 · 남은 좌석 · 요금은 링크한 페이지에서" in answer and "원" not in answer.replace("1인", ""), "요금을 지어내지 않는다"
+    decision = result.decisions[0]
+    assert decision["mode"] == "tour" and decision["supplier_calls"] == 0 and decision["shown"][0] == "tiger_night"
+    assert [e.source_id for e in result.evidence][-1] == "booking.tours_catalog"
+
+
+# ── `[2026-10-15]` 상품형 — 한강 유람선(이랜드크루즈, maketicket 상품 링크 · 이름에 적힌 시각) ───────────────
+@pytest.mark.parametrize("text,origin,bands", [
+    ("11월 7일 잠실 한강 유람선 2명 저녁", "잠실", ["evening"]),
+    ("내일 여의도 크루즈 타고 싶어 1명", "여의도", None),
+    ("다음 주 토요일 한강 유람선 3명", None, None),
+])
+def test_the_rules_read_a_han_river_cruise_with_its_pier(text, origin, bands):
+    found, missing = _rules(text)
+    assert (found.mode, found.kind, found.origin, found.destination, found.depart_times, missing) == ("tour", "cruise", origin, None, bands, [])
+
+
+def test_cruise_products_follow_the_pier_and_the_days_they_sail():
+    from datetime import date as _date
+
+    from app.domains.travel_ops.components.booking.offers.tours import search_tours
+    friday, saturday = _date(2026, 10, 16), _date(2026, 11, 7)
+    jamsil = search_tours(kind="cruise", day=friday, place="잠실")
+    assert {course["start"] for course in jamsil["options"]} == {"잠실 선착장"} and all(course["closed_today"] for course in jamsil["options"]), "잠실은 주말만"
+    fire = {course["id"]: course["closed_today"] for course in search_tours(kind="cruise", day=friday, bands=["evening"])["options"]}
+    assert fire["cruise_GD24910"] is False, "불꽃: 10월은 금요일"
+    fire_nov = {course["id"]: course["closed_today"] for course in search_tours(kind="cruise", day=saturday)["options"]}
+    assert fire_nov["cruise_GD24910"] is False and fire_nov["cruise_GD24911"] is False, "불꽃: 11월은 토요일 · 잠실 주말"
+    assert search_tours(kind="cruise", day=_date(2026, 11, 6))["options"][5]["closed_today"] is True, "11월 금요일은 불꽃 안 다님"
+    assert all(course["url"].startswith("https://www.maketicket.co.kr/ticket/GD") for course in jamsil["options"])
+
+
+def test_a_cruise_sentence_lists_products_with_links_and_marks_days_they_do_not_sail():
+    tago = FakeTago()
+    friday = TODAY + timedelta(days=(4 - TODAY.weekday()) % 7 or 7)
+    result, tools = _run(f"{friday.month}월 {friday.day}일 잠실 한강 유람선 2명 저녁", tago)
+    answer = result.answer
+    assert tools.calls == [] and result.decisions[0]["kind"] == "cruise" and result.decisions[0]["supplier_calls"] == 0
+    assert "· 성인 2명 — 잠실 한강 유람선 상품이에요." in answer
+    assert "[야간] 이랜드크루즈 · 잠실 선셋크루즈 — 잠실 선착장 출발 · 주말 18:30" in answer
+    assert "※ 그날은 안 다닐 수 있어요 — 주말에만 운항: https://www.maketicket.co.kr/ticket/GD24912" in answer
+    assert "여의도" not in answer and set(result.decisions[0]["closed_today"]) == {"cruise_GD24912", "cruise_GD24913", "cruise_GD24914"}
+
+
+# ── `[2026-10-15]` 상품형 — 렌터카(예약 화면 링크) · 한강버스(개인 예약 없음 · 단체 시범) ───────────────
+@pytest.mark.parametrize("text,kind,adults", [
+    ("11월 7일부터 9일까지 렌터카 2명", "rental", 2),
+    ("내일 서울에서 차 빌려서 다닐래 3명", "rental", 3),
+    ("내일 한강버스 타고 싶어 2명", "river_bus", 2),
+    ("11월 4일 한강 버스 단체 15명", "river_bus", 15),
+])
+def test_the_rules_read_rental_cars_and_the_han_river_bus_as_products(text, kind, adults):
+    found, missing = _rules(text)
+    assert (found.mode, found.kind, found.adults, missing) == ("tour", kind, adults, [])
+
+
+def test_more_than_nine_people_is_still_refused_for_flights_trains_and_buses():
+    from app.domains.travel_ops.instances.booking.interpret import InterpretationInvalid
+    with pytest.raises(InterpretationInvalid):
+        parse({"task": "search", "mode": "train", "origin": "서울", "destination": "부산", "adults": 15})
+    assert parse({"task": "search", "mode": "tour", "kind": "river_bus", "adults": 15}).adults == 15
+
+
+def test_the_han_river_bus_needs_no_booking_and_groups_get_the_pilot_rules():
+    from datetime import date as _date
+
+    from app.domains.travel_ops.components.booking.offers.tours import search_tours
+    alone = search_tours(kind="river_bus", day=_date(2026, 10, 21), adults=2)
+    assert alone["notes"] == ["한강버스는 대중교통이라 예약할 필요가 없어요(누리집 FAQ) — 선착장에서 바로 타시면 됩니다."]
+    group = search_tours(kind="river_bus", day=_date(2026, 10, 21), adults=15)["notes"][0]
+    assert group.startswith("10명 이상 단체는 평일 마곡 · 잠실 선착장에서 네이버 지도") and "그날은 대상이 아니에요" not in group
+    assert "그날은 대상이 아니에요" in search_tours(kind="river_bus", day=_date(2026, 10, 24), adults=15)["notes"][0], "토요일"
+    assert "그날은 대상이 아니에요" in search_tours(kind="river_bus", day=_date(2026, 10, 19), adults=15)["notes"][0], "시작일 전"
+    assert "나눠 예약" in search_tours(kind="river_bus", day=_date(2026, 10, 21), adults=40)["notes"][0]
+    assert search_tours(kind="rental", day=_date(2026, 10, 21))["notes"] == []
+
+
+def test_a_rental_sentence_gives_the_booking_pages_with_the_dates_said():
+    result, tools = _run(f"{GO.month}월 {GO.day}일부터 {BACK.month}월 {BACK.day}일까지 렌터카 2명", FakeTago())
+    answer = result.answer
+    assert tools.calls == [] and result.decisions[0]["kind"] == "rental"
+    assert f"{GO.isoformat()}(" in answer and f"~{BACK.isoformat()} · 성인 2명 — 렌터카 상품이에요." in answer
+    assert "롯데렌터카 · 내륙 단기 렌터카 예약 — 대여 · 반납 일시와 지점은 그 화면에서 고르세요: https://www.lotterentacar.net/" in answer
+    assert "https://rent.skdirect.co.kr/short-rent/location-list?branchOrder=inlandFirst" in answer
