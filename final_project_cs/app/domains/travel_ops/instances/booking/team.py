@@ -775,6 +775,11 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
                 lines.append(f"[{name}] 「{places}」을(를) {'역' if found.mode == 'train' else '터미널'} 이름으로 찾지 못했습니다. "
                              f"{'역' if found.mode == 'train' else '터미널'} 이름을 정확히 알려 주세요.")
                 continue
+            if state == "revised":                       # `[10-15]` AREX 10-23 시간표 개정 뒤 날짜 — 옛 시각을 주지 않는다
+                revised_from = ((got or {}).get("timetable") or {}).get("revised_from") or ""
+                lines.append(f"[{name}] 공항철도 직통은 {revised_from[5:7].lstrip('0')}월 {revised_from[8:10].lstrip('0')}일부터 시간표가 전면 바뀌어요"
+                             "(공항철도 공지 10-14). 새 시각을 아직 반영하지 못해 그날 시각은 드리지 않을게요 — 아래 공지의 새 시간표를 확인해 주세요.")
+                continue
             if state == "airport_bus":                   # `[10-15]` 서울 ↔ 인천공항 버스 = 공항리무진 — 운행표에 없다, 지어내지 않고 타는 법만
                 lines.append(f"[{name}] 서울 ↔ 인천공항 버스는 공항리무진(공항버스)이라 고속 · 시외 운행표에 없어요. "
                              "서울 → 공항은 사전 예약 없이 정류장에서 타고(교통카드 · 현금), 공항 → 서울은 공항 매표소 · 무인발권기에서 표를 삽니다"
@@ -837,7 +842,7 @@ class BookingTeam(ItineraryWork, TravelTeamBase):
             lines += [f"   · {label}" for label in deep.values()]
         sites = {site["name"]: site["url"] for _, got, _ in results for site in ((got or {}).get("elsewhere") or [])
                  if not ("srail" in site["url"] and "srt" in deep_sites) and not ("bustago" in site["url"] and "bustago" in deep_sites)}
-        guide_only = all(state == "airport_bus" for state in states)
+        guide_only = all(state in ("airport_bus", "revised") for state in states)
         if sites:
             lines.append("노선 · 시간표는 아래에서 확인해 주세요:" if guide_only else
                          "그 밖의 예매 사이트(조건을 채워 주지는 않습니다 — 날짜 · 역 · 터미널을 다시 고르셔야 합니다):"

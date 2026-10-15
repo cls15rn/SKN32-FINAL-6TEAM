@@ -196,9 +196,11 @@ def search_transit(travel: Any, *, mode: str, origin: str, destination: str, dep
         #   (팀 · 스크립트가 읽는 자리) — 어디서 왔는지는 `timetable` · 운행의 `source` 가 말한다
         got = arex.runs(origin, destination, depart_date, holiday=getattr(travel, "holiday", None) if travel is not None else None)
         options = (got or {}).get("options") or []
+        revised = bool(got and got["timetable"].get("revised"))
         result.update({"options": options, "resolved": (got or {}).get("resolved") or result["resolved"],
-                       "elsewhere": [dict(arex.SITE)], **({"timetable": got["timetable"]} if got else {})})
-        result["sources"]["tago"] = {"status": "ok" if got else "unresolved", "count": len(options), "calls": [],
+                       "elsewhere": [dict(arex.SITE), *([dict(arex.NOTICE)] if revised else [])],
+                       **({"timetable": got["timetable"]} if got else {})})
+        result["sources"]["tago"] = {"status": "revised" if revised else "ok" if got else "unresolved", "count": len(options), "calls": [],
                                      "seconds": round(time.perf_counter() - started, 1), "via": "arex_timetable",
                                      **({} if got else {"unresolved": [origin, destination]})}
         return result

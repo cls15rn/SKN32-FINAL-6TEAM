@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -96,7 +96,8 @@ def test_the_rules_read_arex_words_as_a_train(text, origin, destination, grade):
     assert (found.mode, found.origin, found.destination, found.grade, missing) == ("train", origin, destination, grade, [])
 
 
-def test_an_arex_sentence_is_answered_from_the_timetable_with_the_first_page_link_and_no_fare():
+def test_an_arex_sentence_is_answered_from_the_timetable_with_the_first_page_link_and_no_fare(monkeypatch):
+    monkeypatch.setattr(arex, "TABLE_UNTIL", date.max)        # 날짜는 다음 달 — 개정 막기와 상관없이 표 경로를 본다
     tago = FakeTago()
     result, tools = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 가는 공항철도 2명 오전", tago)
     assert result.outcome == "completed" and tago.calls == []
@@ -121,3 +122,24 @@ def test_a_train_without_a_number_is_matched_by_its_stations_on_recheck():
     assert not _same_run({**run, "destination": "인천공항2터미널"}, run)
     ktx = {**run, "grade": "KTX", "number": "101"}
     assert _same_run(dict(ktx), dict(ktx)) and not _same_run({**ktx, "number": "103"}, ktx), "번호가 있는 열차는 번호로(그대로)"
+
+
+def test_dates_after_the_october_23_revision_get_no_old_times_but_the_notice():
+    """`[10-15]` 공항철도 10-23 일반 · 직통 시간표 전면 개정(공지 10-14) — 10-01 수집 표는 10-22 까지만."""
+    assert arex.runs("서울", "인천공항", "2026-10-22")["options"], "개정 전날까지는 그대로"
+    after = arex.runs("서울", "인천공항", "2026-10-23")
+    assert after["options"] == [] and after["timetable"]["revised"] is True and after["timetable"]["revised_from"] == "2026-10-23"
+    got = search_transit(SimpleNamespace(), mode="train", origin="서울", destination="인천공항", depart_date="2026-11-06")
+    assert got["sources"]["tago"]["status"] == "revised" and got["options"] == []
+    assert [site["url"] for site in got["elsewhere"]] == [arex.SITE["url"], arex.NOTICE["url"]]
+
+
+def test_an_arex_sentence_after_the_revision_points_to_the_notice_and_shows_no_times(monkeypatch):
+    monkeypatch.setattr(arex, "TABLE_UNTIL", GO - timedelta(days=1))   # 오늘과 상관없이 「물은 날이 개정 뒤」
+    monkeypatch.setattr(arex, "REVISED_FROM", GO)
+    result, _ = _run(f"{GO.month}월 {GO.day}일 서울역에서 인천공항 공항철도 2명", FakeTago())
+    answer = result.answer
+    assert f"[가는 편] 공항철도 직통은 {GO.month}월 {GO.day}일부터 시간표가 전면 바뀌어요(공항철도 공지 10-14)." in answer
+    assert "AREX 직통 —" not in answer and "노선 · 시간표는 아래에서 확인해 주세요:" in answer
+    assert "공항철도 열차운행시각 변경 알림(10/23~): https://www.airportrailroad.com/help/notice/CT202610140000000001" in answer
+    assert result.decisions[0]["states"] == ["revised"]
